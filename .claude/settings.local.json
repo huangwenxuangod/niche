@@ -6,7 +6,10 @@
       "Bash(bunx create-next-app@latest . --typescript --tailwind --eslint --app --no-src-dir --import-alias \"@/*\")",
       "Read(//d/dev/my-project/**)",
       "Bash(bunx create-next-app@latest niche-tmp --typescript --tailwind --eslint --app --no-src-dir --import-alias \"@/*\" --yes)",
-      "Bash(bunx create-next-app@latest . --typescript --tailwind --eslint --app --no-src-dir --import-alias \"@/*\" --use-bun)"
+      "Bash(bunx create-next-app@latest . --typescript --tailwind --eslint --app --no-src-dir --import-alias \"@/*\" --use-bun)",
+      "Bash(bun add *)",
+      "Bash(bun run *)",
+      "Bash(bunx tsc *)"
     ]
   }
 }
