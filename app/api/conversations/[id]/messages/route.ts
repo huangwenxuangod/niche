@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const messages = (history ?? []).map((m) => ({
+        const messages = (history ?? []).map((m: any) => ({
           role: m.role as "user" | "assistant",
           content: m.content,
         }));

@@ -9,7 +9,8 @@
       "Bash(bunx create-next-app@latest . --typescript --tailwind --eslint --app --no-src-dir --import-alias \"@/*\" --use-bun)",
       "Bash(bun add *)",
       "Bash(bun run *)",
-      "Bash(bunx tsc *)"
+      "Bash(bunx tsc *)",
+      "Bash(ls:*)"
     ]
   }
 }

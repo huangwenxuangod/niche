@@ -58,7 +58,7 @@ ${profile?.identity_memo ?? "（用户暂未填写身份信息，根据对话内
 ${
   kocList.length > 0
     ? kocList
-        .map((k) => `- ${k.account_name}：最高阅读 ${fmtNum(k.max_read_count)}，均值 ${fmtNum(k.avg_read_count)}`)
+        .map((k: any) => `- ${k.account_name}：最高阅读 ${fmtNum(k.max_read_count)}，均值 ${fmtNum(k.avg_read_count)}`)
         .join("\n")
     : "（知识库初始化中，暂无 KOC 数据）"
 }
@@ -67,7 +67,7 @@ ${
 ${
   viralArticles.length > 0
     ? viralArticles
-        .map((a) => {
+        .map((a: any) => {
           const kocSrc = a.koc_sources as { account_name: string }[] | { account_name: string } | null;
           const kocName = Array.isArray(kocSrc) ? (kocSrc[0]?.account_name ?? "未知") : (kocSrc?.account_name ?? "未知");
           return `- 《${a.title}》| ${kocName} | 阅读 ${fmtNum(a.read_count)}`;

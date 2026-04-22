@@ -163,7 +163,7 @@ async function runInitPipeline(
     .eq("journey_id", journeyId);
 
   if (stats && stats.length > 0) {
-    const avg = stats.reduce((s, a) => s + (a.read_count ?? 0), 0) / stats.length;
+    const avg = stats.reduce((s: number, a: any) => s + (a.read_count ?? 0), 0) / stats.length;
     const threshold = avg * 3;
 
     await supabase
