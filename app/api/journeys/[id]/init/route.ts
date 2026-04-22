@@ -50,24 +50,46 @@ async function runInitPipeline(
   supabase: Awaited<ReturnType<typeof createClient>>
 ) {
   const keywords: string[] = journey.keywords ?? [];
+  console.log("[Init Pipeline] Starting, keywords:", keywords);
+
+  if (!process.env.TAVILY_API_KEY) {
+    console.error("[Init Pipeline] TAVILY_API_KEY not configured");
+  }
+  if (!process.env.TIKHUB_API_KEY) {
+    console.error("[Init Pipeline] TIKHUB_API_KEY not configured");
+  }
 
   // Step 1: Tavily search for WeChat MP articles
+  console.log("[Init Pipeline] Step 1: Tavily search...");
   const searchResults = await tavilySearch(keywords, {
     include_domains: ["mp.weixin.qq.com"],
     max_results: 20,
   });
+  console.log(`[Init Pipeline] Found ${searchResults.length} search results`);
 
   const seen = new Set<string>();
+  let kocCount = 0;
 
   // Step 2: For each search result, fetch article detail + identify KOC
+  console.log("[Init Pipeline] Step 2: Fetching article details...");
   for (const result of searchResults.slice(0, 15)) {
     try {
+      console.log("[Init Pipeline] Processing:", result.url);
       const detail = await tikhub.wechatMP.fetchArticleDetail(result.url);
-      if (!detail?.data) continue;
+      if (!detail?.data) {
+        console.log("[Init Pipeline] No data from TikHub");
+        continue;
+      }
 
       const { account_name, fakeid, title, read_num, publish_time } = detail.data;
-      if (!account_name || !fakeid || seen.has(fakeid)) continue;
+      if (!account_name || !fakeid || seen.has(fakeid)) {
+        console.log("[Init Pipeline] Skip - no account or already seen:", account_name);
+        continue;
+      }
       seen.add(fakeid);
+      kocCount++;
+
+      console.log("[Init Pipeline] Found KOC:", account_name);
 
       // Upsert KOC source
       const { data: koc } = await supabase
@@ -100,10 +122,11 @@ async function runInitPipeline(
           { onConflict: "journey_id,url" as never }
         );
       }
-    } catch {
-      // Skip failed articles
+    } catch (err) {
+      console.error("[Init Pipeline] Error processing article:", err);
     }
   }
+  console.log(`[Init Pipeline] Added ${kocCount} KOCs`);
 
   // Step 3: For each discovered KOC, fetch their article list
   const { data: kocList } = await supabase

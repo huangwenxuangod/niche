@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import Link from "next/link";
 
 export default async function HomePage() {
   const cookieStore = await cookies();
@@ -11,7 +10,7 @@ export default async function HomePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Find active journey and its latest conversation
+  // Find active journey
   const { data: journeys } = await supabase
     .from("journeys")
     .select("id")
@@ -25,7 +24,7 @@ export default async function HomePage() {
 
   const activeJourneyId = journeys[0].id;
 
-  // Get or create a conversation
+  // Get latest conversation or create one
   const { data: convs } = await supabase
     .from("conversations")
     .select("id")
@@ -37,56 +36,17 @@ export default async function HomePage() {
     redirect(`/chat/${convs[0].id}`);
   }
 
-  // No conversation yet — show a landing nudge
-  return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexDirection: "column",
-        gap: 20,
-        padding: 40,
-      }}
-    >
-      <div
-        style={{
-          fontFamily: "var(--font-display)",
-          fontSize: 28,
-          fontWeight: 300,
-          letterSpacing: "-0.02em",
-          color: "var(--text-primary)",
-          textAlign: "center",
-        }}
-      >
-        旅程已就绪，<em style={{ color: "var(--accent)", fontStyle: "italic" }}>开始对话吧</em>
-      </div>
-      <CreateConvButton journeyId={activeJourneyId} />
-    </div>
-  );
-}
+  // No conversation yet — create one
+  const { data: newConv } = await supabase
+    .from("conversations")
+    .insert({ journey_id: activeJourneyId, user_id: user.id, title: "新对话" })
+    .select()
+    .single();
 
-function CreateConvButton({ journeyId }: { journeyId: string }) {
-  return (
-    <form action={`/api/conversations`} method="POST">
-      <input type="hidden" name="journey_id" value={journeyId} />
-      <Link
-        href={`/api/conversations/new?journey_id=${journeyId}`}
-        style={{
-          display: "inline-block",
-          padding: "10px 24px",
-          background: "var(--accent)",
-          color: "var(--bg-void)",
-          borderRadius: 6,
-          fontFamily: "var(--font-body)",
-          fontSize: 13,
-          fontWeight: 500,
-          textDecoration: "none",
-        }}
-      >
-        新建对话 →
-      </Link>
-    </form>
-  );
+  if (newConv) {
+    redirect(`/chat/${newConv.id}`);
+  }
+
+  // Fallback (shouldn't happen)
+  redirect("/journey/new");
 }
