@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { type Journey, type Conversation } from "@/lib/data";
@@ -98,13 +98,20 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
             </div>
 
             {/* KOC toggle */}
-            <button
-              onClick={() => setKocOpen(!kocOpen)}
-              style={navItemStyle}
-            >
-              <ChevronIcon open={kocOpen} />
-              📋 KOC 列表
-            </button>
+            <div style={{ display: "flex", alignItems: "center", padding: "0 8px 0 12px" }}>
+              <button
+                onClick={() => setKocOpen(!kocOpen)}
+                style={{ ...navItemStyle, flex: 1, padding: "6px 4px" }}
+              >
+                <ChevronIcon open={kocOpen} />
+                📋 KOC 列表
+              </button>
+              {activeJourney && (
+                <Link href={`/journey/${activeJourney.id}/koc`} style={{ padding: "4px", color: "var(--text-tertiary)", fontSize: 12, textDecoration: "none", borderRadius: 4 }}>
+                  管理
+                </Link>
+              )}
+            </div>
             {kocOpen && activeJourney && (
               <KOCListPanel journeyId={activeJourney.id} />
             )}
@@ -119,7 +126,7 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
 
             {/* Conversation groups */}
             {Object.entries(groups).map(([label, convs]) => (
-              <div key={label}>
+              <div key={label} suppressHydrationWarning>
                 <div style={dateHeaderStyle}>{label}</div>
                 {convs.map((c) => (
                   <Link key={c.id} href={`/chat/${c.id}`} style={{ textDecoration: "none" }}>
