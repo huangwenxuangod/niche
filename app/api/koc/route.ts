@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import type { KOCSource, Journey } from "@/lib/data";
 
 export async function POST(req: NextRequest) {
   const cookieStore = await cookies();
@@ -16,7 +17,7 @@ export async function POST(req: NextRequest) {
     .select("id")
     .eq("id", journey_id)
     .eq("user_id", user.id)
-    .single();
+    .single() as { data: Journey | null };
 
   if (!journey) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -29,7 +30,7 @@ export async function POST(req: NextRequest) {
       is_manually_added: true,
     })
     .select()
-    .single();
+    .single() as { data: KOCSource | null; error: any };
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

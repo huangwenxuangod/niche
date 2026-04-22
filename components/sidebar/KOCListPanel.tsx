@@ -23,7 +23,7 @@ export function KOCListPanel({ journeyId }: { journeyId: string }) {
       .select("*")
       .eq("journey_id", journeyId)
       .order("max_read_count", { ascending: false })
-      .then(({ data }) => {
+      .then(({ data }: { data: KOCSource[] | null }) => {
         setKocs(data ?? []);
         setLoading(false);
       });
