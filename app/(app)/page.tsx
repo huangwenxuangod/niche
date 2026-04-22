@@ -10,25 +10,34 @@ export default async function HomePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Find active journey
+  // Find any journey (not just active)
   const { data: journeys } = await supabase
+    .from("journeys")
+    .select("id")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  // No journeys at all → go to new journey page
+  if (!journeys || journeys.length === 0) {
+    redirect("/journey/new");
+  }
+
+  // Has journeys → find or create conversation for latest/active journey
+  const { data: activeJourneys } = await supabase
     .from("journeys")
     .select("id")
     .eq("user_id", user.id)
     .eq("is_active", true)
     .limit(1);
 
-  if (!journeys || journeys.length === 0) {
-    redirect("/journey/new");
-  }
-
-  const activeJourneyId = journeys[0].id;
+  const targetJourneyId = activeJourneys?.[0]?.id ?? journeys[0].id;
 
   // Get latest conversation or create one
   const { data: convs } = await supabase
     .from("conversations")
     .select("id")
-    .eq("journey_id", activeJourneyId)
+    .eq("journey_id", targetJourneyId)
     .order("created_at", { ascending: false })
     .limit(1);
 
@@ -39,7 +48,7 @@ export default async function HomePage() {
   // No conversation yet — create one
   const { data: newConv } = await supabase
     .from("conversations")
-    .insert({ journey_id: activeJourneyId, user_id: user.id, title: "新对话" })
+    .insert({ journey_id: targetJourneyId, user_id: user.id, title: "新对话" })
     .select()
     .single();
 
@@ -47,6 +56,6 @@ export default async function HomePage() {
     redirect(`/chat/${newConv.id}`);
   }
 
-  // Fallback (shouldn't happen)
+  // Fallback
   redirect("/journey/new");
 }
