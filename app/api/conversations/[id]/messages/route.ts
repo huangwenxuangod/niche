@@ -8,6 +8,17 @@ interface Params {
   params: Promise<{ id: string }>;
 }
 
+// 选题/热点关键词
+const TOPIC_KEYWORDS = [
+  "选题", "热点", "热门", "趋势", "今天", "这周",
+  "写什么", "怎么写", "推荐", "建议", "话题"
+];
+
+function needsHotTopics(userInput: string): boolean {
+  const lower = userInput.toLowerCase();
+  return TOPIC_KEYWORDS.some(keyword => lower.includes(keyword));
+}
+
 export async function POST(req: NextRequest, { params }: Params) {
   const { id: conversationId } = await params;
   const cookieStore = await cookies();
@@ -43,8 +54,11 @@ export async function POST(req: NextRequest, { params }: Params) {
     .order("created_at", { ascending: true })
     .limit(20);
 
+  // 判断是否需要搜索热点
+  const includeHotTopics = needsHotTopics(content);
+
   // Build system prompt with journey context
-  const systemPrompt = await buildSystemPrompt(conv.journey_id, user.id, supabase);
+  const systemPrompt = await buildSystemPrompt(conv.journey_id, user.id, supabase, { includeHotTopics });
 
   // Stream response
   const encoder = new TextEncoder();

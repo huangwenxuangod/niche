@@ -1,10 +1,15 @@
 import { tavilySearch } from "./tavily";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+interface BuildPromptOptions {
+  includeHotTopics?: boolean; // 是否需要搜索热点
+}
+
 export async function buildSystemPrompt(
   journeyId: string,
   userId: string,
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  options: BuildPromptOptions = {}
 ): Promise<string> {
   const [journeyRes, profileRes, kocRes, viralRes] = await Promise.all([
     supabase.from("journeys").select("*").eq("id", journeyId).single(),
@@ -31,12 +36,12 @@ export async function buildSystemPrompt(
   const kocList = kocRes.data ?? [];
   const viralArticles = viralRes.data ?? [];
 
-  // Get hot topics (last 3 days)
-  let hotTopics: { title: string }[] = [];
-  if (journey.keywords?.length) {
+  // 按需搜索热点
+  let hotTopics: { title: string; url?: string }[] = [];
+  if (options.includeHotTopics && journey.keywords?.length) {
     try {
       const results = await tavilySearch(journey.keywords[0], { max_results: 5, days: 3 });
-      hotTopics = results.slice(0, 5);
+      hotTopics = results.map((r: any) => ({ title: r.title, url: r.url }));
     } catch {}
   }
 
@@ -45,6 +50,10 @@ export async function buildSystemPrompt(
   return `你是 Niche，一个专为【${journey.niche_level2}】赛道内容创作者设计的 AI 起号教练。
 你的风格：直接、有据可查、像一个懂行的朋友，不讲废话，不贩卖焦虑。
 用中文回答。用 **粗体** 标注关键建议或数据。
+
+【你的可用工具】
+你有以下工具可以调用（如果用户需求对应，请先调用工具再回答）：
+1. tool_hotspot_search：搜索当前赛道热点（如果用户问"有什么热点"、"帮我选题"等，需要先调用）
 
 【用户身份】
 ${profile?.identity_memo ?? "（用户暂未填写身份信息，根据对话内容推断）"}
@@ -75,10 +84,14 @@ ${
         .join("\n")
     : "（暂无爆款数据）"
 }
-
-【今日相关热点】
-${hotTopics.length > 0 ? hotTopics.map((t) => `- ${t.title}`).join("\n") : "（暂无热点数据）"}
-
+${
+  hotTopics.length > 0
+    ? `
+【当前赛道热点（已调用 tool_hotspot_search）】
+${hotTopics.map((t) => `- ${t.title}`).join("\n")}
+`
+    : ""
+}
 基于以上情报，帮助用户解决内容创作的具体问题。
 每次给出建议时，必须结合上方的真实数据，不要泛泛而谈。`;
 }
