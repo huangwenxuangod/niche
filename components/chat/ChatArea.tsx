@@ -1,6 +1,25 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useCallback, useMemo, useState } from "react";
+import {
+  Bubble,
+  Prompts,
+  Sender,
+  ThoughtChain,
+  Welcome,
+  type BubbleItemType,
+  type ThoughtChainItemType,
+} from "@ant-design/x";
+import {
+  AppstoreOutlined,
+  EditOutlined,
+  FireOutlined,
+  LoadingOutlined,
+  PlusOutlined,
+  RadarChartOutlined,
+  ReadOutlined,
+} from "@ant-design/icons";
+import { Button, Card, Space, Tag } from "antd";
 import type { Message, Journey } from "@/lib/data";
 import { AccountAnalysisModal } from "./AccountAnalysisModal";
 import { ArticleLayoutPanel } from "./ArticleLayoutPanel";
@@ -46,7 +65,7 @@ type GeneratedTopic = {
 type LoadingStep = {
   key: string;
   label: string;
-  state: "pending" | "active" | "done";
+  state: "pending" | "active" | "done" | "error";
 };
 
 type LoadingSnapshot = {
@@ -54,6 +73,13 @@ type LoadingSnapshot = {
   hint: string;
   steps: LoadingStep[];
 };
+
+const QUICK_PROMPTS = [
+  { key: "topic", label: "给我今日 3 个选题", icon: <FireOutlined /> },
+  { key: "pattern", label: "分析同赛道爆款规律", icon: <RadarChartOutlined /> },
+  { key: "schedule", label: "最佳发布时间是什么时候", icon: <ReadOutlined /> },
+  { key: "competitor", label: "帮我拆解竞品标题", icon: <EditOutlined /> },
+];
 
 export function ChatArea({ conversationId, journey, initialMessages, kocCount }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
@@ -64,143 +90,10 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [importingGhid, setImportingGhid] = useState<string | null>(null);
   const [layoutTarget, setLayoutTarget] = useState<{ id: string; content: string } | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
   const loadingSnapshot = buildLoadingSnapshot(toolEvents, assistantStatus);
+  const thoughtItems = buildThoughtChainItems(toolEvents, loadingSnapshot);
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, toolEvents]);
-
-  useEffect(() => {
-    if (!streaming) return;
-
-    const phases = ["理解问题中", "整理上下文中", "组织回答中"];
-    let index = 0;
-    const timer = window.setInterval(() => {
-      setAssistantStatus((current) => {
-        if (current && current !== phases[index]) {
-          return current;
-        }
-        index = (index + 1) % phases.length;
-        return phases[index];
-      });
-    }, 2200);
-
-    return () => window.clearInterval(timer);
-  }, [streaming]);
-
-  async function sendMessage(text: string) {
-    if (!text.trim() || streaming) return;
-    setInput("");
-    setToolEvents([]);
-    setAssistantStatus("理解问题中");
-
-    const userMsg: Message = {
-      id: crypto.randomUUID(),
-      conversation_id: conversationId,
-      role: "user",
-      content: text,
-      tool_used: null,
-      created_at: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-    setStreaming(true);
-
-    const assistantId: string = crypto.randomUUID();
-    let currentAssistantId: string = assistantId;
-    let assistantContent = "";
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: assistantId,
-        conversation_id: conversationId,
-        role: "assistant",
-        content: "",
-        tool_used: null,
-        created_at: new Date().toISOString(),
-      },
-    ]);
-
-    try {
-      const res = await fetch(`/api/conversations/${conversationId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: text }),
-      });
-
-      if (!res.ok || !res.body) throw new Error("Stream failed");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        // Parse SSE format
-        const lines = chunk.split("\n");
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            const data = line.slice(6);
-            if (data === "[DONE]") break;
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.type === "text" && parsed.text) {
-                if (!assistantContent) {
-                  setAssistantStatus("输出答案中");
-                }
-                assistantContent += parsed.text;
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === currentAssistantId ? { ...m, content: assistantContent } : m
-                  )
-                );
-              } else if (parsed.type === "assistant_status" && parsed.label) {
-                setAssistantStatus(String(parsed.label));
-              } else if (parsed.type === "assistant_message" && parsed.messageId) {
-                const nextId = String(parsed.messageId);
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === currentAssistantId ? { ...m, id: nextId } : m
-                  )
-                );
-                currentAssistantId = nextId;
-              } else if (parsed.type && parsed.type !== "text") {
-                setToolEvents((prev) => [
-                  ...prev,
-                  {
-                    id: crypto.randomUUID(),
-                    type: parsed.type,
-                    toolName: parsed.toolName,
-                    label: parsed.label || "工具调用",
-                    payload: parsed.payload,
-                    error: parsed.error,
-                  },
-                ]);
-              }
-            } catch {}
-          }
-        }
-      }
-    } catch (err) {
-      console.error(err);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? { ...m, content: "抱歉，出现了一点问题，请重试。" }
-            : m
-        )
-      );
-    } finally {
-      setStreaming(false);
-      setAssistantStatus(null);
-    }
-  }
-
-  async function importRecommendedKoc(ghid: string) {
+  const importRecommendedKoc = useCallback(async (ghid: string) => {
     setImportingGhid(ghid);
     try {
       const res = await fetch(`/api/koc/${ghid}/import`, {
@@ -230,8 +123,8 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
             : event
         )
       );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "导入失败";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "导入失败";
       setToolEvents((prev) => [
         ...prev,
         {
@@ -244,120 +137,371 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
     } finally {
       setImportingGhid(null);
     }
-  }
+  }, [journey.id]);
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage(input);
+  const bubbleItems = useMemo<BubbleItemType[]>(() => {
+    const items: BubbleItemType[] = [];
+    const latestMessageId = messages[messages.length - 1]?.id;
+
+    messages.forEach((message) => {
+      const isStreamingAssistant =
+        streaming && latestMessageId === message.id && message.role === "assistant";
+      const isLatestAssistant = latestMessageId === message.id && message.role === "assistant";
+
+      if (
+        isLatestAssistant &&
+        toolEvents.length > 0
+      ) {
+        items.push({
+          key: `tool-trace-${message.id}`,
+          role: "system",
+          content: (
+            <ToolTracePanel
+              events={toolEvents}
+              importingGhid={importingGhid}
+              onImport={importRecommendedKoc}
+              thoughtItems={thoughtItems}
+            />
+          ),
+        });
+      }
+
+      const hasLayoutTarget =
+        message.role === "assistant" &&
+        !isStreamingAssistant &&
+        extractArticleFromAssistantMessage(message.content) !== null;
+
+      items.push({
+        key: message.id,
+        role: message.role === "user" ? "user" : "assistant",
+        placement: message.role === "user" ? "end" : "start",
+        content:
+          isStreamingAssistant && !message.content ? (
+            <WaitingState snapshot={loadingSnapshot} thoughtItems={thoughtItems} />
+          ) : (
+            <div className="msg-prose" dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }} />
+          ),
+        streaming: isStreamingAssistant,
+        typing: false,
+        variant: message.role === "user" ? "filled" : "borderless",
+        shape: "corner",
+        footer:
+          message.role === "assistant" ? (
+            <AssistantFooter
+              isStreaming={isStreamingAssistant}
+              loadingSnapshot={loadingSnapshot}
+              thoughtItems={thoughtItems}
+              hasLayoutTarget={hasLayoutTarget}
+              onOpenLayout={() => setLayoutTarget({ id: message.id, content: message.content })}
+            />
+          ) : undefined,
+      });
+    });
+
+    return items;
+  }, [messages, streaming, toolEvents, thoughtItems, loadingSnapshot, importingGhid, importRecommendedKoc]);
+
+  async function sendMessage(text: string) {
+    if (!text.trim() || streaming) return;
+
+    setInput("");
+    setToolEvents([]);
+    setAssistantStatus("理解问题中");
+
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      conversation_id: conversationId,
+      role: "user",
+      content: text,
+      tool_used: null,
+      created_at: new Date().toISOString(),
+    };
+
+    const assistantId: string = crypto.randomUUID();
+    let currentAssistantId: string = assistantId;
+    let assistantContent = "";
+
+    setMessages((prev) => [
+      ...prev,
+      userMsg,
+      {
+        id: assistantId,
+        conversation_id: conversationId,
+        role: "assistant",
+        content: "",
+        tool_used: null,
+        created_at: new Date().toISOString(),
+      },
+    ]);
+    setStreaming(true);
+
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: text }),
+      });
+
+      if (!res.ok || !res.body) {
+        throw new Error("Stream failed");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6);
+          if (data === "[DONE]") continue;
+
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.type === "text" && parsed.text) {
+              if (!assistantContent) {
+                setAssistantStatus("输出答案中");
+              }
+              assistantContent += parsed.text;
+              setMessages((prev) =>
+                prev.map((message) =>
+                  message.id === currentAssistantId
+                    ? { ...message, content: assistantContent }
+                    : message
+                )
+              );
+            } else if (parsed.type === "assistant_status" && parsed.label) {
+              setAssistantStatus(String(parsed.label));
+            } else if (parsed.type === "assistant_message" && parsed.messageId) {
+              const nextId = String(parsed.messageId);
+              setMessages((prev) =>
+                prev.map((message) =>
+                  message.id === currentAssistantId ? { ...message, id: nextId } : message
+                )
+              );
+              currentAssistantId = nextId;
+            } else if (parsed.type && parsed.type !== "text") {
+              setToolEvents((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  type: parsed.type,
+                  toolName: parsed.toolName,
+                  label: parsed.label || "工具调用",
+                  payload: parsed.payload,
+                  error: parsed.error,
+                },
+              ]);
+            }
+          } catch {
+            // Ignore malformed chunks and keep stream alive.
+          }
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === assistantId
+            ? { ...message, content: "抱歉，出现了一点问题，请重试。" }
+            : message
+        )
+      );
+    } finally {
+      setStreaming(false);
+      setAssistantStatus(null);
     }
   }
 
-  const isEmpty = messages.length === 0;
+  const promptItems = QUICK_PROMPTS.map((item) => ({
+    key: item.key,
+    icon: item.icon,
+    label: item.label,
+  }));
 
   return (
     <>
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "var(--bg-void)" }}>
-        {/* Header */}
-        <div style={headerStyle}>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 15, fontWeight: 400, letterSpacing: "-0.01em" }}>
-            {journey.platform === "wechat_mp" ? "公众号" : journey.platform} ×{" "}
-            <em style={{ color: "var(--accent)", fontStyle: "italic" }}>{journey.niche_level2}</em>
+      <div style={chatPageStyle}>
+        <div style={chatHeaderStyle}>
+          <div>
+            <div style={headerEyebrowStyle}>Niche Chat</div>
+            <div style={headerTitleStyle}>
+              {journey.platform === "wechat_mp" ? "公众号" : journey.platform} · {journey.niche_level2}
+            </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <HeaderStat live={journey.knowledge_initialized}>
-              {journey.knowledge_initialized ? "知识库已同步" : "初始化中..."}
-            </HeaderStat>
-            <HeaderStat>{kocCount} KOC</HeaderStat>
-          </div>
+          <Space size={8}>
+            <Tag bordered={false} style={headerTagStyle}>
+              {journey.knowledge_initialized ? "知识库已同步" : "初始化中"}
+            </Tag>
+            <Tag bordered={false} style={headerTagStyle}>
+              {kocCount} KOC
+            </Tag>
+          </Space>
         </div>
 
-        {/* Messages */}
-        <div ref={scrollRef} style={messagesStyle}>
-          {isEmpty ? (
-            <WelcomeState journey={journey} onPrompt={sendMessage} />
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-              {toolEvents.length > 0 && (
-                <ToolTimeline
-                  events={toolEvents}
-                  importingGhid={importingGhid}
-                  onImport={importRecommendedKoc}
-                />
-              )}
-              {messages.map((m) => (
-                <MessageBubble
-                  key={m.id}
-                  message={m}
-                  onOpenLayout={(target) => setLayoutTarget(target)}
-                  loadingSnapshot={streaming && m.id === messages[messages.length - 1]?.id && m.role === "assistant" ? loadingSnapshot : null}
-                  assistantStatus={streaming && m.id === messages[messages.length - 1]?.id && m.role === "assistant" ? assistantStatus : null}
-                  isStreaming={streaming && m.id === messages[messages.length - 1]?.id && m.role === "assistant"}
-                />
-              ))}
+        <div style={chatBodyStyle}>
+          {messages.length === 0 ? (
+            <div style={welcomeWrapStyle}>
+              <Welcome
+                variant="borderless"
+                icon={<AppstoreOutlined style={{ color: "var(--accent)" }} />}
+                title={
+                  <span>
+                    {journey.niche_level2} 赛道情报已就绪
+                  </span>
+                }
+                description="知识库、热点和选题能力都已可用。你可以直接问问题，也可以从下面的快捷入口开始。"
+                styles={{
+                  root: { padding: 0, background: "transparent" },
+                  title: { color: "var(--text-primary)", fontFamily: "var(--font-display)", fontSize: 34, lineHeight: 1.15 },
+                  description: { color: "var(--text-secondary)", fontSize: 14, maxWidth: 720, lineHeight: 1.7 },
+                }}
+              />
+              <Prompts
+                title="快速开始"
+                items={promptItems}
+                wrap
+                styles={{
+                  root: { width: "100%" },
+                  title: { color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 10 },
+                  list: { gap: 12 },
+                  item: {
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 18,
+                    color: "var(--text-secondary)",
+                    padding: "12px 14px",
+                  },
+                }}
+                onItemClick={({ data }) => {
+                  if (data.label) {
+                    sendMessage(String(data.label));
+                  }
+                }}
+              />
             </div>
+          ) : (
+            <Bubble.List
+              items={bubbleItems}
+              autoScroll
+              role={{
+                user: {
+                  placement: "end",
+                  variant: "filled",
+                  styles: {
+                    content: {
+                      background: "var(--bg-elevated)",
+                      color: "var(--text-primary)",
+                      border: "1px solid var(--border-strong)",
+                      borderRadius: 18,
+                    },
+                  },
+                },
+                assistant: {
+                  placement: "start",
+                  variant: "borderless",
+                  styles: {
+                    content: {
+                      background: "var(--bg-surface)",
+                      color: "var(--text-primary)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 18,
+                    },
+                    footer: {
+                      marginTop: 8,
+                    },
+                  },
+                },
+                system: {
+                  placement: "start",
+                  variant: "borderless",
+                  styles: {
+                    content: {
+                      background: "transparent",
+                      padding: 0,
+                      border: "none",
+                    },
+                  },
+                },
+              }}
+              styles={{
+                root: { height: "100%" },
+                scroll: { paddingRight: 8 },
+                bubble: { maxWidth: "78%" },
+              }}
+            />
           )}
         </div>
 
-        {/* Input area */}
-        <div style={inputAreaStyle}>
-          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            <ToolButton icon="📊" label="账号分析" onClick={() => setShowAnalysis(true)} />
-            <ToolButton icon="🔥" label="今日热点" onClick={() => sendMessage("帮我搜索今日赛道最新热点，列出 3 条")} />
-          </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="问我任何关于这个赛道的事... (Enter 发送，Shift+Enter 换行)"
-              disabled={streaming}
-              rows={1}
-              style={{
-                flex: 1,
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                padding: "10px 14px",
-                color: "var(--text-primary)",
-                fontFamily: "var(--font-body)",
-                fontSize: 13,
-                resize: "none",
-                outline: "none",
-                lineHeight: 1.5,
-                minHeight: 40,
-                maxHeight: 160,
-                overflow: "auto",
+        <div style={senderWrapStyle}>
+          {messages.length > 0 && (
+            <Prompts
+              items={[
+                { key: "analysis", icon: <RadarChartOutlined />, label: "账号分析" },
+                { key: "hot", icon: <FireOutlined />, label: "今日热点" },
+              ]}
+              styles={{
+                list: { gap: 8 },
+                item: {
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 999,
+                  color: "var(--text-secondary)",
+                  padding: "8px 12px",
+                },
               }}
-              onInput={(e) => {
-                const el = e.currentTarget;
-                el.style.height = "auto";
-                el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+              onItemClick={({ data }) => {
+                if (data.key === "analysis") {
+                  setShowAnalysis(true);
+                } else if (data.key === "hot") {
+                  sendMessage("帮我搜索今日赛道最新热点，列出 3 条");
+                }
               }}
             />
-            <button
-              onClick={() => sendMessage(input)}
-              disabled={!input.trim() || streaming}
-              style={{
-                width: 40,
-                height: 40,
-                background: input.trim() && !streaming ? "var(--accent)" : "var(--bg-elevated)",
-                border: "none",
-                borderRadius: 8,
-                color: input.trim() && !streaming ? "var(--bg-void)" : "var(--text-tertiary)",
-                cursor: input.trim() && !streaming ? "pointer" : "not-allowed",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-                fontSize: 16,
-                transition: "background 0.15s, color 0.15s",
-              }}
-            >
-              ↑
-            </button>
-          </div>
+          )}
+          <Sender
+            value={input}
+            onChange={(value) => setInput(value)}
+            onSubmit={(value) => sendMessage(value)}
+            loading={streaming}
+            placeholder="问我任何关于这个赛道的事..."
+            submitType="enter"
+            autoSize={{ minRows: 1, maxRows: 6 }}
+            footer={() => (
+              <div style={senderFooterStyle}>
+                <span style={{ color: "var(--text-tertiary)" }}>Enter 发送，Shift + Enter 换行</span>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => sendMessage(input)}
+                  disabled={!input.trim() || streaming}
+                  style={senderActionBtnStyle}
+                >
+                  发送
+                </Button>
+              </div>
+            )}
+            styles={{
+              root: {
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border)",
+                borderRadius: 22,
+                padding: 10,
+                boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+              },
+              input: {
+                color: "var(--text-primary)",
+                fontSize: 14,
+              },
+              footer: {
+                paddingTop: 10,
+              },
+            }}
+          />
         </div>
       </div>
 
@@ -371,6 +515,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
           }}
         />
       )}
+
       <ArticleLayoutPanel
         open={layoutTarget !== null}
         conversationId={conversationId}
@@ -379,319 +524,254 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
         messageContent={layoutTarget?.content ?? ""}
         onClose={() => setLayoutTarget(null)}
       />
-      <style>{`
-        @keyframes nicheLoadingBar {
-          0%, 100% { transform: scaleY(0.45); opacity: 0.45; }
-          50% { transform: scaleY(1); opacity: 1; }
-        }
-      `}</style>
     </>
   );
 }
 
-// ---- Welcome state ----
-
-const QUICK_PROMPTS = [
-  "给我今日 3 个选题",
-  "分析同赛道爆款规律",
-  "最佳发布时间是什么时候",
-  "帮我拆解竞品标题",
-];
-
-function WelcomeState({ journey, onPrompt }: { journey: Journey; onPrompt: (p: string) => void }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
-      <div>
-        <div style={{ fontFamily: "var(--font-display)", fontSize: 28, fontWeight: 300, letterSpacing: "-0.02em", lineHeight: 1.2, marginBottom: 8 }}>
-          你好。<br />
-          <em style={{ color: "var(--accent)", fontStyle: "italic" }}>{journey.niche_level2}</em> 赛道情报已就绪。
-        </div>
-        <div style={{ fontSize: 13, color: "var(--text-tertiary)" }}>
-          知识库初始化{journey.knowledge_initialized ? "完成" : "中"}，可以直接提问。
-        </div>
-      </div>
-
-      <div>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.15em", textTransform: "uppercase", color: "var(--text-tertiary)", marginBottom: 10 }}>
-          快速开始
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {QUICK_PROMPTS.map((p) => (
-            <button
-              key={p}
-              onClick={() => onPrompt(p)}
-              style={{
-                padding: "7px 14px",
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                borderRadius: 20,
-                fontSize: 12,
-                color: "var(--text-secondary)",
-                cursor: "pointer",
-                fontFamily: "var(--font-body)",
-                transition: "border-color 0.15s, color 0.15s",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "var(--accent)";
-                e.currentTarget.style.color = "var(--accent)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "var(--border)";
-                e.currentTarget.style.color = "var(--text-secondary)";
-              }}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---- Message bubble ----
-
-function MessageBubble({
-  message,
+function AssistantFooter({
   isStreaming,
-  onOpenLayout,
-  assistantStatus,
   loadingSnapshot,
+  thoughtItems,
+  hasLayoutTarget,
+  onOpenLayout,
 }: {
-  message: Message;
   isStreaming: boolean;
-  onOpenLayout: (target: { id: string; content: string }) => void;
-  assistantStatus: string | null;
-  loadingSnapshot: LoadingSnapshot | null;
+  loadingSnapshot: LoadingSnapshot;
+  thoughtItems: ThoughtChainItemType[];
+  hasLayoutTarget: boolean;
+  onOpenLayout: () => void;
 }) {
-  const isUser = message.role === "user";
-  const hasLayoutTarget = !isUser && !isStreaming && extractArticleFromAssistantMessage(message.content) !== null;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 5, alignItems: isUser ? "flex-end" : "flex-start" }}>
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-tertiary)", padding: "0 4px" }}>
-        {isUser ? "你" : "Niche"}
-      </div>
-      <div
-        style={{
-          maxWidth: "76%",
-          padding: "12px 16px",
-          borderRadius: isUser ? "10px 10px 3px 10px" : "10px 10px 10px 3px",
-          background: isUser ? "var(--bg-elevated)" : "var(--bg-surface)",
-          border: `1px solid ${isUser ? "var(--border-strong)" : "var(--border)"}`,
-          fontSize: 13,
-          lineHeight: 1.7,
-          color: "var(--text-primary)",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
-        }}
-        className={isStreaming && !message.content ? "streaming-cursor" : ""}
-      >
-        {!message.content && isStreaming ? (
-          <WaitingState status={assistantStatus} snapshot={loadingSnapshot} />
-        ) : (
-          <>
-            {isStreaming && loadingSnapshot && (
-              <MiniLoadingCard snapshot={loadingSnapshot} />
-            )}
-            <span
-              dangerouslySetInnerHTML={{
-                __html: formatMessage(message.content),
-              }}
-            />
-            {isStreaming && message.content && <span className="streaming-cursor" />}
-          </>
-        )}
-      </div>
-      {isStreaming && message.content && loadingSnapshot && (
-        <div style={statusPillStyle}>
-          <span style={statusDotStyle} />
-          {loadingSnapshot.title}
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {isStreaming && (
+        <Card size="small" style={miniStateCardStyle}>
+          <div style={miniStateTitleStyle}>
+            <LoadingOutlined />
+            {loadingSnapshot.title}
+          </div>
+          <div style={miniStateHintStyle}>{loadingSnapshot.hint}</div>
+          <ThoughtChain
+            items={thoughtItems}
+            styles={{
+              root: { marginTop: 8 },
+              item: { paddingBottom: 8 },
+            }}
+          />
+        </Card>
       )}
       {hasLayoutTarget && (
-        <button
-          onClick={() => onOpenLayout({ id: message.id, content: message.content })}
-          style={layoutTriggerStyle}
+        <Button
+          type="default"
+          icon={<EditOutlined />}
+          onClick={onOpenLayout}
+          style={layoutActionButtonStyle}
         >
-          <span style={{ fontSize: 12 }}>◫</span>
           排版
-        </button>
+        </Button>
       )}
     </div>
   );
 }
 
 function WaitingState({
-  status,
   snapshot,
+  thoughtItems,
 }: {
-  status: string | null;
-  snapshot: LoadingSnapshot | null;
+  snapshot: LoadingSnapshot;
+  thoughtItems: ThoughtChainItemType[];
 }) {
-  const active = snapshot ?? buildLoadingSnapshot([], status);
   return (
     <div style={waitingCardStyle}>
-      <div style={waitingHeaderStyle}>
-        <div style={waitingStatusStyle}>
-          <span style={statusDotStyle} />
-          {active.title}
-        </div>
-        <div style={loadingBarsStyle}>
-          <span style={{ ...loadingBarStyle, animationDelay: "0ms" }} />
-          <span style={{ ...loadingBarStyle, animationDelay: "180ms" }} />
-          <span style={{ ...loadingBarStyle, animationDelay: "360ms" }} />
-        </div>
+      <div style={waitingTopStyle}>
+        <Tag bordered={false} style={waitingTagStyle}>
+          <LoadingOutlined />
+          {snapshot.title}
+        </Tag>
       </div>
-      <div style={waitingHintStyle}>{active.hint || status || "正在继续处理这条请求。"}</div>
-      <div style={stepsWrapStyle}>
-        {active.steps.map((step) => (
-          <div
-            key={step.key}
-            style={{
-              ...stepStyle,
-              ...(step.state === "done"
-                ? stepDoneStyle
-                : step.state === "active"
-                  ? stepActiveStyle
-                  : stepPendingStyle),
-            }}
-          >
-            <span
-              style={{
-                ...stepDotStyle,
-                ...(step.state === "done"
-                  ? stepDotDoneStyle
-                  : step.state === "active"
-                    ? stepDotActiveStyle
-                    : stepDotPendingStyle),
-              }}
-            />
-            {step.label}
-          </div>
-        ))}
-      </div>
+      <div style={waitingHintStyle}>{snapshot.hint}</div>
+      <ThoughtChain
+        items={thoughtItems}
+        styles={{
+          root: { marginTop: 2 },
+          item: { paddingBottom: 10 },
+        }}
+      />
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ ...skeletonLineStyle, width: "72%" }} />
+        <div style={{ ...skeletonLineStyle, width: "68%" }} />
         <div style={{ ...skeletonLineStyle, width: "100%" }} />
-        <div style={{ ...skeletonLineStyle, width: "86%" }} />
+        <div style={{ ...skeletonLineStyle, width: "84%" }} />
       </div>
-      <div style={waitingFooterStyle}>先给结论，再展开细节和建议。</div>
     </div>
   );
 }
 
-function MiniLoadingCard({ snapshot }: { snapshot: LoadingSnapshot }) {
+function ToolTracePanel({
+  events,
+  importingGhid,
+  onImport,
+  thoughtItems,
+}: {
+  events: ToolEvent[];
+  importingGhid: string | null;
+  onImport: (ghid: string) => void;
+  thoughtItems: ThoughtChainItemType[];
+}) {
+  const accounts =
+    events.flatMap((event) => (event.payload?.accounts as RecommendedAccount[] | undefined) ?? []);
+  const articles =
+    events.flatMap((event) => (event.payload?.articles as KnowledgeArticleHit[] | undefined) ?? []);
+  const topics =
+    events.flatMap((event) => (event.payload?.topics as GeneratedTopic[] | undefined) ?? []);
+  const pendingImport = events.find((event) => event.type === "tool_requires_confirmation");
+  const pendingPayload = (pendingImport?.payload ?? null) as Record<string, unknown> | null;
+
   return (
-    <div style={miniLoadingCardStyle}>
-      <div style={miniLoadingTopStyle}>
-        <div style={miniLoadingTitleStyle}>
-          <span style={statusDotStyle} />
-          {snapshot.title}
+    <Card size="small" style={toolPanelCardStyle}>
+      <div style={toolPanelTitleStyle}>Agent Trace</div>
+      <ThoughtChain items={thoughtItems} styles={{ root: { marginBottom: 10 } }} />
+
+      {accounts.length > 0 && (
+        <div style={toolSectionStyle}>
+          {accounts.map((account) => (
+            <Card key={account.ghid} size="small" style={traceItemCardStyle}>
+              <div style={traceCardHeaderStyle}>
+                <div>
+                  <div style={traceItemTitleStyle}>{account.name}</div>
+                  <div style={traceItemMetaStyle}>
+                    粉丝 {fmtCount(account.fans)} · 平均阅读 {fmtCount(account.avg_top_read)}
+                  </div>
+                </div>
+                <Button
+                  size="small"
+                  type="primary"
+                  loading={importingGhid === account.ghid}
+                  onClick={() => onImport(account.ghid)}
+                >
+                  导入
+                </Button>
+              </div>
+            </Card>
+          ))}
         </div>
-        <div style={miniLoadingHintStyle}>{snapshot.hint}</div>
-      </div>
-      <div style={miniStepsRowStyle}>
-        {snapshot.steps.map((step) => (
-          <span
-            key={step.key}
-            style={{
-              ...miniStepChipStyle,
-              ...(step.state === "done"
-                ? miniStepDoneStyle
-                : step.state === "active"
-                  ? miniStepActiveStyle
-                  : miniStepPendingStyle),
-            }}
+      )}
+
+      {articles.length > 0 && (
+        <div style={toolSectionStyle}>
+          {articles.map((article) => (
+            <Card key={article.id} size="small" style={traceItemCardStyle}>
+              <div style={traceItemTitleStyle}>{article.title}</div>
+              <div style={traceItemMetaStyle}>
+                {article.account_name} · 阅读 {fmtCount(article.read_count)}
+              </div>
+              {article.excerpt && <div style={traceExcerptStyle}>{article.excerpt}</div>}
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {topics.length > 0 && (
+        <div style={toolSectionStyle}>
+          {topics.map((topic) => (
+            <Card key={`${topic.index}-${topic.title}`} size="small" style={traceItemCardStyle}>
+              <div style={traceItemTitleStyle}>
+                {topic.index}. {topic.title}
+              </div>
+              <div style={traceItemMetaStyle}>{topic.angle}</div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {pendingPayload?.ghid ? (
+        <Card size="small" style={pendingCardStyle}>
+          <div style={traceItemTitleStyle}>
+            推荐导入 {String(pendingPayload.account_name || pendingPayload.ghid)}
+          </div>
+          <div style={traceExcerptStyle}>
+            {String(pendingPayload.reason || "这个账号和当前赛道相关，适合加入知识库。")}
+          </div>
+          <Button
+            type="primary"
+            size="small"
+            loading={importingGhid === String(pendingPayload.ghid)}
+            onClick={() => onImport(String(pendingPayload.ghid))}
           >
-            {step.label}
-          </span>
-        ))}
-      </div>
-    </div>
+            确认导入
+          </Button>
+        </Card>
+      ) : null}
+    </Card>
   );
+}
+
+function buildThoughtChainItems(
+  events: ToolEvent[],
+  snapshot: LoadingSnapshot
+): ThoughtChainItemType[] {
+  const activeTool = [...events].reverse().find((event) => event.type === "tool_start")?.toolName;
+
+  return snapshot.steps.map((step) => ({
+    key: step.key,
+    title: step.label,
+    description: step.state === "active" ? snapshot.hint : undefined,
+    status:
+      step.state === "done"
+        ? "success"
+        : step.state === "active"
+          ? "loading"
+          : step.state === "error"
+            ? "error"
+            : undefined,
+    collapsible: false,
+    blink: step.state === "active",
+    icon: step.key === resolveActiveStage(activeTool, snapshot.title) ? <LoadingOutlined /> : undefined,
+  }));
 }
 
 function buildLoadingSnapshot(events: ToolEvent[], assistantStatus: string | null): LoadingSnapshot {
-  const relevantEvents = events.filter((event) => event.type !== "tool_requires_confirmation");
-  const activeToolEvent = [...relevantEvents].reverse().find((event) => event.type === "tool_start");
+  const activeToolEvent = [...events].reverse().find((event) => event.type === "tool_start");
   const latestToolName = activeToolEvent?.toolName;
-
-  const toolDone = new Set(
-    relevantEvents
-      .filter((event) => event.type === "tool_result")
-      .map((event) => event.toolName)
-      .filter((toolName): toolName is string => Boolean(toolName))
-  );
-
-  const stageOrder = [
-    { key: "understand", label: "理解问题" },
-    { key: "retrieve", label: "检索资料" },
-    { key: "compose", label: "组织答案" },
-    { key: "generate", label: "生成内容" },
-    { key: "review", label: "风控检查" },
-    { key: "stream", label: "输出结果" },
-  ];
-
   const activeStage = resolveActiveStage(latestToolName, assistantStatus);
-  const activeMeta = getToolMeta(latestToolName, assistantStatus);
+  const meta = getToolMeta(latestToolName, assistantStatus);
+  const order = ["understand", "retrieve", "compose", "generate", "review", "stream"];
 
   return {
-    title: activeMeta.title,
-    hint: activeMeta.hint,
-    steps: stageOrder.map((step) => ({
-      key: step.key,
-      label: step.label,
-      state: stepState(step.key, activeStage, toolDone, assistantStatus),
-    })),
+    title: meta.title,
+    hint: meta.hint,
+    steps: [
+      { key: "understand", label: "理解问题", state: stageState("understand", activeStage, order) },
+      { key: "retrieve", label: "检索资料", state: stageState("retrieve", activeStage, order) },
+      { key: "compose", label: "组织答案", state: stageState("compose", activeStage, order) },
+      { key: "generate", label: "生成内容", state: stageState("generate", activeStage, order) },
+      { key: "review", label: "风控检查", state: stageState("review", activeStage, order) },
+      { key: "stream", label: "输出结果", state: stageState("stream", activeStage, order) },
+    ],
   };
+}
+
+function stageState(
+  step: string,
+  activeStage: string,
+  order: string[]
+): LoadingStep["state"] {
+  const stepIndex = order.indexOf(step);
+  const activeIndex = order.indexOf(activeStage);
+  if (stepIndex < activeIndex) return "done";
+  if (stepIndex === activeIndex) return "active";
+  return "pending";
 }
 
 function resolveActiveStage(toolName?: string, assistantStatus?: string | null) {
   if (toolName === "search_hot_topics" || toolName === "search_koc_accounts" || toolName === "search_knowledge_base" || toolName === "analyze_journey_data") {
     return "retrieve";
   }
-  if (toolName === "generate_topics") {
-    return "compose";
-  }
-  if (toolName === "generate_article_draft" || toolName === "generate_full_article" || toolName === "revise_full_article") {
-    return "generate";
-  }
-  if (toolName === "compliance_check") {
-    return "review";
-  }
-  if (assistantStatus === "输出答案中") {
-    return "stream";
-  }
-  if (assistantStatus === "组织回答中") {
-    return "compose";
-  }
-  if (assistantStatus === "整理上下文中") {
-    return "retrieve";
-  }
+  if (toolName === "generate_topics") return "compose";
+  if (toolName === "generate_article_draft" || toolName === "generate_full_article" || toolName === "revise_full_article") return "generate";
+  if (toolName === "compliance_check") return "review";
+  if (assistantStatus === "输出答案中") return "stream";
+  if (assistantStatus === "组织回答中") return "compose";
+  if (assistantStatus === "整理上下文中") return "retrieve";
   return "understand";
-}
-
-function stepState(
-  stepKey: string,
-  activeStage: string,
-  toolDone: Set<string>,
-  assistantStatus: string | null
-): LoadingStep["state"] {
-  const order = ["understand", "retrieve", "compose", "generate", "review", "stream"];
-  const currentIndex = order.indexOf(activeStage);
-  const stepIndex = order.indexOf(stepKey);
-
-  if (stepKey === "review" && !toolDone.has("compliance_check") && activeStage !== "review") {
-    return stepIndex < currentIndex ? "done" : "pending";
-  }
-
-  if (assistantStatus === "输出答案中" && stepKey === "stream") {
-    return "active";
-  }
-
-  if (stepIndex < currentIndex) return "done";
-  if (stepIndex === currentIndex) return "active";
-  return "pending";
 }
 
 function getToolMeta(toolName?: string, assistantStatus?: string | null) {
@@ -715,224 +795,18 @@ function getToolMeta(toolName?: string, assistantStatus?: string | null) {
     case "compliance_check":
       return { title: "正在做风控检查", hint: "检查标题、摘要、正文和 CTA 的风险点。" };
     default:
-      if (assistantStatus === "输出答案中") {
-        return { title: "正在输出答案", hint: "先把核心结论流式发出来。" };
-      }
-      if (assistantStatus === "组织回答中") {
-        return { title: "正在组织回答", hint: "把线索压缩成更清晰的回答结构。" };
-      }
-      if (assistantStatus === "整理上下文中") {
-        return { title: "正在整理上下文", hint: "结合当前对话和赛道背景继续处理。" };
-      }
+      if (assistantStatus === "输出答案中") return { title: "正在输出答案", hint: "先把核心结论流式发出来。" };
+      if (assistantStatus === "组织回答中") return { title: "正在组织回答", hint: "把线索压缩成更清晰的回答结构。" };
+      if (assistantStatus === "整理上下文中") return { title: "正在整理上下文", hint: "结合当前对话和赛道背景继续处理。" };
       return { title: "正在理解问题", hint: "先判断你想要的是分析、检索还是生成。" };
   }
 }
 
 function formatMessage(content: string): string {
-  // Bold **text** → <strong>
   return content
     .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--accent);font-weight:500">$1</strong>')
-    .replace(/`([^`]+)`/g, '<code style="font-family:var(--font-mono);font-size:11px;background:var(--accent-dim);color:var(--accent);padding:1px 5px;border-radius:3px">$1</code>');
-}
-
-function ToolTimeline({
-  events,
-  importingGhid,
-  onImport,
-}: {
-  events: ToolEvent[];
-  importingGhid: string | null;
-  onImport: (ghid: string) => void;
-}) {
-  const getAccounts = (payload?: Record<string, unknown>) =>
-    (payload?.accounts as RecommendedAccount[] | undefined) ?? [];
-  const getKnowledgeArticles = (payload?: Record<string, unknown>) =>
-    (payload?.articles as KnowledgeArticleHit[] | undefined) ?? [];
-  const getGeneratedTopics = (payload?: Record<string, unknown>) =>
-    (payload?.topics as GeneratedTopic[] | undefined) ?? [];
-  const getPayloadText = (payload: Record<string, unknown> | undefined, key: string) =>
-    typeof payload?.[key] === "string" ? (payload[key] as string) : "";
-  const getPayloadFlag = (payload: Record<string, unknown> | undefined, key: string) =>
-    payload?.[key] === true;
-
-  return (
-    <div
-      style={{
-        maxWidth: "76%",
-        padding: "12px 14px",
-        borderRadius: 10,
-        background: "var(--bg-base)",
-        border: "1px solid var(--border)",
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-      }}
-    >
-      <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
-        Agent Trace
-      </div>
-      {events.map((event) => (
-        <div key={event.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-            {toolEventText(event)}
-          </div>
-          {getAccounts(event.payload).length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {getAccounts(event.payload).map((account) => (
-                <div
-                  key={account.ghid}
-                  style={{
-                    padding: "10px 12px",
-                    background: "var(--bg-surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
-                    <div>
-                      <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 4 }}>
-                        {account.name}
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-                        粉丝 {fmtCount(account.fans)} · 平均阅读 {fmtCount(account.avg_top_read)}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => onImport(account.ghid)}
-                      disabled={importingGhid === account.ghid}
-                      style={miniButtonStyle}
-                    >
-                      {importingGhid === account.ghid ? "导入中..." : "导入"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          {getKnowledgeArticles(event.payload).length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {getKnowledgeArticles(event.payload).map((article) => (
-                <div
-                  key={article.id}
-                  style={{
-                    padding: "10px 12px",
-                    background: "var(--bg-surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                  }}
-                >
-                  <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 4 }}>
-                    {article.title}
-                  </div>
-                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: article.excerpt ? 6 : 0 }}>
-                    {article.account_name} · 阅读 {fmtCount(article.read_count)}
-                  </div>
-                  {article.excerpt && (
-                    <div style={{ fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-                      {article.excerpt}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-          {getGeneratedTopics(event.payload).length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {getGeneratedTopics(event.payload).map((topic) => (
-                <div
-                  key={`${topic.index}-${topic.title}`}
-                  style={{
-                    padding: "10px 12px",
-                    background: "var(--bg-surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                  }}
-                >
-                  <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 4 }}>
-                    {topic.index}. {topic.title}
-                  </div>
-                  <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
-                    {topic.angle}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          {event.type === "tool_requires_confirmation" &&
-            getPayloadText(event.payload, "ghid") &&
-            !getPayloadFlag(event.payload, "imported") && (
-            <div
-              style={{
-                padding: "10px 12px",
-                background: "var(--bg-surface)",
-                border: "1px solid rgba(200,150,90,0.25)",
-                borderRadius: 8,
-              }}
-            >
-              <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, lineHeight: 1.6 }}>
-                推荐导入 {getPayloadText(event.payload, "account_name") || getPayloadText(event.payload, "ghid")}
-                {getPayloadText(event.payload, "reason") ? `：${getPayloadText(event.payload, "reason")}` : ""}
-              </div>
-              <button
-                onClick={() => onImport(getPayloadText(event.payload, "ghid"))}
-                disabled={importingGhid === getPayloadText(event.payload, "ghid")}
-                style={miniButtonStyle}
-              >
-                {importingGhid === getPayloadText(event.payload, "ghid") ? "导入中..." : "确认导入"}
-              </button>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function toolEventText(event: ToolEvent) {
-  const topicCount = Array.isArray(event.payload?.topics) ? event.payload.topics.length : 0;
-  const accountCount = Array.isArray(event.payload?.accounts) ? event.payload.accounts.length : 0;
-
-  if (event.type === "tool_start") {
-    return `正在${event.label}...`;
-  }
-  if (event.type === "tool_error") {
-    return `${event.label}失败：${event.error}`;
-  }
-  if (event.type === "tool_requires_confirmation") {
-    return `${event.label}需要你确认后再执行。`;
-  }
-  if (event.type === "tool_result" && event.toolName === "search_hot_topics") {
-    return `已找到 ${topicCount} 条近期热点。`;
-  }
-  if (event.type === "tool_result" && event.toolName === "search_koc_accounts") {
-    return `已找到 ${accountCount} 个可跟踪的 KOC。`;
-  }
-  if (event.type === "tool_result" && event.toolName === "analyze_journey_data") {
-    return `已分析 ${event.payload?.article_count ?? 0} 篇文章和 ${event.payload?.koc_count ?? 0} 个 KOC。`;
-  }
-  if (event.type === "tool_result" && event.toolName === "search_knowledge_base") {
-    const articleCount = Array.isArray(event.payload?.articles) ? event.payload.articles.length : 0;
-    return `知识库命中 ${articleCount} 篇相关文章。`;
-  }
-  if (event.type === "tool_result" && event.toolName === "generate_topics") {
-    return `已生成 ${topicCount} 个候选选题。你可以直接回复“第一个可以”这种话来确认。`;
-  }
-  if (event.type === "tool_result" && event.toolName === "generate_article_draft") {
-    return "已生成一版公众号 Markdown 骨架稿。";
-  }
-  if (event.type === "tool_result" && event.toolName === "generate_full_article") {
-    return "已生成一版可发布级公众号完整初稿。";
-  }
-  if (event.type === "tool_result" && event.toolName === "compliance_check") {
-    return `已完成风控检查，当前建议：${event.payload?.publish_recommendation || "建议修改后发布"}。`;
-  }
-  if (event.type === "tool_result" && event.toolName === "revise_full_article") {
-    return "已按你的要求修改完整稿。";
-  }
-  if (event.type === "tool_result" && event.payload?.imported) {
-    return `已导入 ${event.payload.account_name || event.payload.ghid}，同步 ${event.payload.articleCount ?? 0} 篇文章。`;
-  }
-  return `${event.label}已完成。`;
+    .replace(/`([^`]+)`/g, '<code style="font-family:var(--font-mono);font-size:11px;background:var(--accent-dim);color:var(--accent);padding:1px 5px;border-radius:3px">$1</code>')
+    .replace(/\n/g, "<br />");
 }
 
 function fmtCount(n: number) {
@@ -941,152 +815,85 @@ function fmtCount(n: number) {
   return String(n ?? 0);
 }
 
-// ---- Tool button ----
+const chatPageStyle: React.CSSProperties = {
+  height: "100%",
+  display: "grid",
+  gridTemplateRows: "auto 1fr auto",
+  background:
+    "radial-gradient(circle at top left, rgba(200,150,90,0.10), transparent 34%), var(--bg-void)",
+};
 
-function ToolButton({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 5,
-        padding: "4px 10px",
-        background: "var(--bg-surface)",
-        border: "1px solid var(--border)",
-        borderRadius: 5,
-        fontSize: 11,
-        color: "var(--text-secondary)",
-        cursor: "pointer",
-        fontFamily: "var(--font-body)",
-        transition: "border-color 0.15s, color 0.15s",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = "var(--accent)";
-        e.currentTarget.style.color = "var(--accent)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = "var(--border)";
-        e.currentTarget.style.color = "var(--text-secondary)";
-      }}
-    >
-      <span>{icon}</span>
-      {label}
-    </button>
-  );
-}
-
-// ---- Header stat ----
-
-function HeaderStat({ children, live }: { children: React.ReactNode; live?: boolean }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 5, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-tertiary)" }}>
-      {live !== undefined && (
-        <span
-          style={{
-            width: 5,
-            height: 5,
-            borderRadius: "50%",
-            background: live ? "#4CAF50" : "var(--accent)",
-            animation: "pulse 2s infinite",
-          }}
-        />
-      )}
-      {children}
-    </div>
-  );
-}
-
-// ---- Styles ----
-
-const headerStyle: React.CSSProperties = {
-  padding: "14px 28px",
+const chatHeaderStyle: React.CSSProperties = {
+  padding: "22px 28px 16px",
   borderBottom: "1px solid var(--border)",
   display: "flex",
-  alignItems: "center",
   justifyContent: "space-between",
-  flexShrink: 0,
-};
-
-const messagesStyle: React.CSSProperties = {
-  flex: 1,
-  overflowY: "auto",
-  padding: "32px 28px",
-};
-
-const inputAreaStyle: React.CSSProperties = {
-  padding: "14px 28px 20px",
-  borderTop: "1px solid var(--border)",
-  flexShrink: 0,
-};
-
-const miniButtonStyle: React.CSSProperties = {
-  padding: "7px 12px",
-  background: "var(--accent)",
-  border: "none",
-  borderRadius: 6,
-  color: "var(--bg-void)",
-  fontSize: 11,
-  fontFamily: "var(--font-body)",
-  cursor: "pointer",
-  flexShrink: 0,
-};
-
-const layoutTriggerStyle: React.CSSProperties = {
-  display: "inline-flex",
   alignItems: "center",
-  gap: 6,
-  marginTop: 2,
-  padding: "6px 10px",
-  borderRadius: 999,
-  border: "1px solid rgba(200,150,90,0.28)",
-  background: "var(--accent-dim)",
-  color: "var(--accent)",
-  fontSize: 11,
-  fontFamily: "var(--font-body)",
-  cursor: "pointer",
+  gap: 16,
 };
 
-const statusPillStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  marginTop: 2,
-  padding: "4px 9px",
-  borderRadius: 999,
-  background: "var(--bg-base)",
-  border: "1px solid var(--border)",
+const headerEyebrowStyle: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  letterSpacing: "0.16em",
+  textTransform: "uppercase",
   color: "var(--text-tertiary)",
-  fontSize: 10,
-  fontFamily: "var(--font-mono)",
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
+  marginBottom: 8,
 };
 
-const waitingStatusStyle: React.CSSProperties = {
+const headerTitleStyle: React.CSSProperties = {
+  fontFamily: "var(--font-display)",
+  fontSize: 24,
+  lineHeight: 1.2,
+  color: "var(--text-primary)",
+};
+
+const headerTagStyle: React.CSSProperties = {
+  background: "var(--bg-surface)",
+  color: "var(--text-secondary)",
+  borderRadius: 999,
+  paddingInline: 10,
+  height: 28,
   display: "inline-flex",
   alignItems: "center",
-  alignSelf: "flex-start",
-  gap: 6,
-  padding: "5px 10px",
-  borderRadius: 999,
-  background: "var(--accent-dim)",
-  color: "var(--accent)",
-  fontSize: 10,
-  fontFamily: "var(--font-mono)",
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
 };
 
-const skeletonLineStyle: React.CSSProperties = {
-  height: 10,
-  borderRadius: 999,
-  background: "linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.12), rgba(255,255,255,0.06))",
+const chatBodyStyle: React.CSSProperties = {
+  minHeight: 0,
+  overflow: "hidden",
+  padding: "24px 28px 12px",
 };
 
-const waitingHintStyle: React.CSSProperties = {
+const welcomeWrapStyle: React.CSSProperties = {
+  height: "100%",
+  display: "flex",
+  flexDirection: "column",
+  justifyContent: "center",
+  gap: 24,
+  maxWidth: 860,
+};
+
+const senderWrapStyle: React.CSSProperties = {
+  padding: "12px 28px 24px",
+  borderTop: "1px solid var(--border)",
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+};
+
+const senderFooterStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
   fontSize: 11,
-  color: "var(--text-secondary)",
-  lineHeight: 1.65,
+};
+
+const senderActionBtnStyle: React.CSSProperties = {
+  borderRadius: 12,
+  background: "var(--accent)",
+  color: "#0C0C0B",
+  borderColor: "transparent",
 };
 
 const waitingCardStyle: React.CSSProperties = {
@@ -1096,157 +903,122 @@ const waitingCardStyle: React.CSSProperties = {
   minWidth: 280,
 };
 
-const waitingHeaderStyle: React.CSSProperties = {
+const waitingTopStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: 12,
 };
 
-const loadingBarsStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "flex-end",
-  gap: 4,
-  height: 18,
-};
-
-const loadingBarStyle: React.CSSProperties = {
-  width: 4,
-  height: 14,
+const waitingTagStyle: React.CSSProperties = {
+  background: "var(--accent-dim)",
+  color: "var(--accent)",
   borderRadius: 999,
-  background: "linear-gradient(180deg, rgba(200,150,90,0.95), rgba(200,150,90,0.28))",
-  animation: "nicheLoadingBar 900ms ease-in-out infinite",
-};
-
-const stepsWrapStyle: React.CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: 8,
-};
-
-const stepStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 6,
-  padding: "5px 9px",
+};
+
+const waitingHintStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "var(--text-secondary)",
+  lineHeight: 1.7,
+};
+
+const skeletonLineStyle: React.CSSProperties = {
+  height: 10,
   borderRadius: 999,
-  border: "1px solid var(--border)",
-  fontSize: 11,
-  lineHeight: 1,
+  background: "linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.12), rgba(255,255,255,0.06))",
 };
 
-const stepPendingStyle: React.CSSProperties = {
-  color: "var(--text-tertiary)",
-  background: "rgba(255,255,255,0.02)",
-};
-
-const stepActiveStyle: React.CSSProperties = {
-  color: "var(--accent)",
-  borderColor: "rgba(200,150,90,0.28)",
-  background: "rgba(200,150,90,0.08)",
-};
-
-const stepDoneStyle: React.CSSProperties = {
-  color: "#B7C8AE",
-  borderColor: "rgba(135, 176, 118, 0.18)",
-  background: "rgba(135, 176, 118, 0.08)",
-};
-
-const stepDotStyle: React.CSSProperties = {
-  width: 6,
-  height: 6,
-  borderRadius: "50%",
-  flexShrink: 0,
-};
-
-const stepDotPendingStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.18)",
-};
-
-const stepDotActiveStyle: React.CSSProperties = {
-  background: "var(--accent)",
-  boxShadow: "0 0 0 4px rgba(200,150,90,0.12)",
-};
-
-const stepDotDoneStyle: React.CSSProperties = {
-  background: "#87B076",
-};
-
-const waitingFooterStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "var(--text-tertiary)",
-  lineHeight: 1.6,
-};
-
-const miniLoadingCardStyle: React.CSSProperties = {
-  marginBottom: 12,
-  padding: "10px 12px",
-  borderRadius: 12,
+const miniStateCardStyle: React.CSSProperties = {
   background: "rgba(200,150,90,0.06)",
-  border: "1px solid rgba(200,150,90,0.18)",
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
+  borderColor: "rgba(200,150,90,0.16)",
+  borderRadius: 14,
 };
 
-const miniLoadingTopStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 4,
-};
-
-const miniLoadingTitleStyle: React.CSSProperties = {
+const miniStateTitleStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
-  gap: 6,
+  gap: 8,
   color: "var(--accent)",
-  fontSize: 11,
   fontFamily: "var(--font-mono)",
-  letterSpacing: "0.06em",
+  fontSize: 11,
+  letterSpacing: "0.08em",
   textTransform: "uppercase",
 };
 
-const miniLoadingHintStyle: React.CSSProperties = {
+const miniStateHintStyle: React.CSSProperties = {
+  marginTop: 6,
   fontSize: 11,
   color: "var(--text-secondary)",
   lineHeight: 1.6,
 };
 
-const miniStepsRowStyle: React.CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: 6,
-};
-
-const miniStepChipStyle: React.CSSProperties = {
-  padding: "4px 7px",
+const layoutActionButtonStyle: React.CSSProperties = {
   borderRadius: 999,
-  border: "1px solid var(--border)",
-  fontSize: 10,
-  lineHeight: 1,
-};
-
-const miniStepPendingStyle: React.CSSProperties = {
-  color: "var(--text-tertiary)",
-};
-
-const miniStepActiveStyle: React.CSSProperties = {
+  width: "fit-content",
+  borderColor: "rgba(200,150,90,0.25)",
   color: "var(--accent)",
-  borderColor: "rgba(200,150,90,0.28)",
-  background: "rgba(200,150,90,0.08)",
+  background: "var(--accent-dim)",
 };
 
-const miniStepDoneStyle: React.CSSProperties = {
-  color: "#B7C8AE",
-  borderColor: "rgba(135,176,118,0.18)",
-  background: "rgba(135,176,118,0.08)",
+const toolPanelCardStyle: React.CSSProperties = {
+  background: "var(--bg-base)",
+  borderColor: "var(--border)",
+  borderRadius: 18,
 };
 
-const statusDotStyle: React.CSSProperties = {
-  width: 7,
-  height: 7,
-  borderRadius: "50%",
-  background: "var(--accent)",
-  boxShadow: "0 0 0 4px rgba(200,150,90,0.12)",
-  flexShrink: 0,
+const toolPanelTitleStyle: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 10,
+  letterSpacing: "0.14em",
+  textTransform: "uppercase",
+  color: "var(--text-tertiary)",
+  marginBottom: 10,
+};
+
+const toolSectionStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+  marginTop: 10,
+};
+
+const traceItemCardStyle: React.CSSProperties = {
+  background: "var(--bg-surface)",
+  borderColor: "var(--border)",
+  borderRadius: 14,
+};
+
+const traceCardHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 12,
+};
+
+const traceItemTitleStyle: React.CSSProperties = {
+  fontSize: 13,
+  color: "var(--text-primary)",
+  marginBottom: 4,
+  lineHeight: 1.5,
+};
+
+const traceItemMetaStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "var(--text-tertiary)",
+  lineHeight: 1.6,
+};
+
+const traceExcerptStyle: React.CSSProperties = {
+  marginTop: 8,
+  fontSize: 11,
+  color: "var(--text-secondary)",
+  lineHeight: 1.65,
+};
+
+const pendingCardStyle: React.CSSProperties = {
+  ...traceItemCardStyle,
+  borderColor: "rgba(200,150,90,0.24)",
+  background: "rgba(200,150,90,0.05)",
 };

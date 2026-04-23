@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
+import { Conversations } from "@ant-design/x";
+import type { ConversationItemType } from "@ant-design/x";
 import { type Journey, type Conversation } from "@/lib/data";
 import { KOCListPanel } from "./KOCListPanel";
 import { createClient } from "@/lib/supabase/client";
@@ -42,6 +44,13 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
 
   const inactiveJourneys = journeys.filter((j) => !j.is_active);
   const groups = groupByDate(conversations);
+  const conversationItems: ConversationItemType[] = Object.entries(groups).flatMap(([label, convs]) =>
+    convs.map((conversation) => ({
+      key: conversation.id,
+      label: conversation.title ?? "新对话",
+      group: label,
+    }))
+  );
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -124,33 +133,34 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
               新建对话
             </button>
 
-            {/* Conversation groups */}
-            {Object.entries(groups).map(([label, convs]) => (
-              <div key={label} suppressHydrationWarning>
-                <div style={dateHeaderStyle}>{label}</div>
-                {convs.map((c) => (
-                  <Link key={c.id} href={`/chat/${c.id}`} style={{ textDecoration: "none" }}>
-                    <div
-                      style={{
-                        ...convItemStyle,
-                        background: c.id === currentConvId ? "var(--bg-surface)" : "transparent",
-                        color: c.id === currentConvId ? "var(--text-primary)" : "var(--text-secondary)",
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 4, height: 4, borderRadius: "50%", flexShrink: 0,
-                          background: c.id === currentConvId ? "var(--accent)" : "var(--text-tertiary)",
-                        }}
-                      />
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {c.title ?? "新对话"}
-                      </span>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            ))}
+            <div style={{ padding: "4px 12px 0" }}>
+              <Conversations
+                groupable={{
+                  label: (group) => <span style={dateHeaderStyle}>{group}</span>,
+                }}
+                items={conversationItems}
+                activeKey={currentConvId}
+                onActiveChange={(value) => {
+                  if (value) {
+                    router.push(`/chat/${String(value)}`);
+                  }
+                }}
+                styles={{
+                  item: {
+                    background: "transparent",
+                    color: "var(--text-secondary)",
+                    borderRadius: 14,
+                    marginBottom: 4,
+                  },
+                  group: {
+                    marginBottom: 8,
+                  },
+                }}
+                classNames={{
+                  root: "niche-conversations",
+                }}
+              />
+            </div>
           </>
         ) : (
           <div style={{ padding: "20px 16px", color: "var(--text-tertiary)", fontSize: 12 }}>
@@ -278,18 +288,8 @@ const dateHeaderStyle: React.CSSProperties = {
   letterSpacing: "0.12em",
   textTransform: "uppercase",
   color: "var(--text-tertiary)",
-  padding: "7px 16px 3px",
-};
-
-const convItemStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  padding: "5px 16px",
-  fontSize: 12,
-  cursor: "pointer",
-  transition: "background 0.1s ease",
-  borderRadius: 0,
+  display: "inline-block",
+  padding: "6px 4px 4px",
 };
 
 const footerBtnStyle: React.CSSProperties = {

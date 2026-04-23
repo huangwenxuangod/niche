@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, DM_Mono, DM_Sans } from "next/font/google";
+import { AntdRegistry } from "@ant-design/nextjs-registry";
+import { AntdProvider } from "@/components/providers/AntdProvider";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -35,7 +37,11 @@ export default function RootLayout({
       lang="zh-CN"
       className={`${fraunces.variable} ${dmMono.variable} ${dmSans.variable}`}
     >
-      <body>{children}</body>
+      <body>
+        <AntdRegistry>
+          <AntdProvider>{children}</AntdProvider>
+        </AntdRegistry>
+      </body>
     </html>
   );
 }
