@@ -27,9 +27,7 @@ type SavedDraft = {
 
 type WechatConfig = {
   id: string;
-  account_name: string | null;
   app_id: string;
-  default_author: string | null;
 };
 
 export function ArticleLayoutPanel({
@@ -54,13 +52,8 @@ export function ArticleLayoutPanel({
   const [publishOpen, setPublishOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [wechatConfig, setWechatConfig] = useState<WechatConfig | null>(null);
-  const [accountName, setAccountName] = useState("");
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
-  const [defaultAuthor, setDefaultAuthor] = useState("");
-  const [publishAuthor, setPublishAuthor] = useState("");
-  const [coverImageUrl, setCoverImageUrl] = useState("");
-  const [publishSummary, setPublishSummary] = useState("");
 
   const renderedHtml = useMemo(
     () => renderWechatHtml(renderedMarkdown || sourceMarkdown),
@@ -106,10 +99,7 @@ export function ArticleLayoutPanel({
         const configData = await configRes.json();
         if (!cancelled && configRes.ok && configData.config) {
           setWechatConfig(configData.config);
-          setAccountName(configData.config.account_name || "");
           setAppId(configData.config.app_id || "");
-          setDefaultAuthor(configData.config.default_author || "");
-          setPublishAuthor(configData.config.default_author || "");
         }
 
         const existingRes = await fetch(`/api/article-layout?message_id=${encodeURIComponent(currentMessageId)}`);
@@ -118,7 +108,6 @@ export function ArticleLayoutPanel({
           setSourceMarkdown(existingData.draft.source_markdown || article.bodyMarkdown);
           setRenderedMarkdown(existingData.draft.rendered_markdown || article.bodyMarkdown);
           setDraftId(existingData.draft.id || null);
-          setPublishSummary(article.summary || "");
           setLoading(false);
           return;
         }
@@ -143,7 +132,6 @@ export function ArticleLayoutPanel({
         const nextSource = article.bodyMarkdown;
         setSourceMarkdown(nextSource);
         setRenderedMarkdown(nextRendered);
-        setPublishSummary(article.summary || "");
 
         const savedDraft = await persistDraft({
           source_markdown: nextSource,
@@ -211,33 +199,6 @@ export function ArticleLayoutPanel({
     }
   }
 
-  async function handleSaveWechatConfig() {
-    setNotice("");
-    try {
-      const method = wechatConfig ? "PUT" : "POST";
-      const res = await fetch("/api/wechat/config", {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          account_name: accountName,
-          app_id: appId,
-          app_secret: appSecret,
-          default_author: defaultAuthor,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "公众号配置保存失败");
-      }
-      setWechatConfig(data.config);
-      setAppSecret("");
-      setPublishAuthor(data.config?.default_author || defaultAuthor);
-      setNotice("公众号配置已保存。");
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : "公众号配置保存失败");
-    }
-  }
-
   async function handlePublishToWechat() {
     setPublishing(true);
     setNotice("");
@@ -252,8 +213,26 @@ export function ArticleLayoutPanel({
       if (!activeDraftId) {
         throw new Error("请先保存排版草稿后再发布。");
       }
-      if (!coverImageUrl.trim()) {
-        throw new Error("请先填写封面图链接。");
+
+      if (!appId.trim() || (!wechatConfig && !appSecret.trim())) {
+        throw new Error("请先填写 AppID 和 AppSecret。");
+      }
+
+      if (!wechatConfig || appSecret.trim()) {
+        const saveRes = await fetch("/api/wechat/config", {
+          method: wechatConfig ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            app_id: appId,
+            app_secret: appSecret,
+          }),
+        });
+        const saveData = await saveRes.json();
+        if (!saveRes.ok) {
+          throw new Error(saveData.error || "公众号配置保存失败");
+        }
+        setWechatConfig(saveData.config);
+        setAppSecret("");
       }
 
       const res = await fetch("/api/wechat/publish", {
@@ -263,9 +242,7 @@ export function ArticleLayoutPanel({
           draft_id: activeDraftId,
           message_id: messageId,
           title: article.title,
-          summary: publishSummary,
-          author: publishAuthor,
-          cover_image_url: coverImageUrl,
+          summary: article.summary,
         }),
       });
       const data = await res.json();
@@ -319,62 +296,6 @@ export function ArticleLayoutPanel({
 
         {notice && <div style={noticeStyle}>{notice}</div>}
 
-        {publishOpen && (
-          <div style={publishCardStyle}>
-            <div style={publishSectionTitleStyle}>公众号配置</div>
-            <input
-              value={accountName}
-              onChange={(e) => setAccountName(e.target.value)}
-              placeholder="公众号名称（可选）"
-              style={inputStyle}
-            />
-            <input
-              value={appId}
-              onChange={(e) => setAppId(e.target.value)}
-              placeholder="AppID"
-              style={inputStyle}
-            />
-            <input
-              value={appSecret}
-              onChange={(e) => setAppSecret(e.target.value)}
-              placeholder={wechatConfig ? "如需更新请填写新的 AppSecret" : "AppSecret"}
-              style={inputStyle}
-            />
-            <input
-              value={defaultAuthor}
-              onChange={(e) => setDefaultAuthor(e.target.value)}
-              placeholder="默认作者名（可选）"
-              style={inputStyle}
-            />
-            <button onClick={handleSaveWechatConfig} style={secondaryActionStyle}>
-              保存公众号配置
-            </button>
-
-            <div style={publishSectionTitleStyle}>本次发布信息</div>
-            <input
-              value={publishAuthor}
-              onChange={(e) => setPublishAuthor(e.target.value)}
-              placeholder="本次发布作者名（可选）"
-              style={inputStyle}
-            />
-            <textarea
-              value={publishSummary}
-              onChange={(e) => setPublishSummary(e.target.value)}
-              placeholder="摘要"
-              style={summaryStyle}
-            />
-            <input
-              value={coverImageUrl}
-              onChange={(e) => setCoverImageUrl(e.target.value)}
-              placeholder="封面图 URL（必填）"
-              style={inputStyle}
-            />
-            <button onClick={handlePublishToWechat} disabled={publishing} style={publishActionStyle}>
-              {publishing ? "发布中..." : "确认保存到草稿箱"}
-            </button>
-          </div>
-        )}
-
         {loading ? (
           <div style={loadingStyle}>正在应用默认长文排版策略...</div>
         ) : mode === "preview" ? (
@@ -401,6 +322,44 @@ export function ArticleLayoutPanel({
           </div>
         )}
       </div>
+      {publishOpen && (
+        <div style={modalOverlayStyle} onClick={() => setPublishOpen(false)}>
+          <div style={modalCardStyle} onClick={(e) => e.stopPropagation()}>
+            <div style={modalHeaderStyle}>
+              <div>
+                <div style={eyebrowStyle}>发布到公众号</div>
+                <div style={modalTitleStyle}>保存到草稿箱</div>
+              </div>
+              <button onClick={() => setPublishOpen(false)} style={closeButtonStyle}>×</button>
+            </div>
+            <div style={modalHintStyle}>
+              只需要填写公众号的 <strong>AppID</strong> 和 <strong>AppSecret</strong>。其余信息将使用当前文章默认值自动处理。
+            </div>
+            <div style={modalFormStyle}>
+              <input
+                value={appId}
+                onChange={(e) => setAppId(e.target.value)}
+                placeholder="AppID"
+                style={inputStyle}
+              />
+              <input
+                value={appSecret}
+                onChange={(e) => setAppSecret(e.target.value)}
+                placeholder={wechatConfig ? "如需更新请填写新的 AppSecret" : "AppSecret"}
+                style={inputStyle}
+              />
+            </div>
+            <div style={modalActionsStyle}>
+              <button onClick={() => setPublishOpen(false)} style={secondaryActionStyle}>
+                取消
+              </button>
+              <button onClick={handlePublishToWechat} disabled={publishing} style={publishActionStyle}>
+                {publishing ? "发布中..." : "确认保存到草稿箱"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <style>{`
         .wechat-preview-scroll {
           overflow-y: auto;
@@ -516,26 +475,6 @@ const publishButtonStyle: React.CSSProperties = {
   color: "var(--accent)",
 };
 
-const publishCardStyle: React.CSSProperties = {
-  margin: "12px 18px 0",
-  padding: 14,
-  borderRadius: 14,
-  border: "1px solid rgba(200,150,90,0.2)",
-  background: "rgba(22,22,20,0.85)",
-  display: "flex",
-  flexDirection: "column",
-  gap: 10,
-};
-
-const publishSectionTitleStyle: React.CSSProperties = {
-  marginTop: 4,
-  fontSize: 12,
-  color: "var(--accent)",
-  fontFamily: "var(--font-mono)",
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
-};
-
 const inputStyle: React.CSSProperties = {
   width: "100%",
   borderRadius: 10,
@@ -547,13 +486,6 @@ const inputStyle: React.CSSProperties = {
   outline: "none",
 };
 
-const summaryStyle: React.CSSProperties = {
-  ...inputStyle,
-  minHeight: 88,
-  resize: "vertical",
-  fontFamily: "var(--font-body)",
-};
-
 const secondaryActionStyle: React.CSSProperties = {
   padding: "9px 12px",
   borderRadius: 10,
@@ -562,6 +494,66 @@ const secondaryActionStyle: React.CSSProperties = {
   color: "var(--text-secondary)",
   fontSize: 12,
   cursor: "pointer",
+};
+
+const modalOverlayStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(6,6,5,0.58)",
+  backdropFilter: "blur(8px)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  zIndex: 90,
+  padding: 24,
+};
+
+const modalCardStyle: React.CSSProperties = {
+  width: "min(520px, 100%)",
+  borderRadius: 24,
+  border: "1px solid rgba(200,150,90,0.22)",
+  background: "linear-gradient(180deg, rgba(21,21,19,0.98) 0%, rgba(15,15,14,0.98) 100%)",
+  boxShadow: "0 28px 90px rgba(0,0,0,0.38)",
+  padding: 22,
+  display: "flex",
+  flexDirection: "column",
+  gap: 16,
+};
+
+const modalHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 12,
+};
+
+const modalTitleStyle: React.CSSProperties = {
+  fontFamily: "var(--font-display)",
+  fontSize: 24,
+  color: "var(--text-primary)",
+  lineHeight: 1.2,
+};
+
+const modalHintStyle: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 14,
+  background: "rgba(200,150,90,0.08)",
+  border: "1px solid rgba(200,150,90,0.14)",
+  color: "var(--text-secondary)",
+  fontSize: 12,
+  lineHeight: 1.7,
+};
+
+const modalFormStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+};
+
+const modalActionsStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  gap: 10,
 };
 
 const publishActionStyle: React.CSSProperties = {

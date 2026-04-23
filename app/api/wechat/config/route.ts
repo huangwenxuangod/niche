@@ -33,10 +33,8 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
-  const accountName = String(body.account_name || "").trim();
   const appId = String(body.app_id || "").trim();
   const appSecret = String(body.app_secret || "").trim();
-  const defaultAuthor = String(body.default_author || "").trim();
 
   if (!appId || !appSecret) {
     return NextResponse.json({ error: "请填写 AppID 和 AppSecret。" }, { status: 400 });
@@ -57,10 +55,10 @@ export async function POST(req: NextRequest) {
     .upsert(
       {
         user_id: user.id,
-        account_name: accountName || null,
+        account_name: null,
         app_id: appId,
         app_secret_encrypted: encryptedSecret,
-        default_author: defaultAuthor || null,
+        default_author: null,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id" }
@@ -95,9 +93,7 @@ export async function PUT(req: NextRequest) {
   }
 
   const nextSecret = appSecret || decryptWechatSecret(existing.app_secret_encrypted);
-  const accountName = String(body.account_name || "").trim();
   const appId = String(body.app_id || "").trim();
-  const defaultAuthor = String(body.default_author || "").trim();
 
   if (!appId || !nextSecret) {
     return NextResponse.json({ error: "请填写 AppID 和 AppSecret。" }, { status: 400 });
@@ -115,10 +111,10 @@ export async function PUT(req: NextRequest) {
   const { data, error } = await supabase
     .from("wechat_publish_configs")
     .update({
-      account_name: accountName || null,
+      account_name: null,
       app_id: appId,
       app_secret_encrypted: encryptWechatSecret(nextSecret),
-      default_author: defaultAuthor || null,
+      default_author: null,
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", user.id)

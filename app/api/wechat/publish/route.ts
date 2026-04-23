@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import {
+  buildWechatCoverDataUrl,
   decryptWechatSecret,
   fetchWechatAccessToken,
   saveWechatDraft,
@@ -19,10 +20,8 @@ export async function POST(req: NextRequest) {
   const messageId = String(body.message_id || "").trim();
   const title = String(body.title || "").trim();
   const summary = String(body.summary || "").trim();
-  const coverImageUrl = String(body.cover_image_url || "").trim();
-  const authorOverride = String(body.author || "").trim();
 
-  if (!draftId || !messageId || !title || !coverImageUrl) {
+  if (!draftId || !messageId || !title) {
     return NextResponse.json({ error: "请填写完整的发布信息。" }, { status: 400 });
   }
 
@@ -50,11 +49,12 @@ export async function POST(req: NextRequest) {
   try {
     const appSecret = decryptWechatSecret(config.app_secret_encrypted);
     const accessToken = await fetchWechatAccessToken(config.app_id, appSecret);
+    const coverImageUrl = buildWechatCoverDataUrl(title);
     const thumbMediaId = await uploadWechatImageFromUrl(coverImageUrl, accessToken);
     const mediaId = await saveWechatDraft({
       accessToken,
       title,
-      author: authorOverride || config.default_author || "",
+      author: "",
       summary,
       html: draft.rendered_html,
       thumbMediaId,
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
       message_id: messageId,
       title,
       summary: summary || null,
-      cover_image_url: coverImageUrl,
+      cover_image_url: buildWechatCoverDataUrl(title),
       status: "error",
       error_message: message,
       updated_at: new Date().toISOString(),

@@ -107,6 +107,33 @@ export async function uploadWechatImageFromUrl(imageUrl: string, accessToken: st
   return uploadData.media_id;
 }
 
+export function buildWechatCoverDataUrl(title: string) {
+  const safeTitle = title
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+  const svg = `
+    <svg width="900" height="383" viewBox="0 0 900 383" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="900" height="383" rx="32" fill="#F4EBDD"/>
+      <rect x="34" y="34" width="832" height="315" rx="24" fill="#FFFDF8"/>
+      <rect x="72" y="74" width="96" height="10" rx="5" fill="#D2B17C"/>
+      <rect x="72" y="98" width="210" height="10" rx="5" fill="#E6D2AE"/>
+      <text x="72" y="172" fill="#17202A" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="42" font-weight="700">
+        ${safeTitle.slice(0, 18)}
+      </text>
+      <text x="72" y="230" fill="#5B6570" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24">
+        微信公众号草稿封面
+      </text>
+      <circle cx="794" cy="112" r="38" fill="#F0DFC2"/>
+      <circle cx="756" cy="258" r="20" fill="#E6D2AE"/>
+      <circle cx="815" cy="282" r="12" fill="#D2B17C"/>
+    </svg>
+  `.trim();
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
 export async function saveWechatDraft(params: {
   accessToken: string;
   title: string;

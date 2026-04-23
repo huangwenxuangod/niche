@@ -43,6 +43,18 @@ type GeneratedTopic = {
   angle: string;
 };
 
+type LoadingStep = {
+  key: string;
+  label: string;
+  state: "pending" | "active" | "done";
+};
+
+type LoadingSnapshot = {
+  title: string;
+  hint: string;
+  steps: LoadingStep[];
+};
+
 export function ChatArea({ conversationId, journey, initialMessages, kocCount }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -54,6 +66,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const [layoutTarget, setLayoutTarget] = useState<{ id: string; content: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const loadingSnapshot = buildLoadingSnapshot(toolEvents, assistantStatus);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -95,8 +108,8 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
     setMessages((prev) => [...prev, userMsg]);
     setStreaming(true);
 
-    const assistantId = crypto.randomUUID();
-    let currentAssistantId = assistantId;
+    const assistantId: string = crypto.randomUUID();
+    let currentAssistantId: string = assistantId;
     let assistantContent = "";
 
     setMessages((prev) => [
@@ -277,6 +290,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                   key={m.id}
                   message={m}
                   onOpenLayout={(target) => setLayoutTarget(target)}
+                  loadingSnapshot={streaming && m.id === messages[messages.length - 1]?.id && m.role === "assistant" ? loadingSnapshot : null}
                   assistantStatus={streaming && m.id === messages[messages.length - 1]?.id && m.role === "assistant" ? assistantStatus : null}
                   isStreaming={streaming && m.id === messages[messages.length - 1]?.id && m.role === "assistant"}
                 />
@@ -365,6 +379,12 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
         messageContent={layoutTarget?.content ?? ""}
         onClose={() => setLayoutTarget(null)}
       />
+      <style>{`
+        @keyframes nicheLoadingBar {
+          0%, 100% { transform: scaleY(0.45); opacity: 0.45; }
+          50% { transform: scaleY(1); opacity: 1; }
+        }
+      `}</style>
     </>
   );
 }
@@ -436,11 +456,13 @@ function MessageBubble({
   isStreaming,
   onOpenLayout,
   assistantStatus,
+  loadingSnapshot,
 }: {
   message: Message;
   isStreaming: boolean;
   onOpenLayout: (target: { id: string; content: string }) => void;
   assistantStatus: string | null;
+  loadingSnapshot: LoadingSnapshot | null;
 }) {
   const isUser = message.role === "user";
   const hasLayoutTarget = !isUser && !isStreaming && extractArticleFromAssistantMessage(message.content) !== null;
@@ -465,9 +487,12 @@ function MessageBubble({
         className={isStreaming && !message.content ? "streaming-cursor" : ""}
       >
         {!message.content && isStreaming ? (
-          <WaitingState status={assistantStatus} />
+          <WaitingState status={assistantStatus} snapshot={loadingSnapshot} />
         ) : (
           <>
+            {isStreaming && loadingSnapshot && (
+              <MiniLoadingCard snapshot={loadingSnapshot} />
+            )}
             <span
               dangerouslySetInnerHTML={{
                 __html: formatMessage(message.content),
@@ -477,8 +502,11 @@ function MessageBubble({
           </>
         )}
       </div>
-      {isStreaming && message.content && assistantStatus && (
-        <div style={statusPillStyle}>{assistantStatus}</div>
+      {isStreaming && message.content && loadingSnapshot && (
+        <div style={statusPillStyle}>
+          <span style={statusDotStyle} />
+          {loadingSnapshot.title}
+        </div>
       )}
       {hasLayoutTarget && (
         <button
@@ -493,18 +521,211 @@ function MessageBubble({
   );
 }
 
-function WaitingState({ status }: { status: string | null }) {
+function WaitingState({
+  status,
+  snapshot,
+}: {
+  status: string | null;
+  snapshot: LoadingSnapshot | null;
+}) {
+  const active = snapshot ?? buildLoadingSnapshot([], status);
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 260 }}>
-      <div style={waitingStatusStyle}>{status || "理解问题中"}</div>
+    <div style={waitingCardStyle}>
+      <div style={waitingHeaderStyle}>
+        <div style={waitingStatusStyle}>
+          <span style={statusDotStyle} />
+          {active.title}
+        </div>
+        <div style={loadingBarsStyle}>
+          <span style={{ ...loadingBarStyle, animationDelay: "0ms" }} />
+          <span style={{ ...loadingBarStyle, animationDelay: "180ms" }} />
+          <span style={{ ...loadingBarStyle, animationDelay: "360ms" }} />
+        </div>
+      </div>
+      <div style={waitingHintStyle}>{active.hint || status || "正在继续处理这条请求。"}</div>
+      <div style={stepsWrapStyle}>
+        {active.steps.map((step) => (
+          <div
+            key={step.key}
+            style={{
+              ...stepStyle,
+              ...(step.state === "done"
+                ? stepDoneStyle
+                : step.state === "active"
+                  ? stepActiveStyle
+                  : stepPendingStyle),
+            }}
+          >
+            <span
+              style={{
+                ...stepDotStyle,
+                ...(step.state === "done"
+                  ? stepDotDoneStyle
+                  : step.state === "active"
+                    ? stepDotActiveStyle
+                    : stepDotPendingStyle),
+              }}
+            />
+            {step.label}
+          </div>
+        ))}
+      </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ ...skeletonLineStyle, width: "72%" }} />
         <div style={{ ...skeletonLineStyle, width: "100%" }} />
         <div style={{ ...skeletonLineStyle, width: "86%" }} />
       </div>
-      <div style={waitingHintStyle}>先给结论，再展开细节和建议。</div>
+      <div style={waitingFooterStyle}>先给结论，再展开细节和建议。</div>
     </div>
   );
+}
+
+function MiniLoadingCard({ snapshot }: { snapshot: LoadingSnapshot }) {
+  return (
+    <div style={miniLoadingCardStyle}>
+      <div style={miniLoadingTopStyle}>
+        <div style={miniLoadingTitleStyle}>
+          <span style={statusDotStyle} />
+          {snapshot.title}
+        </div>
+        <div style={miniLoadingHintStyle}>{snapshot.hint}</div>
+      </div>
+      <div style={miniStepsRowStyle}>
+        {snapshot.steps.map((step) => (
+          <span
+            key={step.key}
+            style={{
+              ...miniStepChipStyle,
+              ...(step.state === "done"
+                ? miniStepDoneStyle
+                : step.state === "active"
+                  ? miniStepActiveStyle
+                  : miniStepPendingStyle),
+            }}
+          >
+            {step.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function buildLoadingSnapshot(events: ToolEvent[], assistantStatus: string | null): LoadingSnapshot {
+  const relevantEvents = events.filter((event) => event.type !== "tool_requires_confirmation");
+  const activeToolEvent = [...relevantEvents].reverse().find((event) => event.type === "tool_start");
+  const latestToolName = activeToolEvent?.toolName;
+
+  const toolDone = new Set(
+    relevantEvents
+      .filter((event) => event.type === "tool_result")
+      .map((event) => event.toolName)
+      .filter((toolName): toolName is string => Boolean(toolName))
+  );
+
+  const stageOrder = [
+    { key: "understand", label: "理解问题" },
+    { key: "retrieve", label: "检索资料" },
+    { key: "compose", label: "组织答案" },
+    { key: "generate", label: "生成内容" },
+    { key: "review", label: "风控检查" },
+    { key: "stream", label: "输出结果" },
+  ];
+
+  const activeStage = resolveActiveStage(latestToolName, assistantStatus);
+  const activeMeta = getToolMeta(latestToolName, assistantStatus);
+
+  return {
+    title: activeMeta.title,
+    hint: activeMeta.hint,
+    steps: stageOrder.map((step) => ({
+      key: step.key,
+      label: step.label,
+      state: stepState(step.key, activeStage, toolDone, assistantStatus),
+    })),
+  };
+}
+
+function resolveActiveStage(toolName?: string, assistantStatus?: string | null) {
+  if (toolName === "search_hot_topics" || toolName === "search_koc_accounts" || toolName === "search_knowledge_base" || toolName === "analyze_journey_data") {
+    return "retrieve";
+  }
+  if (toolName === "generate_topics") {
+    return "compose";
+  }
+  if (toolName === "generate_article_draft" || toolName === "generate_full_article" || toolName === "revise_full_article") {
+    return "generate";
+  }
+  if (toolName === "compliance_check") {
+    return "review";
+  }
+  if (assistantStatus === "输出答案中") {
+    return "stream";
+  }
+  if (assistantStatus === "组织回答中") {
+    return "compose";
+  }
+  if (assistantStatus === "整理上下文中") {
+    return "retrieve";
+  }
+  return "understand";
+}
+
+function stepState(
+  stepKey: string,
+  activeStage: string,
+  toolDone: Set<string>,
+  assistantStatus: string | null
+): LoadingStep["state"] {
+  const order = ["understand", "retrieve", "compose", "generate", "review", "stream"];
+  const currentIndex = order.indexOf(activeStage);
+  const stepIndex = order.indexOf(stepKey);
+
+  if (stepKey === "review" && !toolDone.has("compliance_check") && activeStage !== "review") {
+    return stepIndex < currentIndex ? "done" : "pending";
+  }
+
+  if (assistantStatus === "输出答案中" && stepKey === "stream") {
+    return "active";
+  }
+
+  if (stepIndex < currentIndex) return "done";
+  if (stepIndex === currentIndex) return "active";
+  return "pending";
+}
+
+function getToolMeta(toolName?: string, assistantStatus?: string | null) {
+  switch (toolName) {
+    case "search_hot_topics":
+      return { title: "正在搜索热点", hint: "从近期内容里找最值得跟进的话题。" };
+    case "search_koc_accounts":
+      return { title: "正在搜索 KOC", hint: "筛选和当前赛道最相关的账号样本。" };
+    case "search_knowledge_base":
+      return { title: "正在检索知识库", hint: "从已同步文章里找能支撑答案的案例。" };
+    case "analyze_journey_data":
+      return { title: "正在分析旅程数据", hint: "总结爆款规律、账号特征和内容偏好。" };
+    case "generate_topics":
+      return { title: "正在组织选题", hint: "把检索到的信息压缩成可执行的方向。" };
+    case "generate_article_draft":
+      return { title: "正在生成骨架稿", hint: "先搭好结构，再填内容。" };
+    case "generate_full_article":
+      return { title: "正在生成完整稿", hint: "把结构扩成可读、可发的长文正文。" };
+    case "revise_full_article":
+      return { title: "正在修改完整稿", hint: "按你的要求调整语气、结构和表达。" };
+    case "compliance_check":
+      return { title: "正在做风控检查", hint: "检查标题、摘要、正文和 CTA 的风险点。" };
+    default:
+      if (assistantStatus === "输出答案中") {
+        return { title: "正在输出答案", hint: "先把核心结论流式发出来。" };
+      }
+      if (assistantStatus === "组织回答中") {
+        return { title: "正在组织回答", hint: "把线索压缩成更清晰的回答结构。" };
+      }
+      if (assistantStatus === "整理上下文中") {
+        return { title: "正在整理上下文", hint: "结合当前对话和赛道背景继续处理。" };
+      }
+      return { title: "正在理解问题", hint: "先判断你想要的是分析、检索还是生成。" };
+  }
 }
 
 function formatMessage(content: string): string {
@@ -845,7 +1066,8 @@ const waitingStatusStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   alignSelf: "flex-start",
-  padding: "4px 9px",
+  gap: 6,
+  padding: "5px 10px",
   borderRadius: 999,
   background: "var(--accent-dim)",
   color: "var(--accent)",
@@ -863,6 +1085,168 @@ const skeletonLineStyle: React.CSSProperties = {
 
 const waitingHintStyle: React.CSSProperties = {
   fontSize: 11,
+  color: "var(--text-secondary)",
+  lineHeight: 1.65,
+};
+
+const waitingCardStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 12,
+  minWidth: 280,
+};
+
+const waitingHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+};
+
+const loadingBarsStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-end",
+  gap: 4,
+  height: 18,
+};
+
+const loadingBarStyle: React.CSSProperties = {
+  width: 4,
+  height: 14,
+  borderRadius: 999,
+  background: "linear-gradient(180deg, rgba(200,150,90,0.95), rgba(200,150,90,0.28))",
+  animation: "nicheLoadingBar 900ms ease-in-out infinite",
+};
+
+const stepsWrapStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 8,
+};
+
+const stepStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "5px 9px",
+  borderRadius: 999,
+  border: "1px solid var(--border)",
+  fontSize: 11,
+  lineHeight: 1,
+};
+
+const stepPendingStyle: React.CSSProperties = {
+  color: "var(--text-tertiary)",
+  background: "rgba(255,255,255,0.02)",
+};
+
+const stepActiveStyle: React.CSSProperties = {
+  color: "var(--accent)",
+  borderColor: "rgba(200,150,90,0.28)",
+  background: "rgba(200,150,90,0.08)",
+};
+
+const stepDoneStyle: React.CSSProperties = {
+  color: "#B7C8AE",
+  borderColor: "rgba(135, 176, 118, 0.18)",
+  background: "rgba(135, 176, 118, 0.08)",
+};
+
+const stepDotStyle: React.CSSProperties = {
+  width: 6,
+  height: 6,
+  borderRadius: "50%",
+  flexShrink: 0,
+};
+
+const stepDotPendingStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.18)",
+};
+
+const stepDotActiveStyle: React.CSSProperties = {
+  background: "var(--accent)",
+  boxShadow: "0 0 0 4px rgba(200,150,90,0.12)",
+};
+
+const stepDotDoneStyle: React.CSSProperties = {
+  background: "#87B076",
+};
+
+const waitingFooterStyle: React.CSSProperties = {
+  fontSize: 11,
   color: "var(--text-tertiary)",
   lineHeight: 1.6,
+};
+
+const miniLoadingCardStyle: React.CSSProperties = {
+  marginBottom: 12,
+  padding: "10px 12px",
+  borderRadius: 12,
+  background: "rgba(200,150,90,0.06)",
+  border: "1px solid rgba(200,150,90,0.18)",
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+};
+
+const miniLoadingTopStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+};
+
+const miniLoadingTitleStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  color: "var(--accent)",
+  fontSize: 11,
+  fontFamily: "var(--font-mono)",
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+};
+
+const miniLoadingHintStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "var(--text-secondary)",
+  lineHeight: 1.6,
+};
+
+const miniStepsRowStyle: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 6,
+};
+
+const miniStepChipStyle: React.CSSProperties = {
+  padding: "4px 7px",
+  borderRadius: 999,
+  border: "1px solid var(--border)",
+  fontSize: 10,
+  lineHeight: 1,
+};
+
+const miniStepPendingStyle: React.CSSProperties = {
+  color: "var(--text-tertiary)",
+};
+
+const miniStepActiveStyle: React.CSSProperties = {
+  color: "var(--accent)",
+  borderColor: "rgba(200,150,90,0.28)",
+  background: "rgba(200,150,90,0.08)",
+};
+
+const miniStepDoneStyle: React.CSSProperties = {
+  color: "#B7C8AE",
+  borderColor: "rgba(135,176,118,0.18)",
+  background: "rgba(135,176,118,0.08)",
+};
+
+const statusDotStyle: React.CSSProperties = {
+  width: 7,
+  height: 7,
+  borderRadius: "50%",
+  background: "var(--accent)",
+  boxShadow: "0 0 0 4px rgba(200,150,90,0.12)",
+  flexShrink: 0,
 };
