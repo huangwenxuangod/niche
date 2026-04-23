@@ -380,7 +380,7 @@ export function ArticleLayoutPanel({
         ) : mode === "preview" ? (
           <div style={previewWrapStyle}>
             <div style={phoneFrameStyle}>
-              <div style={phoneInnerStyle}>
+              <div className="wechat-preview-scroll" style={phoneInnerStyle}>
                 <div style={previewTitleStyle}>{article.title}</div>
                 {article.summary && <div style={previewSummaryStyle}>{article.summary}</div>}
                 <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
@@ -401,6 +401,32 @@ export function ArticleLayoutPanel({
           </div>
         )}
       </div>
+      <style>{`
+        .wechat-preview-scroll {
+          overflow-y: auto;
+          overscroll-behavior: contain;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(120, 102, 74, 0.45) transparent;
+        }
+
+        .wechat-preview-scroll::-webkit-scrollbar {
+          width: 8px;
+        }
+
+        .wechat-preview-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .wechat-preview-scroll::-webkit-scrollbar-thumb {
+          background: linear-gradient(180deg, rgba(196, 168, 120, 0.75), rgba(120, 102, 74, 0.85));
+          border-radius: 999px;
+          border: 2px solid rgba(255, 255, 255, 0.88);
+        }
+
+        .wechat-preview-scroll::-webkit-scrollbar-thumb:hover {
+          background: linear-gradient(180deg, rgba(214, 185, 136, 0.95), rgba(138, 116, 84, 0.95));
+        }
+      `}</style>
     </div>
   );
 }
@@ -570,22 +596,29 @@ const previewWrapStyle: React.CSSProperties = {
   padding: "20px 16px 28px",
   display: "flex",
   justifyContent: "center",
+  alignItems: "flex-start",
 };
 
 const phoneFrameStyle: React.CSSProperties = {
   width: 360,
   maxWidth: "100%",
-  borderRadius: 28,
-  background: "#EDE7DB",
-  padding: "16px 12px",
-  boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
+  height: "min(760px, calc(100vh - 220px))",
+  minHeight: 520,
+  borderRadius: 30,
+  background: "linear-gradient(180deg, #F3ECE0 0%, #E6DCCB 100%)",
+  padding: "14px 12px",
+  boxShadow: "0 24px 80px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.45)",
+  border: "1px solid rgba(140, 120, 92, 0.24)",
+  overflow: "hidden",
+  position: "relative",
 };
 
 const phoneInnerStyle: React.CSSProperties = {
-  minHeight: "100%",
-  borderRadius: 20,
+  height: "100%",
+  borderRadius: 22,
   background: "#FFFFFF",
-  padding: "22px 20px 28px",
+  padding: "22px 18px 28px 20px",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.8)",
 };
 
 const previewTitleStyle: React.CSSProperties = {
