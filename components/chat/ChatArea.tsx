@@ -611,6 +611,9 @@ function toolEventText(event: ToolEvent) {
   if (event.type === "tool_result" && event.toolName === "generate_full_article") {
     return "已生成一版可发布级公众号完整初稿。";
   }
+  if (event.type === "tool_result" && event.toolName === "compliance_check") {
+    return `已完成风控检查，当前建议：${event.payload?.publish_recommendation || "建议修改后发布"}。`;
+  }
   if (event.type === "tool_result" && event.toolName === "revise_full_article") {
     return "已按你的要求修改完整稿。";
   }

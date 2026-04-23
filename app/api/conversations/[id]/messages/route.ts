@@ -52,6 +52,31 @@ type FullArticleToolResult = {
   reference_note: string;
 };
 
+type ComplianceLevel = "high" | "medium" | "low";
+type ComplianceRiskType = "violation_risk" | "distribution_risk";
+
+type ComplianceIssue = {
+  level: ComplianceLevel;
+  risk_type: ComplianceRiskType;
+  category: string;
+  location: "title" | "summary" | "body" | "cta";
+  target_text: string;
+  reason: string;
+  suggestion: string;
+  replacement: string;
+};
+
+type ComplianceCheckResult = {
+  score: number;
+  publish_recommendation: "可发布" | "建议修改后发布" | "不建议发布";
+  overview: string;
+  disclaimer: string;
+  safer_title: string;
+  safer_summary: string;
+  safer_cta: string;
+  issues: ComplianceIssue[];
+};
+
 type ToolCallRow = {
   id: string;
   tool_name: string;
@@ -169,6 +194,22 @@ const AGENT_TOOLS: LlmTool[] = [
           style: { type: "string", description: "文风，默认克制专业、略有网感" },
         },
         required: ["topic_title"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "compliance_check",
+      description: "检查公众号标题、摘要、正文、CTA 的平台合规风险和限流风险，并给出替代表达",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "文章主标题" },
+          summary: { type: "string", description: "文章摘要" },
+          article_markdown: { type: "string", description: "文章 Markdown 正文" },
+        },
+        required: ["title", "summary", "article_markdown"],
       },
     },
   },
@@ -373,19 +414,47 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
                 payload: result,
               });
 
-              await finalizeToolCallLog(supabase, toolLogId, {
-                status: "success",
-                result,
-              });
-
               if (toolCall.function.name === "generate_full_article") {
+                const compliance = await runComplianceCheck({
+                  supabase,
+                  journeyId: conv.journey_id,
+                  userId: user.id,
+                  journey: (journeyRecord ?? null) as ToolContextJourney | null,
+                  article: result as FullArticleToolResult,
+                });
+
+                await emitEvent(controller, encoder, {
+                  type: "tool_start",
+                  toolName: "compliance_check",
+                  label: toolLabel("compliance_check"),
+                });
+
+                await emitEvent(controller, encoder, {
+                  type: "tool_result",
+                  toolName: "compliance_check",
+                  label: toolLabel("compliance_check"),
+                  payload: compliance as unknown as Record<string, unknown>,
+                });
+
                 fullContent = formatFullArticleResponse(
                   "我按你的要求写了一版可发布级公众号完整初稿。",
-                  result as FullArticleToolResult
+                  result as FullArticleToolResult,
+                  compliance
                 );
                 await emitText(controller, encoder, fullContent);
                 shouldStopAfterTool = true;
               }
+
+              if (toolCall.function.name === "compliance_check") {
+                fullContent = formatComplianceResponse(result as ComplianceCheckResult);
+                await emitText(controller, encoder, fullContent);
+                shouldStopAfterTool = true;
+              }
+
+              await finalizeToolCallLog(supabase, toolLogId, {
+                status: "success",
+                result,
+              });
 
               messages.push({
                 role: "tool",
@@ -599,6 +668,29 @@ async function executeTool({
       topicTitle,
       angle: String(args.angle || ""),
       style: String(args.style || "克制专业，可以有一点网感"),
+    });
+  }
+
+  if (toolName === "compliance_check") {
+    const title = String(args.title || "").trim();
+    const summary = String(args.summary || "").trim();
+    const articleMarkdown = String(args.article_markdown || "").trim();
+    if (!title || !articleMarkdown) {
+      throw new Error("title and article_markdown are required");
+    }
+
+    return runComplianceCheck({
+      supabase,
+      journeyId,
+      userId,
+      journey,
+      article: {
+        title,
+        summary,
+        title_options: [],
+        article_markdown: articleMarkdown,
+        reference_note: "",
+      },
     });
   }
 
@@ -887,6 +979,108 @@ ${params.previousArticle.article_markdown}
   };
 }
 
+async function runComplianceCheck(params: {
+  supabase: ReturnType<typeof createClient>;
+  journeyId: string;
+  userId: string;
+  journey: ToolContextJourney | null;
+  article: FullArticleToolResult;
+}) {
+  const ruleIssues = collectRuleBasedComplianceIssues(params.article);
+  const [userMemory, journeyMemory] = await Promise.all([
+    getUserMemory(params.supabase, params.userId),
+    getJourneyMemory(params.supabase, params.journeyId),
+  ]);
+
+  const serializedRuleIssues = ruleIssues.length
+    ? ruleIssues
+        .map((issue, index) =>
+          `${index + 1}. [${issue.level}/${issue.risk_type}] ${issue.category} | ${issue.location} | 命中文本：${issue.target_text} | 原因：${issue.reason} | 建议：${issue.suggestion} | 替代：${issue.replacement}`
+        )
+        .join("\n")
+    : "暂无明显规则命中";
+
+  const llmResult = await llm.chat(
+    "你是公众号内容合规审校助手。只输出 JSON，不要解释，不要使用 Markdown 代码块。",
+    `请检查下面这篇公众号内容在微信生态中的合规和限流风险。
+
+赛道：${params.journey?.niche_level2 ?? "未知赛道"}
+
+【用户记忆】
+${userMemory || "暂无"}
+
+【旅程记忆】
+${journeyMemory || "暂无"}
+
+【标题】
+${params.article.title}
+
+【摘要】
+${params.article.summary || "暂无"}
+
+【正文】
+${params.article.article_markdown}
+
+【规则命中初筛】
+${serializedRuleIssues}
+
+要求：
+1. 同时考虑“违规风险”和“限流风险”
+2. 重点检查：绝对化表达、收益承诺、诱导互动、医疗健康、金融投资、政策敏感、夸大宣传、标题党
+3. 输出 0-100 分，总分越高越安全
+4. 给出发布建议：可发布 / 建议修改后发布 / 不建议发布
+5. 每个问题必须包含：等级、风险类型、类别、位置、命中文本、原因、建议、替代表达
+6. 如果标题、摘要、CTA 需要更安全版本，也给出替代文本
+7. 仅作平台风险提示，不构成法律意见
+
+返回 JSON：
+{
+  "score": 78,
+  "publish_recommendation": "建议修改后发布",
+  "overview": "整体表达清晰，但有若干可能触发限流或夸大解读的措辞。",
+  "disclaimer": "仅作平台风险提示，不构成法律意见",
+  "safer_title": "更安全的标题",
+  "safer_summary": "更安全的摘要",
+  "safer_cta": "更安全的 CTA",
+  "issues": [
+    {
+      "level": "medium",
+      "risk_type": "distribution_risk",
+      "category": "绝对化表达",
+      "location": "title",
+      "target_text": "整个行业完蛋了",
+      "reason": "措辞过满，容易被识别为夸张表达。",
+      "suggestion": "改成更克制、可验证的判断。",
+      "replacement": "这个行业正在被重新洗牌"
+    }
+  ]
+}`
+  );
+
+  const parsed = safeParseJson<ComplianceCheckResult>(llmResult);
+  const normalized = normalizeComplianceResult(parsed, params.article);
+
+  if (!normalized.issues.length && ruleIssues.length) {
+    normalized.issues = ruleIssues;
+  } else if (ruleIssues.length) {
+    normalized.issues = dedupeComplianceIssues([...ruleIssues, ...normalized.issues]);
+  }
+
+  normalized.score = clampComplianceScore(normalized.score, normalized.issues);
+  normalized.publish_recommendation = derivePublishRecommendation(
+    normalized.publish_recommendation,
+    normalized.issues,
+    normalized.score
+  );
+  normalized.disclaimer = normalized.disclaimer || "仅作平台风险提示，不构成法律意见";
+  normalized.safer_title = normalized.safer_title || params.article.title;
+  normalized.safer_summary = normalized.safer_summary || params.article.summary || "";
+  normalized.safer_cta = normalized.safer_cta || suggestSaferCta(params.article.article_markdown);
+  normalized.overview = normalized.overview || buildComplianceOverview(normalized.issues, normalized.score);
+
+  return normalized;
+}
+
 async function handleNaturalLanguageFollowUp(params: {
   content: string;
   controller: ReadableStreamDefaultController;
@@ -941,11 +1135,32 @@ async function handleNaturalLanguageFollowUp(params: {
         style: "克制专业，可以有一点网感",
       });
 
+      const compliance = await runComplianceCheck({
+        supabase: params.supabase,
+        journeyId: params.journeyId,
+        userId: params.userId,
+        journey: params.journey,
+        article,
+      });
+
       await emitEvent(params.controller, params.encoder, {
         type: "tool_result",
         toolName: "generate_full_article",
         label: toolLabel("generate_full_article"),
         payload: article,
+      });
+
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_start",
+        toolName: "compliance_check",
+        label: toolLabel("compliance_check"),
+      });
+
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_result",
+        toolName: "compliance_check",
+        label: toolLabel("compliance_check"),
+        payload: compliance as unknown as Record<string, unknown>,
       });
 
       await finalizeToolCallLog(params.supabase, toolLogId, {
@@ -955,7 +1170,8 @@ async function handleNaturalLanguageFollowUp(params: {
 
       const response = formatFullArticleResponse(
         `你选了 **${topic.title}**，我按这个方向写了一版可发布级公众号完整初稿。`,
-        article
+        article,
+        compliance
       );
       await emitText(params.controller, params.encoder, response);
       return response;
@@ -1002,11 +1218,32 @@ async function handleNaturalLanguageFollowUp(params: {
         style: "克制专业，可以有一点网感",
       });
 
+      const compliance = await runComplianceCheck({
+        supabase: params.supabase,
+        journeyId: params.journeyId,
+        userId: params.userId,
+        journey: params.journey,
+        article,
+      });
+
       await emitEvent(params.controller, params.encoder, {
         type: "tool_result",
         toolName: "generate_full_article",
         label: toolLabel("generate_full_article"),
         payload: article,
+      });
+
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_start",
+        toolName: "compliance_check",
+        label: toolLabel("compliance_check"),
+      });
+
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_result",
+        toolName: "compliance_check",
+        label: toolLabel("compliance_check"),
+        payload: compliance as unknown as Record<string, unknown>,
       });
 
       await finalizeToolCallLog(params.supabase, toolLogId, {
@@ -1016,7 +1253,8 @@ async function handleNaturalLanguageFollowUp(params: {
 
       const response = formatFullArticleResponse(
         `收到，我已经把这次偏好记下来了，并基于 **${result.title}** 扩成一版完整公众号初稿。`,
-        article
+        article,
+        compliance
       );
       await emitText(params.controller, params.encoder, response);
       return response;
@@ -1055,11 +1293,32 @@ async function handleNaturalLanguageFollowUp(params: {
         instruction: params.content,
       });
 
+      const compliance = await runComplianceCheck({
+        supabase: params.supabase,
+        journeyId: params.journeyId,
+        userId: params.userId,
+        journey: params.journey,
+        article: revised,
+      });
+
       await emitEvent(params.controller, params.encoder, {
         type: "tool_result",
         toolName: "revise_full_article",
         label: toolLabel("revise_full_article"),
         payload: revised,
+      });
+
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_start",
+        toolName: "compliance_check",
+        label: toolLabel("compliance_check"),
+      });
+
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_result",
+        toolName: "compliance_check",
+        label: toolLabel("compliance_check"),
+        payload: compliance as unknown as Record<string, unknown>,
       });
 
       await finalizeToolCallLog(params.supabase, toolLogId, {
@@ -1074,7 +1333,56 @@ async function handleNaturalLanguageFollowUp(params: {
         params.content
       );
 
-      const response = formatFullArticleResponse("我按你的修改意见重写了一版：", revised);
+      const response = formatFullArticleResponse("我按你的修改意见重写了一版：", revised, compliance);
+      await emitText(params.controller, params.encoder, response);
+      return response;
+    }
+  }
+
+  if (isComplianceCheckRequest(params.content) && latestFullArticleCall) {
+    const article = latestFullArticleCall.result as FullArticleToolResult | null;
+    if (article?.article_markdown) {
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_start",
+        toolName: "compliance_check",
+        label: toolLabel("compliance_check"),
+      });
+
+      const toolLogId = await createToolCallLog(params.supabase, {
+        conversationId: params.conversationId,
+        journeyId: params.journeyId,
+        messageId: params.messageId,
+        toolName: "compliance_check",
+        status: "running",
+        arguments: {
+          title: article.title,
+          summary: article.summary,
+          article_markdown: article.article_markdown,
+        },
+        requiresConfirmation: false,
+      });
+
+      const compliance = await runComplianceCheck({
+        supabase: params.supabase,
+        journeyId: params.journeyId,
+        userId: params.userId,
+        journey: params.journey,
+        article,
+      });
+
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_result",
+        toolName: "compliance_check",
+        label: toolLabel("compliance_check"),
+        payload: compliance as unknown as Record<string, unknown>,
+      });
+
+      await finalizeToolCallLog(params.supabase, toolLogId, {
+        status: "success",
+        result: compliance,
+      });
+
+      const response = formatComplianceResponse(compliance);
       await emitText(params.controller, params.encoder, response);
       return response;
     }
@@ -1103,10 +1411,29 @@ function isRevisionRequest(content: string) {
   return /(改|修改|重写|润色|优化|缩短|扩写|更.{0,4}(犀利|专业|克制|口语|有网感|故事化)|开头|结尾|标题|摘要)/i.test(content.trim());
 }
 
-function formatFullArticleResponse(prefix: string, article: FullArticleToolResult) {
+function isComplianceCheckRequest(content: string) {
+  return /(检查合规|合规检查|会不会违规|平台风险|限流风险|改得更安全|风险提示)/i.test(content.trim());
+}
+
+function formatFullArticleResponse(
+  prefix: string,
+  article: FullArticleToolResult,
+  compliance?: ComplianceCheckResult
+) {
   const titleOptions = article.title_options.length
     ? article.title_options.map((title, index) => `${index + 1}. ${title}`).join("\n")
     : "暂无";
+
+  const complianceSection = compliance
+    ? `\n\n**合规风控**
+评分：${compliance.score}/100
+发布建议：${compliance.publish_recommendation}
+总览：${compliance.overview}
+
+${formatComplianceIssues(compliance.issues)}
+
+如果你愿意，我可以继续帮你：**按风控建议直接重写标题、摘要、CTA，或者把高风险段落改得更安全。**`
+    : `\n\n如果你愿意，我可以继续帮你做：**合规检查、风险改写、CTA 优化**。`;
 
   return `${prefix}
 
@@ -1126,7 +1453,52 @@ ${article.reference_note}
 
 ${article.article_markdown}
 
-如果你想继续调，我可以按你的要求做：**更犀利一点、缩短一半、重写开头、换标题风格、改成保姆教程风**。`;
+如果你想继续调，我可以按你的要求做：**更犀利一点、缩短一半、重写开头、换标题风格、改成保姆教程风**。${complianceSection}`;
+}
+
+function formatComplianceResponse(result: ComplianceCheckResult) {
+  return `我帮你做了一次合规风控检查：
+
+**风险评分**
+${result.score}/100
+
+**发布建议**
+${result.publish_recommendation}
+
+**整体判断**
+${result.overview}
+
+${formatComplianceIssues(result.issues)}
+
+**更安全的标题**
+${result.safer_title}
+
+**更安全的摘要**
+${result.safer_summary || "暂无"}
+
+**更安全的 CTA**
+${result.safer_cta || "暂无"}
+
+**提示**
+${result.disclaimer}
+
+如果你要，我可以继续：**按这些建议直接重写整篇文章，或者只改高风险段落。**`;
+}
+
+function formatComplianceIssues(issues: ComplianceIssue[]) {
+  if (!issues.length) {
+    return "**风险项**\n未发现明显高风险表达，但仍建议人工再过一遍标题、摘要和 CTA。";
+  }
+
+  return `**风险项**
+${issues
+  .slice(0, 6)
+  .map((issue, index) => `${index + 1}. [${levelLabel(issue.level)}｜${riskTypeLabel(issue.risk_type)}] ${issue.category}
+命中文本：${issue.target_text}
+原因：${issue.reason}
+建议：${issue.suggestion}
+替代表达：${issue.replacement}`)
+  .join("\n\n")}`;
 }
 
 function safeParseJson<T>(text: string) {
@@ -1163,6 +1535,8 @@ function toolLabel(toolName: string) {
       return "生成初稿";
     case "generate_full_article":
       return "生成完整稿";
+    case "compliance_check":
+      return "合规检查";
     case "revise_full_article":
       return "修改完整稿";
     case "import_koc_articles":
@@ -1170,6 +1544,201 @@ function toolLabel(toolName: string) {
     default:
       return toolName;
   }
+}
+
+function collectRuleBasedComplianceIssues(article: FullArticleToolResult): ComplianceIssue[] {
+  const issues: ComplianceIssue[] = [];
+  const title = article.title || "";
+  const summary = article.summary || "";
+  const body = article.article_markdown || "";
+  const cta = extractCta(body);
+
+  const targets: Array<{ text: string; location: ComplianceIssue["location"] }> = [
+    { text: title, location: "title" },
+    { text: summary, location: "summary" },
+    { text: body, location: "body" },
+    { text: cta, location: "cta" },
+  ];
+
+  const rules: Array<{
+    category: string;
+    risk_type: ComplianceRiskType;
+    level: ComplianceLevel;
+    pattern: RegExp;
+    reason: string;
+    suggestion: string;
+    replacement: string;
+  }> = [
+    {
+      category: "绝对化表达",
+      risk_type: "distribution_risk",
+      level: "medium",
+      pattern: /(最强|第一|唯一|绝对|一定|必然|全网|彻底|完蛋了|100%)/i,
+      reason: "措辞过满，容易被判定为夸大或标题党。",
+      suggestion: "改成更克制、可验证的表达。",
+      replacement: "正在被重新评估 / 更有可能 / 值得关注",
+    },
+    {
+      category: "收益承诺",
+      risk_type: "violation_risk",
+      level: "high",
+      pattern: /(保证涨粉|保证赚钱|轻松月入|稳定变现|闭眼入|稳赚|翻倍收益)/i,
+      reason: "存在明显的收益或结果承诺，平台风险较高。",
+      suggestion: "删除承诺式表达，改为经验判断或机会描述。",
+      replacement: "更有机会提升转化 / 可能带来更好的效果",
+    },
+    {
+      category: "诱导互动",
+      risk_type: "distribution_risk",
+      level: "medium",
+      pattern: /(转发给|点个在看|点个赞|关注后私信|不转不是|求扩散)/i,
+      reason: "存在明显诱导点赞、转发、关注的表达，容易影响分发。",
+      suggestion: "改成自然邀请用户交流或收藏。",
+      replacement: "如果这篇对你有帮助，欢迎收藏，之后复盘时再回来对照。",
+    },
+    {
+      category: "医疗健康",
+      risk_type: "violation_risk",
+      level: "high",
+      pattern: /(治疗|治愈|包治|药到病除|医学证明|临床验证)/i,
+      reason: "涉及医疗健康效果判断，需格外谨慎。",
+      suggestion: "避免效果承诺，改成信息分享或经验观察。",
+      replacement: "仅作信息参考，具体请咨询专业医生或官方指引",
+    },
+    {
+      category: "金融投资",
+      risk_type: "violation_risk",
+      level: "high",
+      pattern: /(买入|抄底|暴涨|稳赚不赔|收益率|财务自由|投资建议)/i,
+      reason: "涉及明确投资指引或收益暗示，平台风险较高。",
+      suggestion: "改成市场观察，不给直接投资建议。",
+      replacement: "仅分享观察，不构成任何投资建议",
+    },
+    {
+      category: "政策敏感",
+      risk_type: "violation_risk",
+      level: "high",
+      pattern: /(内幕|监管失控|政策黑幕|封杀|国家不让说)/i,
+      reason: "容易触发政策和公共议题敏感风险。",
+      suggestion: "删除阴谋化表达，改为公开信息层面的描述。",
+      replacement: "基于公开信息来看，相关规则仍在变化",
+    },
+  ];
+
+  for (const rule of rules) {
+    for (const target of targets) {
+      if (!target.text) continue;
+      const match = target.text.match(rule.pattern);
+      if (!match) continue;
+      issues.push({
+        level: rule.level,
+        risk_type: rule.risk_type,
+        category: rule.category,
+        location: target.location,
+        target_text: truncate(match[0], 36),
+        reason: rule.reason,
+        suggestion: rule.suggestion,
+        replacement: rule.replacement,
+      });
+    }
+  }
+
+  return dedupeComplianceIssues(issues);
+}
+
+function dedupeComplianceIssues(issues: ComplianceIssue[]) {
+  const seen = new Set<string>();
+  return issues.filter((issue) => {
+    const key = `${issue.category}|${issue.location}|${issue.target_text}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeComplianceResult(
+  parsed: ComplianceCheckResult | null,
+  article: FullArticleToolResult
+): ComplianceCheckResult {
+  return {
+    score: parsed?.score ?? 88,
+    publish_recommendation: parsed?.publish_recommendation ?? "可发布",
+    overview: parsed?.overview ?? "",
+    disclaimer: parsed?.disclaimer ?? "",
+    safer_title: parsed?.safer_title ?? article.title,
+    safer_summary: parsed?.safer_summary ?? article.summary,
+    safer_cta: parsed?.safer_cta ?? extractCta(article.article_markdown),
+    issues: Array.isArray(parsed?.issues) ? parsed!.issues : [],
+  };
+}
+
+function clampComplianceScore(score: number, issues: ComplianceIssue[]) {
+  const high = issues.filter((issue) => issue.level === "high").length;
+  const medium = issues.filter((issue) => issue.level === "medium").length;
+  const low = issues.filter((issue) => issue.level === "low").length;
+  const derived = 100 - high * 18 - medium * 10 - low * 4;
+  const baseline = Number.isFinite(score) ? score : 88;
+  return Math.max(20, Math.min(baseline, derived, 100));
+}
+
+function derivePublishRecommendation(
+  current: ComplianceCheckResult["publish_recommendation"],
+  issues: ComplianceIssue[],
+  score: number
+): ComplianceCheckResult["publish_recommendation"] {
+  if (issues.some((issue) => issue.level === "high" && issue.risk_type === "violation_risk")) {
+    return "不建议发布";
+  }
+  if (issues.some((issue) => issue.level !== "low") || score < 85) {
+    return "建议修改后发布";
+  }
+  return current === "不建议发布" ? "建议修改后发布" : "可发布";
+}
+
+function buildComplianceOverview(issues: ComplianceIssue[], score: number) {
+  if (!issues.length) {
+    return score >= 90
+      ? "整体表达较稳，未发现明显高风险措辞，主要保留人工复核标题和 CTA 即可。"
+      : "整体风险可控，但仍建议人工复核标题、摘要和 CTA。";
+  }
+  const high = issues.filter((issue) => issue.level === "high").length;
+  const medium = issues.filter((issue) => issue.level === "medium").length;
+  if (high > 0) {
+    return `存在 ${high} 处高风险表达，建议先改写再发布；另外还有 ${medium} 处可能影响分发的措辞。`;
+  }
+  return `整体风险可控，但有 ${medium} 处可能引发限流或夸大解读的表达，建议先微调后发布。`;
+}
+
+function extractCta(markdown: string) {
+  const lines = markdown.split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines.slice(-2).join(" ");
+}
+
+function suggestSaferCta(markdown: string) {
+  const cta = extractCta(markdown);
+  if (!cta) return "如果这篇内容对你有帮助，欢迎先收藏，之后复盘时再回来对照。";
+  return cta
+    .replace(/点个在看|点个赞|转发给.+?(?=[，。]|$)/g, "欢迎先收藏")
+    .replace(/关注后私信/g, "如果你也在做这件事，欢迎留言交流");
+}
+
+function levelLabel(level: ComplianceLevel) {
+  switch (level) {
+    case "high":
+      return "高风险";
+    case "medium":
+      return "中风险";
+    default:
+      return "低风险";
+  }
+}
+
+function riskTypeLabel(type: ComplianceRiskType) {
+  return type === "violation_risk" ? "违规风险" : "限流风险";
+}
+
+function truncate(text: string, max: number) {
+  return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
 async function emitEvent(controller: ReadableStreamDefaultController, encoder: TextEncoder, payload: Record<string, unknown>) {
