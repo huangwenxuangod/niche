@@ -11,21 +11,40 @@ interface Props {
   kocCount: number;
 }
 
+type ToolEvent = {
+  id: string;
+  type: "tool_start" | "tool_result" | "tool_requires_confirmation" | "tool_error";
+  toolName?: string;
+  label: string;
+  payload?: Record<string, unknown>;
+  error?: string;
+};
+
+type RecommendedAccount = {
+  name: string;
+  ghid: string;
+  fans: number;
+  avg_top_read: number;
+};
+
 export function ChatArea({ conversationId, journey, initialMessages, kocCount }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
+  const [importingGhid, setImportingGhid] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages]);
+  }, [messages, toolEvents]);
 
   async function sendMessage(text: string) {
     if (!text.trim() || streaming) return;
     setInput("");
+    setToolEvents([]);
 
     const userMsg: Message = {
       id: crypto.randomUUID(),
@@ -78,13 +97,25 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
             if (data === "[DONE]") break;
             try {
               const parsed = JSON.parse(data);
-              if (parsed.text) {
+              if (parsed.type === "text" && parsed.text) {
                 assistantContent += parsed.text;
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === assistantId ? { ...m, content: assistantContent } : m
                   )
                 );
+              } else if (parsed.type && parsed.type !== "text") {
+                setToolEvents((prev) => [
+                  ...prev,
+                  {
+                    id: crypto.randomUUID(),
+                    type: parsed.type,
+                    toolName: parsed.toolName,
+                    label: parsed.label || "工具调用",
+                    payload: parsed.payload,
+                    error: parsed.error,
+                  },
+                ]);
               }
             } catch {}
           }
@@ -101,6 +132,52 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
       );
     } finally {
       setStreaming(false);
+    }
+  }
+
+  async function importRecommendedKoc(ghid: string) {
+    setImportingGhid(ghid);
+    try {
+      const res = await fetch(`/api/koc/${ghid}/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ journey_id: journey.id }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "导入失败");
+      }
+
+      setToolEvents((prev) =>
+        prev.map((event) =>
+          event.type === "tool_requires_confirmation" && event.payload?.ghid === ghid
+            ? {
+                ...event,
+                type: "tool_result",
+                payload: {
+                  ...event.payload,
+                  imported: true,
+                  articleCount: data.articleCount,
+                  account_name: data.account?.name || event.payload?.account_name,
+                },
+              }
+            : event
+        )
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "导入失败";
+      setToolEvents((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          type: "tool_error",
+          label: "导入 KOC",
+          error: message,
+        },
+      ]);
+    } finally {
+      setImportingGhid(null);
     }
   }
 
@@ -136,6 +213,13 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
             <WelcomeState journey={journey} onPrompt={sendMessage} />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+              {toolEvents.length > 0 && (
+                <ToolTimeline
+                  events={toolEvents}
+                  importingGhid={importingGhid}
+                  onImport={importRecommendedKoc}
+                />
+              )}
               {messages.map((m) => (
                 <MessageBubble
                   key={m.id}
@@ -325,6 +409,140 @@ function formatMessage(content: string): string {
     .replace(/`([^`]+)`/g, '<code style="font-family:var(--font-mono);font-size:11px;background:var(--accent-dim);color:var(--accent);padding:1px 5px;border-radius:3px">$1</code>');
 }
 
+function ToolTimeline({
+  events,
+  importingGhid,
+  onImport,
+}: {
+  events: ToolEvent[];
+  importingGhid: string | null;
+  onImport: (ghid: string) => void;
+}) {
+  const getAccounts = (payload?: Record<string, unknown>) =>
+    (payload?.accounts as RecommendedAccount[] | undefined) ?? [];
+  const getPayloadText = (payload: Record<string, unknown> | undefined, key: string) =>
+    typeof payload?.[key] === "string" ? (payload[key] as string) : "";
+  const getPayloadFlag = (payload: Record<string, unknown> | undefined, key: string) =>
+    payload?.[key] === true;
+
+  return (
+    <div
+      style={{
+        maxWidth: "76%",
+        padding: "12px 14px",
+        borderRadius: 10,
+        background: "var(--bg-base)",
+        border: "1px solid var(--border)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
+        Agent Trace
+      </div>
+      {events.map((event) => (
+        <div key={event.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+            {toolEventText(event)}
+          </div>
+          {getAccounts(event.payload).length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {getAccounts(event.payload).map((account) => (
+                <div
+                  key={account.ghid}
+                  style={{
+                    padding: "10px 12px",
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 4 }}>
+                        {account.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+                        粉丝 {fmtCount(account.fans)} · 平均阅读 {fmtCount(account.avg_top_read)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onImport(account.ghid)}
+                      disabled={importingGhid === account.ghid}
+                      style={miniButtonStyle}
+                    >
+                      {importingGhid === account.ghid ? "导入中..." : "导入"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {event.type === "tool_requires_confirmation" &&
+            getPayloadText(event.payload, "ghid") &&
+            !getPayloadFlag(event.payload, "imported") && (
+            <div
+              style={{
+                padding: "10px 12px",
+                background: "var(--bg-surface)",
+                border: "1px solid rgba(200,150,90,0.25)",
+                borderRadius: 8,
+              }}
+            >
+              <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 8, lineHeight: 1.6 }}>
+                推荐导入 {getPayloadText(event.payload, "account_name") || getPayloadText(event.payload, "ghid")}
+                {getPayloadText(event.payload, "reason") ? `：${getPayloadText(event.payload, "reason")}` : ""}
+              </div>
+              <button
+                onClick={() => onImport(getPayloadText(event.payload, "ghid"))}
+                disabled={importingGhid === getPayloadText(event.payload, "ghid")}
+                style={miniButtonStyle}
+              >
+                {importingGhid === getPayloadText(event.payload, "ghid") ? "导入中..." : "确认导入"}
+              </button>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function toolEventText(event: ToolEvent) {
+  const topicCount = Array.isArray(event.payload?.topics) ? event.payload.topics.length : 0;
+  const accountCount = Array.isArray(event.payload?.accounts) ? event.payload.accounts.length : 0;
+
+  if (event.type === "tool_start") {
+    return `正在${event.label}...`;
+  }
+  if (event.type === "tool_error") {
+    return `${event.label}失败：${event.error}`;
+  }
+  if (event.type === "tool_requires_confirmation") {
+    return `${event.label}需要你确认后再执行。`;
+  }
+  if (event.type === "tool_result" && event.toolName === "search_hot_topics") {
+    return `已找到 ${topicCount} 条近期热点。`;
+  }
+  if (event.type === "tool_result" && event.toolName === "search_koc_accounts") {
+    return `已找到 ${accountCount} 个可跟踪的 KOC。`;
+  }
+  if (event.type === "tool_result" && event.toolName === "analyze_journey_data") {
+    return `已分析 ${event.payload?.article_count ?? 0} 篇文章和 ${event.payload?.koc_count ?? 0} 个 KOC。`;
+  }
+  if (event.type === "tool_result" && event.payload?.imported) {
+    return `已导入 ${event.payload.account_name || event.payload.ghid}，同步 ${event.payload.articleCount ?? 0} 篇文章。`;
+  }
+  return `${event.label}已完成。`;
+}
+
+function fmtCount(n: number) {
+  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n ?? 0);
+}
+
 // ---- Tool button ----
 
 function ToolButton({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
@@ -401,5 +619,17 @@ const messagesStyle: React.CSSProperties = {
 const inputAreaStyle: React.CSSProperties = {
   padding: "14px 28px 20px",
   borderTop: "1px solid var(--border)",
+  flexShrink: 0,
+};
+
+const miniButtonStyle: React.CSSProperties = {
+  padding: "7px 12px",
+  background: "var(--accent)",
+  border: "none",
+  borderRadius: 6,
+  color: "var(--bg-void)",
+  fontSize: 11,
+  fontFamily: "var(--font-body)",
+  cursor: "pointer",
   flexShrink: 0,
 };

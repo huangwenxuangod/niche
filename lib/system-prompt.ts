@@ -1,15 +1,21 @@
-import { tavilySearch } from "./tavily";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-interface BuildPromptOptions {
-  includeHotTopics?: boolean; // 是否需要搜索热点
-}
+type PromptKoc = {
+  account_name: string;
+  max_read_count: number;
+  avg_read_count: number;
+};
+
+type PromptViralArticle = {
+  title: string;
+  read_count: number;
+  koc_sources: { account_name: string } | { account_name: string }[] | null;
+};
 
 export async function buildSystemPrompt(
   journeyId: string,
   userId: string,
-  supabase: SupabaseClient,
-  options: BuildPromptOptions = {}
+  supabase: SupabaseClient
 ): Promise<string> {
   const [journeyRes, profileRes, kocRes, viralRes] = await Promise.all([
     supabase.from("journeys").select("*").eq("id", journeyId).single(),
@@ -33,17 +39,8 @@ export async function buildSystemPrompt(
   if (!journey) return "你是 Niche，一个内容创作 AI 助手。";
 
   const profile = profileRes.data;
-  const kocList = kocRes.data ?? [];
-  const viralArticles = viralRes.data ?? [];
-
-  // 按需搜索热点
-  let hotTopics: { title: string; url?: string }[] = [];
-  if (options.includeHotTopics && journey.keywords?.length) {
-    try {
-      const results = await tavilySearch(journey.keywords[0], { max_results: 5, days: 3 });
-      hotTopics = results.map((r: any) => ({ title: r.title, url: r.url }));
-    } catch {}
-  }
+  const kocList = (kocRes.data ?? []) as PromptKoc[];
+  const viralArticles = (viralRes.data ?? []) as PromptViralArticle[];
 
   const platformLabel = journey.platform === "wechat_mp" ? "公众号" : journey.platform;
 
@@ -52,8 +49,17 @@ export async function buildSystemPrompt(
 用中文回答。用 **粗体** 标注关键建议或数据。
 
 【你的可用工具】
-你有以下工具可以调用（如果用户需求对应，请先调用工具再回答）：
-1. tool_hotspot_search：搜索当前赛道热点（如果用户问"有什么热点"、"帮我选题"等，需要先调用）
+你可以按需调用以下工具：
+1. search_hot_topics：搜索当前赛道近几天热点，适合“今日热点/这周趋势/最近该写什么”
+2. search_koc_accounts：搜索值得跟踪的公众号/KOC 账号
+3. analyze_journey_data：读取当前旅程已有 KOC 和爆款文章，分析爆款规律、标题套路、选题方向
+4. import_koc_articles：导入某个 KOC 的文章到知识库，但这是写操作，必须先推荐理由，再等待用户确认
+
+【工具使用规则】
+1. 如果问题需要真实数据，先调用工具再回答，不要假设你已经看过最新热点或最新 KOC
+2. 对导入类工具，你只能“建议导入”，不能假装已经执行成功
+3. 当工具返回的数据不够时，明确说出局限，不要编造数据
+4. 最终回答仍然像一个内容顾问，而不是机械罗列工具结果
 
 【用户身份】
 ${profile?.identity_memo ?? "（用户暂未填写身份信息，根据对话内容推断）"}
@@ -67,7 +73,7 @@ ${profile?.identity_memo ?? "（用户暂未填写身份信息，根据对话内
 ${
   kocList.length > 0
     ? kocList
-        .map((k: any) => `- ${k.account_name}：最高阅读 ${fmtNum(k.max_read_count)}，均值 ${fmtNum(k.avg_read_count)}`)
+        .map((k) => `- ${k.account_name}：最高阅读 ${fmtNum(k.max_read_count)}，均值 ${fmtNum(k.avg_read_count)}`)
         .join("\n")
     : "（知识库初始化中，暂无 KOC 数据）"
 }
@@ -76,21 +82,13 @@ ${
 ${
   viralArticles.length > 0
     ? viralArticles
-        .map((a: any) => {
-          const kocSrc = a.koc_sources as { account_name: string }[] | { account_name: string } | null;
+        .map((a) => {
+          const kocSrc = a.koc_sources;
           const kocName = Array.isArray(kocSrc) ? (kocSrc[0]?.account_name ?? "未知") : (kocSrc?.account_name ?? "未知");
           return `- 《${a.title}》| ${kocName} | 阅读 ${fmtNum(a.read_count)}`;
         })
         .join("\n")
     : "（暂无爆款数据）"
-}
-${
-  hotTopics.length > 0
-    ? `
-【当前赛道热点（已调用 tool_hotspot_search）】
-${hotTopics.map((t) => `- ${t.title}`).join("\n")}
-`
-    : ""
 }
 基于以上情报，帮助用户解决内容创作的具体问题。
 每次给出建议时，必须结合上方的真实数据，不要泛泛而谈。`;
