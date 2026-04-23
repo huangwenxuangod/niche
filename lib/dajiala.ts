@@ -155,18 +155,23 @@ export const dajiala = {
   },
 
   getPostHistory: async (input: string, page = 1) => {
-    const params: any = { page };
+    const params: any = {
+      biz: "",
+      url: "",
+      name: "",
+      page,
+      verifycode: "",  // verifycode 参数始终传
+    };
 
-    // 判断输入类型，优先顺序：biz > url > name
+    // 判断输入类型，只给一个参数赋值
     if (input.startsWith("http")) {
       params.url = input;
     } else if (/^gh_/.test(input)) {
       params.ghid = input;
-    } else if (input.length > 15 && !input.includes(" ")) {
-      // 可能是 biz (通常很长)
+    } else if (input.length > 15 && !input.includes(" ") && input.length < 30) {
       params.biz = input;
     } else {
-      // 否则按名称处理
+      // 优先用名称处理
       params.name = input;
     }
 
