@@ -160,18 +160,14 @@ export const dajiala = {
       url: "",
       name: "",
       page,
-      verifycode: "",  // verifycode 参数始终传
+      verifycode: "",
     };
 
     // 判断输入类型，只给一个参数赋值
     if (input.startsWith("http")) {
       params.url = input;
-    } else if (/^gh_/.test(input)) {
-      params.ghid = input;
-    } else if (input.length > 15 && !input.includes(" ") && input.length < 30) {
-      params.biz = input;
     } else {
-      // 优先用名称处理
+      // 其他情况都用 name
       params.name = input;
     }
 
