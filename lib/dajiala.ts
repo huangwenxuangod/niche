@@ -156,14 +156,11 @@ export const dajiala = {
 
   getPostHistory: async (input: string, page = 1) => {
     const params: any = {
-      biz: "",
-      url: "",
-      name: "",
       page,
       verifycode: "",
     };
 
-    // 判断输入类型，只给一个参数赋值
+    // 判断输入类型，只给一个参数赋值，其他字段不传！
     if (input.startsWith("http")) {
       params.url = input;
     } else {
@@ -171,8 +168,12 @@ export const dajiala = {
       params.name = input;
     }
 
-    const res = await post<DajialaPostHistoryResponse>("/post_history", params);
-    return res.data;
+    console.log("[dajiala] Calling post_history with params:", params);
+    const res = await post<any>("/post_history", params);
+    console.log("[dajiala] post_history full response:", res);
+
+    // 返回完整响应而不是只返回 data
+    return res;
   },
 
   getArticleList: async (ghid: string, page = 1) => {

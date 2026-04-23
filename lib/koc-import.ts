@@ -7,13 +7,23 @@ export async function importKocForJourney(
   input: string
 ) {
   // 使用新的 post_history API 获取账号信息和文章列表
-  const postHistory = await dajiala.getPostHistory(input, 1);
+  const response = await dajiala.getPostHistory(input, 1);
 
-  if (!postHistory || !postHistory.mp_ghid) {
+  console.log("[koc-import] Full response:", response);
+
+  // 尝试找到数据字段
+  const data = response.data || response;
+  console.log("[koc-import] Using data:", data);
+
+  if (!data || (!data.mp_ghid && !data.ghid)) {
     throw new Error("无法获取公众号信息，请检查输入是否正确");
   }
 
-  const ghid = postHistory.mp_ghid;
+  const ghid = data.mp_ghid || data.ghid;
+  const mp_nickname = data.mp_nickname || data.nickname || data.name;
+  const mp_wxid = data.mp_wxid || data.wxid;
+  const head_img = data.head_img || data.avatar;
+  const list = data.list || [];
 
   // 先检查是否已经添加过
   const { data: existing } = await supabase
@@ -33,11 +43,11 @@ export async function importKocForJourney(
     .insert({
       journey_id: journeyId,
       platform: "wechat_mp",
-      account_name: postHistory.mp_nickname || input,
+      account_name: mp_nickname || input,
       account_id: ghid,
       ghid: ghid,
-      wxid: postHistory.mp_wxid,
-      avatar_url: postHistory.head_img,
+      wxid: mp_wxid,
+      avatar_url: head_img,
       is_manually_added: false,
     })
     .select()
@@ -47,7 +57,7 @@ export async function importKocForJourney(
     throw kocError ?? new Error("插入 KOC 失败");
   }
 
-  const articles = postHistory.list || [];
+  const articles = list || [];
   let totalReads = 0;
   let maxReads = 0;
   let articleCount = 0;
@@ -142,12 +152,12 @@ export async function importKocForJourney(
   return {
     success: true,
     articleCount,
-    costMoney: postHistory.cost_money,
-    remainMoney: postHistory.remain_money,
+    costMoney: data.cost_money,
+    remainMoney: data.remain_money,
     account: {
-      name: postHistory.mp_nickname || input,
+      name: mp_nickname || input,
       ghid: ghid,
-      wxid: postHistory.mp_wxid,
+      wxid: mp_wxid,
     },
     kocId: koc.id,
   };
