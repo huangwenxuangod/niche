@@ -1,23 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 
-export function IdentityForm({ initialValue }: { initialValue: string }) {
+export function IdentityForm({
+  initialValue,
+  initialMemory,
+}: {
+  initialValue: string;
+  initialMemory: string;
+}) {
   const [value, setValue] = useState(initialValue);
+  const [memoryValue, setMemoryValue] = useState(initialMemory);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const supabase = createClient();
 
   async function save() {
     setSaving(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      await supabase.from("user_profiles").upsert(
-        { user_id: user.id, identity_memo: value, updated_at: new Date().toISOString() },
-        { onConflict: "user_id" }
-      );
-    }
+    await fetch("/api/memory/user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        identity_memo: value,
+        memory_markdown: memoryValue,
+      }),
+    });
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -43,6 +49,38 @@ export function IdentityForm({ initialValue }: { initialValue: string }) {
           outline: "none",
           resize: "vertical",
           marginBottom: 16,
+        }}
+      />
+      <div
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 9,
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+          color: "var(--text-tertiary)",
+          marginBottom: 8,
+        }}
+      >
+        AI 已记住的内容
+      </div>
+      <textarea
+        value={memoryValue}
+        onChange={(e) => setMemoryValue(e.target.value)}
+        rows={14}
+        style={{
+          width: "100%",
+          background: "var(--bg-base)",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          padding: "14px 16px",
+          color: "var(--text-primary)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 12,
+          lineHeight: 1.7,
+          outline: "none",
+          resize: "vertical",
+          marginBottom: 16,
+          whiteSpace: "pre-wrap",
         }}
       />
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

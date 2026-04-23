@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { IdentityForm } from "./IdentityForm";
+import { getUserMemory, syncUserIdentityMemory } from "@/lib/memory";
 
 export default async function ProfilePage() {
   const cookieStore = await cookies();
@@ -14,6 +15,10 @@ export default async function ProfilePage() {
     .select("identity_memo")
     .eq("user_id", user.id)
     .single();
+
+  const memoryMarkdown =
+    (await getUserMemory(user.id)) ||
+    (await syncUserIdentityMemory(user.id, profile?.identity_memo ?? ""));
 
   return (
     <div
@@ -35,7 +40,10 @@ export default async function ProfilePage() {
       <div style={{ fontSize: 13, color: "var(--text-tertiary)", marginBottom: 32, lineHeight: 1.6 }}>
         用几句话描述你自己，AI 会在每次对话中记住这些信息，给出更有针对性的建议。
       </div>
-      <IdentityForm initialValue={profile?.identity_memo ?? ""} />
+      <IdentityForm
+        initialValue={profile?.identity_memo ?? ""}
+        initialMemory={memoryMarkdown}
+      />
     </div>
   );
 }

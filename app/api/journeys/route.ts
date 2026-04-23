@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { llm } from "@/lib/llm";
+import { ensureJourneyMemory, syncUserIdentityMemory } from "@/lib/memory";
 
 export async function GET() {
   const cookieStore = await cookies();
@@ -61,7 +62,16 @@ export async function POST(req: NextRequest) {
       { user_id: user.id, identity_memo, updated_at: new Date().toISOString() },
       { onConflict: "user_id" }
     );
+    await syncUserIdentityMemory(user.id, identity_memo);
   }
+
+  await ensureJourneyMemory({
+    journeyId: journey.id,
+    platform: platform === "wechat_mp" ? "公众号" : platform,
+    nicheLevel1: niche_level1,
+    nicheLevel2: niche_level2,
+    nicheLevel3: niche_level3,
+  });
 
   // Create initial conversation
   const { data: conv } = await supabase

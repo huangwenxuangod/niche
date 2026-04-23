@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getJourneyMemory, getUserMemory } from "./memory";
 
 type PromptKoc = {
   account_name: string;
@@ -17,7 +18,7 @@ export async function buildSystemPrompt(
   userId: string,
   supabase: SupabaseClient
 ): Promise<string> {
-  const [journeyRes, profileRes, kocRes, viralRes] = await Promise.all([
+  const [journeyRes, profileRes, kocRes, viralRes, userMemory, journeyMemory] = await Promise.all([
     supabase.from("journeys").select("*").eq("id", journeyId).single(),
     supabase.from("user_profiles").select("identity_memo").eq("user_id", userId).single(),
     supabase
@@ -33,6 +34,8 @@ export async function buildSystemPrompt(
       .eq("is_viral", true)
       .order("read_count", { ascending: false })
       .limit(8),
+    getUserMemory(userId),
+    getJourneyMemory(journeyId),
   ]);
 
   const journey = journeyRes.data;
@@ -64,6 +67,12 @@ export async function buildSystemPrompt(
 
 【用户身份】
 ${profile?.identity_memo ?? "（用户暂未填写身份信息，根据对话内容推断）"}
+
+【用户记忆】
+${userMemory || "（暂无用户记忆）"}
+
+【当前旅程记忆】
+${journeyMemory || "（暂无旅程记忆）"}
 
 【当前赛道】
 平台：${platformLabel}

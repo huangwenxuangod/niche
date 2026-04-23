@@ -6,6 +6,7 @@ import { llm, type LlmMessage, type LlmTool } from "@/lib/llm";
 import { tavilySearch } from "@/lib/tavily";
 import { dajiala } from "@/lib/dajiala";
 import { searchJourneyKnowledge } from "@/lib/knowledge-base";
+import { captureMessageMemory, ensureJourneyMemory } from "@/lib/memory";
 
 type ConversationHistoryEntry = {
   role: "user" | "assistant";
@@ -128,6 +129,16 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
 
   if (!conv) return new Response("Not found", { status: 404 });
 
+  const journeyRecord = Array.isArray(conv.journeys) ? conv.journeys[0] : conv.journeys;
+
+  await ensureJourneyMemory({
+    journeyId: conv.journey_id,
+    platform: journeyRecord?.platform === "wechat_mp" ? "公众号" : (journeyRecord?.platform ?? "未知平台"),
+    nicheLevel1: journeyRecord?.niche_level1 ?? "",
+    nicheLevel2: journeyRecord?.niche_level2 ?? "",
+    nicheLevel3: journeyRecord?.niche_level3 ?? "",
+  });
+
   const { data: userMessage } = await supabase
     .from("messages")
     .insert({
@@ -137,6 +148,12 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
     })
     .select("id")
     .single();
+
+  await captureMessageMemory({
+    userId: user.id,
+    journeyId: conv.journey_id,
+    content,
+  });
 
   const { data: history } = await supabase
     .from("messages")
@@ -229,7 +246,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
                 args,
                 journeyId: conv.journey_id,
                 supabase,
-                journey: (conv.journeys ?? null) as ToolContextJourney | null,
+                journey: (journeyRecord ?? null) as ToolContextJourney | null,
               });
 
               await emitEvent(controller, encoder, {
