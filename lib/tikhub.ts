@@ -20,8 +20,14 @@ export const tikhub = {
         url: articleUrl,
       }),
 
-    fetchArticleList: (fakeid: string) =>
+    fetchArticleListByFakeid: (fakeid: string) =>
       tikhubFetch("/api/v1/wechat/web/fetch_mp_article_list", { fakeid }),
+
+    fetchArticleListByGhid: (ghid: string, offset?: string) =>
+      tikhubFetch("/api/v1/wechat_mp/web/fetch_mp_article_list", {
+        ghid,
+        ...(offset ? { offset } : {}),
+      }),
 
     fetchArticleReadCount: (articleUrl: string) =>
       tikhubFetch("/api/v1/wechat/web/fetch_mp_article_read_count", {

@@ -17,7 +17,9 @@ export default function KocPage() {
   const [kocs, setKocs] = useState<KOCSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
-  const [input, setInput] = useState("");
+  const [syncing, setSyncing] = useState<string | null>(null);
+  const [ghidInput, setGhidInput] = useState("");
+  const [accountNameInput, setAccountNameInput] = useState("");
   const supabase = createClient();
 
   useEffect(() => {
@@ -29,25 +31,49 @@ export default function KocPage() {
       .from("koc_sources")
       .select("*")
       .eq("journey_id", journeyId)
-      .order("max_read_count", { ascending: false });
+      .order("created_at", { ascending: false });
     setKocs(data ?? []);
     setLoading(false);
   }
 
   async function addKOC() {
-    if (!input.trim()) return;
+    if (!ghidInput.trim()) return;
     setAdding(true);
-    const res = await fetch("/api/koc", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ journey_id: journeyId, account_name: input.trim() }),
-    });
-    const data = await res.json();
-    if (data.id) {
-      setKocs((prev) => [data, ...prev]);
-      setInput("");
+    try {
+      const res = await fetch("/api/koc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          journey_id: journeyId,
+          ghid: ghidInput.trim(),
+          account_name: accountNameInput.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.id) {
+        setKocs((prev) => [data, ...prev]);
+        setGhidInput("");
+        setAccountNameInput("");
+      }
+    } catch (err) {
+      console.error("Add KOC failed:", err);
     }
     setAdding(false);
+  }
+
+  async function syncArticles(kocId: string) {
+    setSyncing(kocId);
+    try {
+      const res = await fetch(`/api/koc/${kocId}/sync`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        await fetchKocs();
+      }
+    } catch (err) {
+      console.error("Sync failed:", err);
+    }
+    setSyncing(null);
   }
 
   async function deleteKOC(id: string) {
@@ -62,46 +88,67 @@ export default function KocPage() {
         <button onClick={() => router.back()} style={{ background: "none", border: "none", color: "var(--text-tertiary)", cursor: "pointer", fontSize: 18 }}>←</button>
         <div>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 400, color: "var(--text-primary)" }}>KOC 管理</div>
-          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 2 }}>追踪的公众号列表</div>
+          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 2 }}>手动管理竞品公众号</div>
         </div>
       </div>
 
       {/* Add input */}
       <div style={{ padding: "16px 28px", borderBottom: "1px solid var(--border)" }}>
-        <div style={{ display: "flex", gap: 10 }}>
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addKOC()}
-            placeholder="输入公众号名称或文章链接来添加 KOC"
-            style={{
-              flex: 1,
-              background: "var(--bg-surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              padding: "12px 16px",
-              fontSize: 13,
-              color: "var(--text-primary)",
-              outline: "none",
-              fontFamily: "var(--font-body)",
-            }}
-          />
-          <button
-            onClick={addKOC}
-            disabled={adding}
-            style={{
-              padding: "12px 24px",
-              background: "var(--accent)",
-              border: "none",
-              borderRadius: 8,
-              color: "var(--bg-void)",
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: adding ? "not-allowed" : "pointer",
-            }}
-          >
-            {adding ? "添加中..." : "+ 添加"}
-          </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", gap: 10 }}>
+            <input
+              value={ghidInput}
+              onChange={(e) => setGhidInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addKOC()}
+              placeholder="公众号 ID (ghid)，如 gh_a3d35d4c9d3f"
+              style={{
+                flex: 1,
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                padding: "12px 16px",
+                fontSize: 13,
+                color: "var(--text-primary)",
+                outline: "none",
+                fontFamily: "var(--font-body)",
+              }}
+            />
+            <input
+              value={accountNameInput}
+              onChange={(e) => setAccountNameInput(e.target.value)}
+              placeholder="公众号名称（可选）"
+              style={{
+                width: 200,
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                padding: "12px 16px",
+                fontSize: 13,
+                color: "var(--text-primary)",
+                outline: "none",
+                fontFamily: "var(--font-body)",
+              }}
+            />
+            <button
+              onClick={addKOC}
+              disabled={adding}
+              style={{
+                padding: "12px 24px",
+                background: "var(--accent)",
+                border: "none",
+                borderRadius: 8,
+                color: "var(--bg-void)",
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: adding ? "not-allowed" : "pointer",
+              }}
+            >
+              {adding ? "添加中..." : "+ 添加"}
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+            提示：公众号 ID (ghid) 可以通过公众号文章链接或第三方工具获取
+          </div>
         </div>
       </div>
 
@@ -112,7 +159,7 @@ export default function KocPage() {
         ) : kocs.length === 0 ? (
           <div style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "60px 0" }}>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 8 }}>还没有追踪任何 KOC</div>
-            <div style={{ fontSize: 12 }}>在上方输入公众号名称来添加，或等待知识库初始化完成</div>
+            <div style={{ fontSize: 12 }}>在上方输入公众号 ID (ghid) 来添加竞品</div>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -132,21 +179,49 @@ export default function KocPage() {
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                     <span style={{ fontSize: 14, fontWeight: 500, color: "var(--text-primary)" }}>
-                      {k.account_name}
+                      {k.account_name || k.account_id || "未命名"}
                     </span>
                     {k.is_manually_added && (
                       <span style={manualTagStyle}>手动添加</span>
+                    )}
+                    {k.account_id && (
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-tertiary)" }}>
+                        {k.account_id}
+                      </span>
                     )}
                   </div>
                   <div style={{ display: "flex", gap: 24 }}>
                     <Stat label="最高阅读" val={fmtCount(k.max_read_count)} />
                     <Stat label="平均阅读" val={fmtCount(k.avg_read_count)} />
                     <Stat label="文章数" val={String(k.article_count)} />
+                    {k.last_fetched_at && (
+                      <div>
+                        <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-tertiary)" }}>
+                          最后同步
+                        </div>
+                        <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text-secondary)" }}>
+                          {new Date(k.last_fetched_at).toLocaleDateString()}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
-                <button onClick={() => deleteKOC(k.id)} style={deleteBtnStyle}>
-                  删除
-                </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => syncArticles(k.id)}
+                    disabled={syncing !== null}
+                    style={{
+                      ...deleteBtnStyle,
+                      borderColor: "rgba(200, 150, 90, 0.3)",
+                      color: "var(--accent)",
+                    }}
+                  >
+                    {syncing === k.id ? "同步中..." : "同步文章"}
+                  </button>
+                  <button onClick={() => deleteKOC(k.id)} disabled={syncing !== null} style={deleteBtnStyle}>
+                    删除
+                  </button>
+                </div>
               </div>
             ))}
           </div>
