@@ -45,25 +45,65 @@ async function get<T>(path: string, params: any): Promise<T> {
   return res.json();
 }
 
+export interface DajialaAccount {
+  name: string;
+  biz: string;
+  owner_name: string;
+  customer_type: string;
+  ghid: string;
+  wxid: string;
+  fans: number;
+  avg_top_read: number;
+  avg_top_like: number;
+  avatar: string;
+  qrcode: string;
+  week_articles: number;
+  signature?: string;
+}
+
+export interface DajialaArticleListItem {
+  title: string;
+  url: string;
+  post_time: number;
+  cover_url?: string;
+  original?: number;
+  digest?: string;
+  author?: string;
+  copyright_stat?: number;
+  ip_wording?: string;
+  item_show_type?: number;
+  real_item_show_type?: number;
+  idx?: number;
+  msg_daily_idx?: number;
+  create_time?: number;
+  biz?: string;
+  alias?: string;
+  source_url?: string;
+  video_page_infos?: any;
+}
+
+export interface DajialaArticleDetail {
+  title: string;
+  content: string;
+  content_multi_text?: string;
+  digest?: string;
+}
+
+export interface DajialaArticleStats {
+  read: number;
+  zan: number;
+  looking: number;
+  share_num: number;
+  collect_num: number;
+  comment_count: number;
+}
+
 export const dajiala = {
   searchAccounts: async (keyword: string, page = 1, pageSize = 20) => {
     const res = await post<{
       code: number;
       msg: string;
-      data: Array<{
-        name: string;
-        biz: string;
-        owner_name: string;
-        customer_type: string;
-        ghid: string;
-        wxid: string;
-        fans: number;
-        avg_top_read: number;
-        avg_top_like: number;
-        avatar: string;
-        qrcode: string;
-        week_articles: number;
-      }>;
+      data: DajialaAccount[];
     }>("/wx_account/search", {
       keyword,
       page,
@@ -78,14 +118,7 @@ export const dajiala = {
       code: number;
       msg: string;
       data: {
-        list: Array<{
-          title: string;
-          url: string;
-          post_time: number;
-          cover_url?: string;
-          original?: number;
-          digest?: string;
-        }>;
+        list: DajialaArticleListItem[];
       };
     }>("/post_history", {
       wxid: ghid,
@@ -98,12 +131,7 @@ export const dajiala = {
     const res = await get<{
       code: number;
       msg: string;
-      data: {
-        title: string;
-        content: string;
-        content_multi_text?: string;
-        digest?: string;
-      };
+      data: DajialaArticleDetail;
     }>("/article_detail", { url });
     return res.data;
   },
@@ -112,14 +140,7 @@ export const dajiala = {
     const res = await post<{
       code: number;
       msg: string;
-      data: {
-        read: number;
-        zan: number;
-        looking: number;
-        share_num: number;
-        collect_num: number;
-        comment_count: number;
-      };
+      data: DajialaArticleStats;
     }>("/read_zan_pro", { url });
     return res.data;
   }

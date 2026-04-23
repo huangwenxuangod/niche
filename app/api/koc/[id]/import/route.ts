@@ -27,7 +27,6 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   try {
     // First search for the account to get basic info
-    // Try with journey keywords first, or fallback to ghid
     const searchKeyword = journey.keywords?.[0] || ghid;
     const searchResults = await dajiala.searchAccounts(searchKeyword, 1, 50);
     const account = searchResults.find((r: any) => r.ghid === ghid);
@@ -36,7 +35,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "Account not found" }, { status: 404 });
     }
 
-    // Insert KOC source
+    // Insert KOC source with all fields
     const { data: koc, error: kocError } = await supabase
       .from("koc_sources")
       .insert({
@@ -51,6 +50,9 @@ export async function POST(req: NextRequest, { params }: Params) {
         avg_top_like: account.avg_top_like,
         week_articles_count: account.week_articles,
         avatar_url: account.avatar,
+        qrcode: account.qrcode,
+        customer_type: account.customer_type,
+        signature: account.signature,
         is_manually_added: false,
       })
       .select()
@@ -68,8 +70,11 @@ export async function POST(req: NextRequest, { params }: Params) {
       articleCount++;
       let readCount = 0;
       let likeCount = 0;
+      let lookingCount = 0;
+      let shareCount = 0;
+      let collectCount = 0;
+      let commentCount = 0;
       let content = "";
-      let isOriginal = false;
 
       // Try to get stats and content
       try {
@@ -77,38 +82,57 @@ export async function POST(req: NextRequest, { params }: Params) {
           const stats = await dajiala.getArticleStats(article.url);
           readCount = stats.read || 0;
           likeCount = stats.zan || 0;
+          lookingCount = stats.looking || 0;
+          shareCount = stats.share_num || 0;
+          collectCount = stats.collect_num || 0;
+          commentCount = stats.comment_count || 0;
 
           const detail = await dajiala.getArticleDetail(article.url);
           content = detail.content || "";
         }
       } catch {
-        // Skip content/stats if fail, still save basic article info
+        // Skip content/stats if fail
       }
 
       totalReads += readCount;
       maxReads = Math.max(maxReads, readCount);
 
-      // Determine if viral (threshold: 10x average top read or >10k)
-      const viralThreshold = Math.max(account.avg_top_read * 10, 10000);
+      // Determine if viral
+      const viralThreshold = Math.max((account.avg_top_read || 1000) * 10, 10000);
       const isViral = readCount >= viralThreshold;
 
-      // Upsert article
+      // Upsert article with all fields
       await supabase.from("knowledge_articles").upsert(
         {
           journey_id,
           koc_source_id: koc.id,
           title: article.title || "",
           url: article.url || "",
+          source_url: article.source_url,
           content,
+          digest: article.digest,
+          author: article.author,
           read_count: readCount,
           likes_count: likeCount,
-          comments_count: 0,
-          share_count: 0,
-          collect_count: 0,
-          is_original: article.original === 1,
+          looking_count: lookingCount,
+          share_count: shareCount,
+          collect_count: collectCount,
+          comment_count: commentCount,
+          copyright_stat: article.copyright_stat,
+          is_original: article.copyright_stat === 1,
           cover_url: article.cover_url,
+          ip_wording: article.ip_wording,
+          item_show_type: article.item_show_type,
+          real_item_show_type: article.real_item_show_type,
+          idx: article.idx,
+          msg_daily_idx: article.msg_daily_idx,
+          alias: article.alias,
+          video_page_infos: article.video_page_infos,
           publish_time: article.post_time
             ? new Date(article.post_time * 1000).toISOString()
+            : null,
+          create_time: article.create_time
+            ? new Date(article.create_time * 1000).toISOString()
             : null,
           is_viral: isViral,
         },
