@@ -52,6 +52,24 @@ export function normalizeLayoutMarkdown(markdown: string) {
   return markdown.replace(/\r\n/g, "\n").trim();
 }
 
+export function applyDefaultWechatLayout(markdown: string) {
+  const normalized = normalizeLayoutMarkdown(markdown);
+  if (!normalized) return "";
+
+  const blocks = normalized.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
+  const nextBlocks = blocks.flatMap((block) => formatDefaultBlock(block));
+
+  if (!nextBlocks.length) return normalized;
+
+  const lastIndex = nextBlocks.length - 1;
+  const lastBlock = nextBlocks[lastIndex];
+  if (lastBlock && shouldWrapAsCta(lastBlock)) {
+    nextBlocks[lastIndex] = `:::cta\n${stripCustomBlock(lastBlock)}\n:::`;
+  }
+
+  return nextBlocks.join("\n\n").trim();
+}
+
 function captureSection(content: string, startLabel: string, endLabel: string) {
   const escapedStart = escapeRegExp(`**${startLabel}**`);
   const escapedEnd = escapeRegExp(`**${endLabel}**`);
@@ -63,6 +81,59 @@ function captureBody(content: string) {
   const startLabel = escapeRegExp("**完整初稿**");
   const match = content.match(new RegExp(`${startLabel}\\s*([\\s\\S]*?)(?:\\n\\n如果你想继续调|$)`));
   return match?.[1] ?? "";
+}
+
+function formatDefaultBlock(block: string) {
+  if (!block) return [];
+  if (block.startsWith(":::")) {
+    return [block];
+  }
+  if (/^#{1,3}\s/.test(block) || /^>\s/.test(block) || /^-\s/.test(block) || /^\d+\.\s/.test(block)) {
+    return [block];
+  }
+
+  return splitLongParagraph(block);
+}
+
+function splitLongParagraph(paragraph: string) {
+  const compact = paragraph.replace(/\n+/g, " ").replace(/\s+/g, " ").trim();
+  if (!compact) return [];
+  if (compact.length <= 110) return [compact];
+
+  const sentences = compact.match(/[^。！？!?；;]+[。！？!?；;]?/g) ?? [compact];
+  const parts: string[] = [];
+  let current = "";
+
+  for (const sentence of sentences) {
+    const next = `${current}${sentence}`.trim();
+    if (current && next.length > 78) {
+      parts.push(current.trim());
+      current = sentence.trim();
+    } else {
+      current = next;
+    }
+  }
+
+  if (current.trim()) {
+    parts.push(current.trim());
+  }
+
+  return parts.length ? parts : [compact];
+}
+
+function shouldWrapAsCta(block: string) {
+  const text = stripCustomBlock(block);
+  if (!text || /^#{1,3}\s/.test(text) || /^>\s/.test(text) || /^-\s/.test(text) || /^\d+\.\s/.test(text)) {
+    return false;
+  }
+  return /(如果你|如果这篇|欢迎|建议你|不妨|可以先|收藏|留言|评论区|转给|下一步)/.test(text) || text.length <= 88;
+}
+
+function stripCustomBlock(block: string) {
+  return block
+    .replace(/^:::\w+\s*/g, "")
+    .replace(/\n:::\s*$/g, "")
+    .trim();
 }
 
 function parseMarkdown(markdown: string): Block[] {

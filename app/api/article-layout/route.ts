@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { llm } from "@/lib/llm";
-import { normalizeLayoutMarkdown, renderWechatHtml } from "@/lib/article-layout";
+import { applyDefaultWechatLayout, normalizeLayoutMarkdown, renderWechatHtml } from "@/lib/article-layout";
 
 type LayoutStatus = "draft" | "published";
 
@@ -42,17 +41,11 @@ export async function POST(req: NextRequest) {
 
   if (mode === "optimize") {
     const sourceMarkdown = normalizeLayoutMarkdown(String(body.source_markdown || ""));
-    const title = String(body.title || "");
-    const summary = String(body.summary || "");
     if (!sourceMarkdown) {
       return NextResponse.json({ error: "source_markdown is required" }, { status: 400 });
     }
 
-    const renderedMarkdown = await optimizeArticleLayout({
-      title,
-      summary,
-      sourceMarkdown,
-    });
+    const renderedMarkdown = applyDefaultWechatLayout(sourceMarkdown);
     const renderedHtml = renderWechatHtml(renderedMarkdown);
 
     return NextResponse.json({
@@ -105,45 +98,4 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ draft: data });
-}
-
-async function optimizeArticleLayout(params: {
-  title: string;
-  summary: string;
-  sourceMarkdown: string;
-}) {
-  const result = await llm.chat(
-    "你是公众号排版编辑。你只输出 Markdown，不要解释，不要输出代码块。你负责把文章整理成更适合微信公众号阅读和复制到编辑器的排版稿。",
-    `请把下面这篇公众号文章进行一次性排版优化，要求：
-
-1. 保持原意，不要重写观点
-2. 自动优化小标题层级
-3. 自动识别适合高亮的金句，用 :::highlight 包裹
-4. 自动识别适合引用的段落，用 :::quote 包裹
-5. 在适合的章节切换处加入 :::divider
-6. 在结尾行动引导处整理成 :::cta
-7. 如果某一小节明显适合放配图提示，可以插入一个 :::image 块，描述建议配什么图；全文最多 1 个
-7. 不要频繁使用块，全文最多：
-   - 2 个 :::highlight
-   - 1 个 :::quote
-   - 2 个 :::divider
-   - 1 个 :::cta
-   - 1 个 :::image
-8. 如果正文缺少明显 CTA，就补一段简洁专业的 CTA
-9. 输出必须是可继续编辑的 Markdown，允许使用这些自定义块：
-   - :::highlight ... :::
-   - :::quote ... :::
-   - :::divider ... :::
-   - :::cta ... :::
-   - :::image ... :::
-10. 不要添加任何说明文字
-
-标题：${params.title || "暂无"}
-摘要：${params.summary || "暂无"}
-
-原始 Markdown：
-${params.sourceMarkdown}`
-  );
-
-  return normalizeLayoutMarkdown(result || params.sourceMarkdown);
 }

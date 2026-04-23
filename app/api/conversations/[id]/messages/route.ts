@@ -299,10 +299,20 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
   const stream = new ReadableStream({
     async start(controller) {
       try {
+        await emitEvent(controller, encoder, {
+          type: "assistant_status",
+          label: "理解问题中",
+        });
+
         const messages: LlmMessage[] = ((history ?? []) as ConversationHistoryEntry[]).map((m) => ({
           role: m.role,
           content: m.content,
         }));
+
+        await emitEvent(controller, encoder, {
+          type: "assistant_status",
+          label: "整理上下文中",
+        });
 
         const handledFollowUp = await handleNaturalLanguageFollowUp({
           content,
@@ -327,6 +337,10 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
 
         for (let step = 0; step < 3; step++) {
           let shouldStopAfterTool = false;
+          await emitEvent(controller, encoder, {
+            type: "assistant_status",
+            label: "组织回答中",
+          });
           const completion = await llm.completeWithTools({
             systemPrompt,
             messages,
@@ -335,6 +349,10 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
 
           if (!completion.toolCalls.length) {
             fullContent = completion.content || "我已经整理好了当前可用信息，但这次没有拿到额外结果。";
+            await emitEvent(controller, encoder, {
+              type: "assistant_status",
+              label: "输出答案中",
+            });
             await emitText(controller, encoder, fullContent);
             break;
           }
@@ -436,12 +454,20 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
                   result as FullArticleToolResult,
                   compliance
                 );
+                await emitEvent(controller, encoder, {
+                  type: "assistant_status",
+                  label: "输出答案中",
+                });
                 await emitText(controller, encoder, fullContent);
                 shouldStopAfterTool = true;
               }
 
               if (toolCall.function.name === "compliance_check") {
                 fullContent = formatComplianceResponse(result as ComplianceCheckResult);
+                await emitEvent(controller, encoder, {
+                  type: "assistant_status",
+                  label: "输出答案中",
+                });
                 await emitText(controller, encoder, fullContent);
                 shouldStopAfterTool = true;
               }
@@ -486,6 +512,10 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
 
         if (!fullContent) {
           fullContent = "我已经完成这轮查询，但还需要你再问我一次，我会基于这些结果继续给出建议。";
+          await emitEvent(controller, encoder, {
+            type: "assistant_status",
+            label: "输出答案中",
+          });
           await emitText(controller, encoder, fullContent);
         }
 

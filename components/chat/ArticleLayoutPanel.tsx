@@ -153,13 +153,13 @@ export function ArticleLayoutPanel({
         setDraftId(savedDraft?.id || null);
 
         if (!cancelled) {
-          setNotice("已完成一次 AI 排版优化。后续你改 Markdown，排版结构将按当前版本延续。");
+          setNotice("已应用默认长文排版策略。后续你改 Markdown，预览会按这套固定规则继续更新。");
         }
       } catch (err) {
         if (!cancelled) {
           setSourceMarkdown(article.bodyMarkdown);
           setRenderedMarkdown(article.bodyMarkdown);
-          setNotice(err instanceof Error ? err.message : "排版优化失败");
+          setNotice(err instanceof Error ? err.message : "默认排版生成失败");
         }
       } finally {
         if (!cancelled) {
@@ -376,7 +376,7 @@ export function ArticleLayoutPanel({
         )}
 
         {loading ? (
-          <div style={loadingStyle}>正在应用一次 AI 排版优化...</div>
+          <div style={loadingStyle}>正在应用默认长文排版策略...</div>
         ) : mode === "preview" ? (
           <div style={previewWrapStyle}>
             <div style={phoneFrameStyle}>
@@ -389,7 +389,7 @@ export function ArticleLayoutPanel({
           </div>
         ) : (
           <div style={editorWrapStyle}>
-            <div style={editorHintStyle}>你正在编辑排版后的 Markdown。预览会实时按当前结构更新，不会重新跑 AI 排版。</div>
+            <div style={editorHintStyle}>你正在编辑排版后的 Markdown。预览会实时按固定排版规则更新，不会再重新生成新的版式。</div>
             <textarea
               value={renderedMarkdown}
               onChange={(e) => {

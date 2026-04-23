@@ -47,6 +47,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [importingGhid, setImportingGhid] = useState<string | null>(null);
@@ -58,10 +59,29 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, toolEvents]);
 
+  useEffect(() => {
+    if (!streaming) return;
+
+    const phases = ["理解问题中", "整理上下文中", "组织回答中"];
+    let index = 0;
+    const timer = window.setInterval(() => {
+      setAssistantStatus((current) => {
+        if (current && current !== phases[index]) {
+          return current;
+        }
+        index = (index + 1) % phases.length;
+        return phases[index];
+      });
+    }, 2200);
+
+    return () => window.clearInterval(timer);
+  }, [streaming]);
+
   async function sendMessage(text: string) {
     if (!text.trim() || streaming) return;
     setInput("");
     setToolEvents([]);
+    setAssistantStatus("理解问题中");
 
     const userMsg: Message = {
       id: crypto.randomUUID(),
@@ -116,12 +136,17 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
             try {
               const parsed = JSON.parse(data);
               if (parsed.type === "text" && parsed.text) {
+                if (!assistantContent) {
+                  setAssistantStatus("输出答案中");
+                }
                 assistantContent += parsed.text;
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === currentAssistantId ? { ...m, content: assistantContent } : m
                   )
                 );
+              } else if (parsed.type === "assistant_status" && parsed.label) {
+                setAssistantStatus(String(parsed.label));
               } else if (parsed.type === "assistant_message" && parsed.messageId) {
                 const nextId = String(parsed.messageId);
                 setMessages((prev) =>
@@ -158,6 +183,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
       );
     } finally {
       setStreaming(false);
+      setAssistantStatus(null);
     }
   }
 
@@ -251,6 +277,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                   key={m.id}
                   message={m}
                   onOpenLayout={(target) => setLayoutTarget(target)}
+                  assistantStatus={streaming && m.id === messages[messages.length - 1]?.id && m.role === "assistant" ? assistantStatus : null}
                   isStreaming={streaming && m.id === messages[messages.length - 1]?.id && m.role === "assistant"}
                 />
               ))}
@@ -408,10 +435,12 @@ function MessageBubble({
   message,
   isStreaming,
   onOpenLayout,
+  assistantStatus,
 }: {
   message: Message;
   isStreaming: boolean;
   onOpenLayout: (target: { id: string; content: string }) => void;
+  assistantStatus: string | null;
 }) {
   const isUser = message.role === "user";
   const hasLayoutTarget = !isUser && !isStreaming && extractArticleFromAssistantMessage(message.content) !== null;
@@ -435,13 +464,22 @@ function MessageBubble({
         }}
         className={isStreaming && !message.content ? "streaming-cursor" : ""}
       >
-        <span
-          dangerouslySetInnerHTML={{
-            __html: formatMessage(message.content),
-          }}
-        />
-        {isStreaming && message.content && <span className="streaming-cursor" />}
+        {!message.content && isStreaming ? (
+          <WaitingState status={assistantStatus} />
+        ) : (
+          <>
+            <span
+              dangerouslySetInnerHTML={{
+                __html: formatMessage(message.content),
+              }}
+            />
+            {isStreaming && message.content && <span className="streaming-cursor" />}
+          </>
+        )}
       </div>
+      {isStreaming && message.content && assistantStatus && (
+        <div style={statusPillStyle}>{assistantStatus}</div>
+      )}
       {hasLayoutTarget && (
         <button
           onClick={() => onOpenLayout({ id: message.id, content: message.content })}
@@ -451,6 +489,20 @@ function MessageBubble({
           排版
         </button>
       )}
+    </div>
+  );
+}
+
+function WaitingState({ status }: { status: string | null }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, minWidth: 260 }}>
+      <div style={waitingStatusStyle}>{status || "理解问题中"}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ ...skeletonLineStyle, width: "72%" }} />
+        <div style={{ ...skeletonLineStyle, width: "100%" }} />
+        <div style={{ ...skeletonLineStyle, width: "86%" }} />
+      </div>
+      <div style={waitingHintStyle}>先给结论，再展开细节和建议。</div>
     </div>
   );
 }
@@ -772,4 +824,45 @@ const layoutTriggerStyle: React.CSSProperties = {
   fontSize: 11,
   fontFamily: "var(--font-body)",
   cursor: "pointer",
+};
+
+const statusPillStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  marginTop: 2,
+  padding: "4px 9px",
+  borderRadius: 999,
+  background: "var(--bg-base)",
+  border: "1px solid var(--border)",
+  color: "var(--text-tertiary)",
+  fontSize: 10,
+  fontFamily: "var(--font-mono)",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+};
+
+const waitingStatusStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  alignSelf: "flex-start",
+  padding: "4px 9px",
+  borderRadius: 999,
+  background: "var(--accent-dim)",
+  color: "var(--accent)",
+  fontSize: 10,
+  fontFamily: "var(--font-mono)",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+};
+
+const skeletonLineStyle: React.CSSProperties = {
+  height: 10,
+  borderRadius: 999,
+  background: "linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.12), rgba(255,255,255,0.06))",
+};
+
+const waitingHintStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "var(--text-tertiary)",
+  lineHeight: 1.6,
 };
