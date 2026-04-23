@@ -18,6 +18,20 @@ type DraftPayload = {
   rendered_html: string;
 };
 
+type SavedDraft = {
+  id: string;
+  source_markdown: string;
+  rendered_markdown: string;
+  rendered_html: string;
+};
+
+type WechatConfig = {
+  id: string;
+  account_name: string | null;
+  app_id: string;
+  default_author: string | null;
+};
+
 export function ArticleLayoutPanel({
   open,
   conversationId,
@@ -33,9 +47,20 @@ export function ArticleLayoutPanel({
   const [mode, setMode] = useState<"preview" | "edit">("preview");
   const [sourceMarkdown, setSourceMarkdown] = useState("");
   const [renderedMarkdown, setRenderedMarkdown] = useState("");
+  const [draftId, setDraftId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [wechatConfig, setWechatConfig] = useState<WechatConfig | null>(null);
+  const [accountName, setAccountName] = useState("");
+  const [appId, setAppId] = useState("");
+  const [appSecret, setAppSecret] = useState("");
+  const [defaultAuthor, setDefaultAuthor] = useState("");
+  const [publishAuthor, setPublishAuthor] = useState("");
+  const [coverImageUrl, setCoverImageUrl] = useState("");
+  const [publishSummary, setPublishSummary] = useState("");
 
   const renderedHtml = useMemo(
     () => renderWechatHtml(renderedMarkdown || sourceMarkdown),
@@ -61,6 +86,7 @@ export function ArticleLayoutPanel({
     if (!res.ok) {
       throw new Error(data.error || "保存失败");
     }
+    return data.draft as SavedDraft;
   }, [conversationId, journeyId, messageId]);
 
   useEffect(() => {
@@ -76,11 +102,23 @@ export function ArticleLayoutPanel({
       setMode("preview");
 
       try {
+        const configRes = await fetch("/api/wechat/config");
+        const configData = await configRes.json();
+        if (!cancelled && configRes.ok && configData.config) {
+          setWechatConfig(configData.config);
+          setAccountName(configData.config.account_name || "");
+          setAppId(configData.config.app_id || "");
+          setDefaultAuthor(configData.config.default_author || "");
+          setPublishAuthor(configData.config.default_author || "");
+        }
+
         const existingRes = await fetch(`/api/article-layout?message_id=${encodeURIComponent(currentMessageId)}`);
         const existingData = await existingRes.json();
         if (!cancelled && existingRes.ok && existingData.draft) {
           setSourceMarkdown(existingData.draft.source_markdown || article.bodyMarkdown);
           setRenderedMarkdown(existingData.draft.rendered_markdown || article.bodyMarkdown);
+          setDraftId(existingData.draft.id || null);
+          setPublishSummary(article.summary || "");
           setLoading(false);
           return;
         }
@@ -105,12 +143,14 @@ export function ArticleLayoutPanel({
         const nextSource = article.bodyMarkdown;
         setSourceMarkdown(nextSource);
         setRenderedMarkdown(nextRendered);
+        setPublishSummary(article.summary || "");
 
-        await persistDraft({
+        const savedDraft = await persistDraft({
           source_markdown: nextSource,
           rendered_markdown: nextRendered,
           rendered_html: renderWechatHtml(nextRendered),
         });
+        setDraftId(savedDraft?.id || null);
 
         if (!cancelled) {
           setNotice("已完成一次 AI 排版优化。后续你改 Markdown，排版结构将按当前版本延续。");
@@ -139,11 +179,12 @@ export function ArticleLayoutPanel({
     setSaving(true);
     setNotice("");
     try {
-      await persistDraft({
+      const savedDraft = await persistDraft({
         source_markdown: sourceMarkdown,
         rendered_markdown: renderedMarkdown,
         rendered_html: renderedHtml,
       });
+      setDraftId(savedDraft?.id || null);
       setNotice("已保存最新排版草稿。");
     } catch (err) {
       setNotice(err instanceof Error ? err.message : "保存失败");
@@ -170,13 +211,83 @@ export function ArticleLayoutPanel({
     }
   }
 
-  async function handlePublishPlaceholder() {
-    setNotice("“发布到公众号”入口已预留，后续将接入真实发布流程。");
+  async function handleSaveWechatConfig() {
+    setNotice("");
+    try {
+      const method = wechatConfig ? "PUT" : "POST";
+      const res = await fetch("/api/wechat/config", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          account_name: accountName,
+          app_id: appId,
+          app_secret: appSecret,
+          default_author: defaultAuthor,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "公众号配置保存失败");
+      }
+      setWechatConfig(data.config);
+      setAppSecret("");
+      setPublishAuthor(data.config?.default_author || defaultAuthor);
+      setNotice("公众号配置已保存。");
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "公众号配置保存失败");
+    }
+  }
+
+  async function handlePublishToWechat() {
+    setPublishing(true);
+    setNotice("");
+    try {
+      const savedDraft = await persistDraft({
+        source_markdown: sourceMarkdown,
+        rendered_markdown: renderedMarkdown,
+        rendered_html: renderedHtml,
+      });
+
+      const activeDraftId = savedDraft?.id || draftId;
+      if (!activeDraftId) {
+        throw new Error("请先保存排版草稿后再发布。");
+      }
+      if (!coverImageUrl.trim()) {
+        throw new Error("请先填写封面图链接。");
+      }
+
+      const res = await fetch("/api/wechat/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          draft_id: activeDraftId,
+          message_id: messageId,
+          title: article.title,
+          summary: publishSummary,
+          author: publishAuthor,
+          cover_image_url: coverImageUrl,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "发布失败");
+      }
+
+      setDraftId(activeDraftId);
+      setPublishOpen(false);
+      setNotice(`已成功保存到公众号草稿箱。media_id：${data.media_id}`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "发布失败");
+    } finally {
+      setPublishing(false);
+    }
   }
 
   if (!open || !extracted || !messageId) {
     return null;
   }
+
+  const article = extracted;
 
   return (
     <div style={overlayStyle}>
@@ -201,10 +312,68 @@ export function ArticleLayoutPanel({
           <button onClick={handleSave} disabled={saving} style={toolButtonStyle}>
             {saving ? "保存中..." : "保存草稿"}
           </button>
-          <button onClick={handlePublishPlaceholder} style={publishButtonStyle}>发布到公众号</button>
+          <button onClick={() => setPublishOpen((prev) => !prev)} style={publishButtonStyle}>
+            发布到公众号
+          </button>
         </div>
 
         {notice && <div style={noticeStyle}>{notice}</div>}
+
+        {publishOpen && (
+          <div style={publishCardStyle}>
+            <div style={publishSectionTitleStyle}>公众号配置</div>
+            <input
+              value={accountName}
+              onChange={(e) => setAccountName(e.target.value)}
+              placeholder="公众号名称（可选）"
+              style={inputStyle}
+            />
+            <input
+              value={appId}
+              onChange={(e) => setAppId(e.target.value)}
+              placeholder="AppID"
+              style={inputStyle}
+            />
+            <input
+              value={appSecret}
+              onChange={(e) => setAppSecret(e.target.value)}
+              placeholder={wechatConfig ? "如需更新请填写新的 AppSecret" : "AppSecret"}
+              style={inputStyle}
+            />
+            <input
+              value={defaultAuthor}
+              onChange={(e) => setDefaultAuthor(e.target.value)}
+              placeholder="默认作者名（可选）"
+              style={inputStyle}
+            />
+            <button onClick={handleSaveWechatConfig} style={secondaryActionStyle}>
+              保存公众号配置
+            </button>
+
+            <div style={publishSectionTitleStyle}>本次发布信息</div>
+            <input
+              value={publishAuthor}
+              onChange={(e) => setPublishAuthor(e.target.value)}
+              placeholder="本次发布作者名（可选）"
+              style={inputStyle}
+            />
+            <textarea
+              value={publishSummary}
+              onChange={(e) => setPublishSummary(e.target.value)}
+              placeholder="摘要"
+              style={summaryStyle}
+            />
+            <input
+              value={coverImageUrl}
+              onChange={(e) => setCoverImageUrl(e.target.value)}
+              placeholder="封面图 URL（必填）"
+              style={inputStyle}
+            />
+            <button onClick={handlePublishToWechat} disabled={publishing} style={publishActionStyle}>
+              {publishing ? "发布中..." : "确认保存到草稿箱"}
+            </button>
+          </div>
+        )}
 
         {loading ? (
           <div style={loadingStyle}>正在应用一次 AI 排版优化...</div>
@@ -212,8 +381,8 @@ export function ArticleLayoutPanel({
           <div style={previewWrapStyle}>
             <div style={phoneFrameStyle}>
               <div style={phoneInnerStyle}>
-                <div style={previewTitleStyle}>{extracted.title}</div>
-                {extracted.summary && <div style={previewSummaryStyle}>{extracted.summary}</div>}
+                <div style={previewTitleStyle}>{article.title}</div>
+                {article.summary && <div style={previewSummaryStyle}>{article.summary}</div>}
                 <div dangerouslySetInnerHTML={{ __html: renderedHtml }} />
               </div>
             </div>
@@ -319,6 +488,64 @@ const publishButtonStyle: React.CSSProperties = {
   ...toolButtonStyle,
   borderColor: "rgba(200,150,90,0.35)",
   color: "var(--accent)",
+};
+
+const publishCardStyle: React.CSSProperties = {
+  margin: "12px 18px 0",
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid rgba(200,150,90,0.2)",
+  background: "rgba(22,22,20,0.85)",
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+};
+
+const publishSectionTitleStyle: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 12,
+  color: "var(--accent)",
+  fontFamily: "var(--font-mono)",
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  borderRadius: 10,
+  border: "1px solid var(--border)",
+  background: "var(--bg-base)",
+  color: "var(--text-primary)",
+  padding: "10px 12px",
+  fontSize: 12,
+  outline: "none",
+};
+
+const summaryStyle: React.CSSProperties = {
+  ...inputStyle,
+  minHeight: 88,
+  resize: "vertical",
+  fontFamily: "var(--font-body)",
+};
+
+const secondaryActionStyle: React.CSSProperties = {
+  padding: "9px 12px",
+  borderRadius: 10,
+  border: "1px solid var(--border)",
+  background: "var(--bg-surface)",
+  color: "var(--text-secondary)",
+  fontSize: 12,
+  cursor: "pointer",
+};
+
+const publishActionStyle: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(200,150,90,0.35)",
+  background: "var(--accent)",
+  color: "var(--bg-void)",
+  fontSize: 12,
+  cursor: "pointer",
 };
 
 const noticeStyle: React.CSSProperties = {
