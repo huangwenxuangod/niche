@@ -29,7 +29,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(result);
   } catch (err) {
     console.error("Import failed:", err);
-    const message = err instanceof Error ? err.message : "Import failed";
+    const message =
+      err instanceof Error
+        ? err.message
+        : typeof err === "object" && err !== null && "message" in err
+          ? String((err as { message?: unknown }).message || "Import failed")
+          : "Import failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
