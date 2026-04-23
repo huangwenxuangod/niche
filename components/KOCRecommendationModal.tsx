@@ -2,16 +2,15 @@
 
 import { useState, useEffect } from "react";
 
-interface KOCAccount {
-  name: string;
-  biz: string;
-  owner_name: string;
-  ghid: string;
+interface HotArticle {
+  url: string;
+  mp_nickname: string;
+  title: string;
+  pub_time: string;
   wxid: string;
+  hot: number;
+  read_num: number;
   fans: number;
-  avg_top_read: number;
-  avg_top_like: number;
-  avatar: string;
 }
 
 interface Props {
@@ -23,20 +22,19 @@ interface Props {
 
 export default function KOCRecommendationModal({ journeyId, keywords, onImportComplete, onSkip }: Props) {
   const [stage, setStage] = useState<"searching" | "selecting" | "importing" | "done">("searching");
-  const [kocList, setKocList] = useState<KOCAccount[]>([]);
+  const [articleList, setArticleList] = useState<HotArticle[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [importProgress, setImportProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
 
-  // Search for KOCs on load
+  // Search for hot articles on load
   useEffect(() => {
     async function search() {
       try {
-        const searchKeyword = keywords.find(k => k.length > 0) || "内容创作";
-        const res = await fetch(`/api/koc?journey_id=${journeyId}&keyword=${encodeURIComponent(searchKeyword)}`);
+        const res = await fetch(`/api/journeys/${journeyId}/hot-articles`);
         if (!res.ok) throw new Error("Search failed");
         const data = await res.json();
-        setKocList(data);
+        setArticleList(data.articles || []);
         setStage("selecting");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Search failed");
@@ -44,11 +42,11 @@ export default function KOCRecommendationModal({ journeyId, keywords, onImportCo
       }
     }
     search();
-  }, [journeyId, keywords]);
+  }, [journeyId]);
 
-  const toggleSelect = (ghid: string) => {
+  const toggleSelect = (wxid: string) => {
     setSelected(prev =>
-      prev.includes(ghid) ? prev.filter(id => id !== ghid) : [...prev, ghid]
+      prev.includes(wxid) ? prev.filter(id => id !== wxid) : [...prev, wxid]
     );
   };
 
@@ -62,11 +60,11 @@ export default function KOCRecommendationModal({ journeyId, keywords, onImportCo
 
     try {
       for (let i = 0; i < selected.length; i++) {
-        const ghid = selected[i];
-        const res = await fetch(`/api/koc/${ghid}/import`, {
+        const wxid = selected[i];
+        const res = await fetch(`/api/koc/import`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ journey_id: journeyId }),
+          body: JSON.stringify({ journey_id: journeyId, input: wxid }),
         });
         if (!res.ok) throw new Error("Import failed");
         setImportProgress({ current: i + 1, total: selected.length });
@@ -138,7 +136,7 @@ export default function KOCRecommendationModal({ journeyId, keywords, onImportCo
             color: "var(--text-secondary)",
             marginBottom: 0,
           }}>
-            Niche 会持续监控这些账号的内容，帮你发现爆款选题和创作规律
+            基于最近7天的赛道爆文，Niche 会持续监控这些账号的内容
           </p>
         </div>
 
@@ -146,8 +144,8 @@ export default function KOCRecommendationModal({ journeyId, keywords, onImportCo
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
           {stage === "searching" && (
             <div style={{ textAlign: "center", padding: "40px 0" }}>
-              <div style={{ marginBottom: 16 }}>正在搜索 {keywords.join(" / ")} 相关账号...</div>
-              <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>基于大佳拉 API</div>
+              <div style={{ marginBottom: 16 }}>正在搜索赛道热点与爆文...</div>
+              <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>基于 Tavily + 大佳拉 API</div>
             </div>
           )}
 
@@ -167,55 +165,53 @@ export default function KOCRecommendationModal({ journeyId, keywords, onImportCo
                 </div>
               )}
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {kocList.length === 0 ? (
+                {articleList.length === 0 ? (
                   <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-tertiary)", fontSize: 12 }}>
-                    暂未找到相关账号，可稍后在 KOC 管理页手动添加
+                    暂未找到相关爆文，可稍后在 KOC 管理页手动添加
                   </div>
                 ) : (
-                  kocList.map((koc) => (
+                  articleList.map((article) => (
                     <div
-                      key={koc.ghid}
-                      onClick={() => toggleSelect(koc.ghid)}
+                      key={article.wxid}
+                      onClick={() => toggleSelect(article.wxid)}
                       style={{
                         display: "flex",
-                        alignItems: "center",
+                        alignItems: "flex-start",
                         gap: 12,
                         padding: 12,
-                        background: selected.includes(koc.ghid) ? "var(--accent-glow)" : "var(--bg-base)",
-                        border: `1px solid ${selected.includes(koc.ghid) ? "var(--accent)" : "var(--border)"}`,
+                        background: selected.includes(article.wxid) ? "var(--accent-glow)" : "var(--bg-base)",
+                        border: `1px solid ${selected.includes(article.wxid) ? "var(--accent)" : "var(--border)"}`,
                         borderRadius: 8,
                         cursor: "pointer",
                         transition: "all 0.15s",
                       }}
                     >
-                      {koc.avatar ? (
-                        <img src={koc.avatar} alt="" style={{ width: 40, height: 40, borderRadius: "50%" }} />
-                      ) : (
-                        <div style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--border)" }} />
-                      )}
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", marginBottom: 4 }}>
-                          {koc.name}
+                        <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)", marginBottom: 6, lineHeight: 1.4 }}>
+                          {article.title}
                         </div>
-                        <div style={{ fontSize: 11, color: "var(--text-tertiary)", display: "flex", gap: 12 }}>
-                          <span>粉丝 {formatNum(koc.fans)}</span>
-                          <span>平均在看 {formatNum(koc.avg_top_like)}</span>
-                          <span>平均阅读 {formatNum(koc.avg_top_read)}</span>
+                        <div style={{ fontSize: 11, color: "var(--text-tertiary)", display: "flex", gap: 12, flexWrap: "wrap" }}>
+                          <span>公众号：{article.mp_nickname}</span>
+                          <span>粉丝：{formatNum(article.fans)}</span>
+                          <span>阅读：{formatNum(article.read_num)}</span>
+                          <span>{article.pub_time.split(" ")[0]}</span>
                         </div>
                       </div>
                       <div style={{
                         width: 20,
                         height: 20,
                         borderRadius: 4,
-                        border: `2px solid ${selected.includes(koc.ghid) ? "var(--accent)" : "var(--border)"}`,
-                        background: selected.includes(koc.ghid) ? "var(--accent)" : "transparent",
+                        border: `2px solid ${selected.includes(article.wxid) ? "var(--accent)" : "var(--border)"}`,
+                        background: selected.includes(article.wxid) ? "var(--accent)" : "transparent",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
                         color: "var(--bg-void)",
                         fontSize: 12,
+                        flexShrink: 0,
+                        marginTop: 2,
                       }}>
-                        {selected.includes(koc.ghid) && "✓"}
+                        {selected.includes(article.wxid) && "✓"}
                       </div>
                     </div>
                   ))
@@ -272,7 +268,7 @@ export default function KOCRecommendationModal({ journeyId, keywords, onImportCo
               </button>
               <button
                 onClick={startImport}
-                disabled={selected.length === 0 && kocList.length > 0}
+                disabled={selected.length === 0 && articleList.length > 0}
                 style={{
                   padding: "10px 20px",
                   background: "var(--accent)",
@@ -282,8 +278,8 @@ export default function KOCRecommendationModal({ journeyId, keywords, onImportCo
                   fontFamily: "var(--font-body)",
                   fontSize: 12,
                   fontWeight: 500,
-                  cursor: selected.length === 0 && kocList.length > 0 ? "not-allowed" : "pointer",
-                  opacity: selected.length === 0 && kocList.length > 0 ? 0.5 : 1,
+                  cursor: selected.length === 0 && articleList.length > 0 ? "not-allowed" : "pointer",
+                  opacity: selected.length === 0 && articleList.length > 0 ? 0.5 : 1,
                 }}
               >
                 {selected.length > 0 ? `导入 ${selected.length} 个账号` : "开始使用"}

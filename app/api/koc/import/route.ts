@@ -3,13 +3,8 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { importKocForJourney } from "@/lib/koc-import";
 
-interface Params {
-  params: Promise<{ id: string }>;
-}
-
-export async function POST(req: NextRequest, { params }: Params) {
-  const { id: ghid } = await params;
-  const { journey_id } = await req.json();
+export async function POST(req: NextRequest) {
+  const { input, journey_id } = await req.json();
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
   const { data: { user } } = await supabase.auth.getUser();
@@ -29,14 +24,12 @@ export async function POST(req: NextRequest, { params }: Params) {
     const result = await importKocForJourney(
       supabase,
       journey_id,
-      ghid,
-      journey.keywords?.[0] || ghid
+      input
     );
     return NextResponse.json(result);
   } catch (err) {
     console.error("Import failed:", err);
     const message = err instanceof Error ? err.message : "Import failed";
-    const status = message === "Account not found" ? 404 : 500;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

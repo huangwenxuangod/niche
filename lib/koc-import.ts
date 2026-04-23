@@ -1,50 +1,58 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { dajiala, type DajialaAccount } from "./dajiala";
+import { dajiala, type DajialaArticleListItem } from "./dajiala";
 
 export async function importKocForJourney(
   supabase: SupabaseClient,
   journeyId: string,
-  ghid: string,
-  searchKeyword: string
+  input: string
 ) {
-  const searchResults = await dajiala.searchAccounts(searchKeyword || ghid, 1, 50);
-  const account = searchResults.find((r: DajialaAccount) => r.ghid === ghid);
+  // 使用新的 post_history API 获取账号信息和文章列表
+  const postHistory = await dajiala.getPostHistory(input, 1);
 
-  if (!account) {
-    throw new Error("Account not found");
+  if (!postHistory || !postHistory.mp_ghid) {
+    throw new Error("无法获取公众号信息，请检查输入是否正确");
   }
 
+  const ghid = postHistory.mp_ghid;
+
+  // 先检查是否已经添加过
+  const { data: existing } = await supabase
+    .from("koc_sources")
+    .select("id")
+    .eq("journey_id", journeyId)
+    .eq("account_id", ghid)
+    .single();
+
+  if (existing) {
+    throw new Error("该公众号已添加");
+  }
+
+  // 插入 KOC 记录
   const { data: koc, error: kocError } = await supabase
     .from("koc_sources")
     .insert({
       journey_id: journeyId,
       platform: "wechat_mp",
-      account_name: account.name,
-      account_id: account.ghid,
-      ghid: account.ghid,
-      biz: account.biz,
-      fans_count: account.fans,
-      avg_top_read: account.avg_top_read,
-      avg_top_like: account.avg_top_like,
-      week_articles_count: account.week_articles,
-      avatar_url: account.avatar,
-      qrcode: account.qrcode,
-      customer_type: account.customer_type,
-      signature: account.signature,
+      account_name: postHistory.mp_nickname || input,
+      account_id: ghid,
+      ghid: ghid,
+      wxid: postHistory.mp_wxid,
+      avatar_url: postHistory.head_img,
       is_manually_added: false,
     })
     .select()
     .single();
 
   if (kocError || !koc) {
-    throw kocError ?? new Error("Insert koc failed");
+    throw kocError ?? new Error("插入 KOC 失败");
   }
 
-  const articles = await dajiala.getArticleList(ghid, 1);
+  const articles = postHistory.list || [];
   let totalReads = 0;
   let maxReads = 0;
   let articleCount = 0;
 
+  // 遍历文章列表获取详情和数据
   for (const article of articles.slice(0, 20)) {
     articleCount++;
     let readCount = 0;
@@ -57,6 +65,7 @@ export async function importKocForJourney(
 
     try {
       if (article.url) {
+        // 获取文章阅读、点赞等数据
         const stats = await dajiala.getArticleStats(article.url);
         readCount = stats.read || 0;
         likeCount = stats.zan || 0;
@@ -65,17 +74,19 @@ export async function importKocForJourney(
         collectCount = stats.collect_num || 0;
         commentCount = stats.comment_count || 0;
 
+        // 获取文章详情
         const detail = await dajiala.getArticleDetail(article.url);
         content = detail.content || "";
       }
     } catch {
-      // Skip article details if third-party API is partially unavailable.
+      // 跳过获取失败的文章
     }
 
     totalReads += readCount;
     maxReads = Math.max(maxReads, readCount);
 
-    const viralThreshold = Math.max((account.avg_top_read || 1000) * 10, 10000);
+    // 判断是否为爆款（平均阅读的10倍或1万）
+    const viralThreshold = Math.max(10000, 10000);
     const isViral = readCount >= viralThreshold;
 
     await supabase.from("knowledge_articles").upsert(
@@ -116,6 +127,7 @@ export async function importKocForJourney(
     );
   }
 
+  // 更新 KOC 的统计数据
   const avgReads = articleCount > 0 ? Math.round(totalReads / articleCount) : 0;
   await supabase
     .from("koc_sources")
@@ -130,9 +142,12 @@ export async function importKocForJourney(
   return {
     success: true,
     articleCount,
+    costMoney: postHistory.cost_money,
+    remainMoney: postHistory.remain_money,
     account: {
-      name: account.name,
-      ghid: account.ghid,
+      name: postHistory.mp_nickname || input,
+      ghid: ghid,
+      wxid: postHistory.mp_wxid,
     },
     kocId: koc.id,
   };

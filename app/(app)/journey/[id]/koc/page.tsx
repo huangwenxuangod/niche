@@ -5,18 +5,6 @@ import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { KOCSource } from "@/lib/data";
 
-interface SearchResult {
-  name: string;
-  biz: string;
-  owner_name: string;
-  ghid: string;
-  wxid: string;
-  fans: number;
-  avg_top_read: number;
-  avg_top_like: number;
-  avatar: string;
-}
-
 function fmtCount(n: number): string {
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -28,14 +16,10 @@ export default function KocPage() {
   const router = useRouter();
   const [kocs, setKocs] = useState<(KOCSource & { fans_count?: number; avatar_url?: string; ghid?: string })[]>([]);
   const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
   const [syncing, setSyncing] = useState<string | null>(null);
-  const [importing, setImporting] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [ghidInput, setGhidInput] = useState("");
-  const [accountNameInput, setAccountNameInput] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [input, setInput] = useState("");
+  const [error, setError] = useState("");
   const supabase = createClient();
 
   useEffect(() => {
@@ -50,31 +34,6 @@ export default function KocPage() {
       .order("created_at", { ascending: false });
     setKocs(data ?? []);
     setLoading(false);
-  }
-
-  async function addKOC() {
-    if (!ghidInput.trim()) return;
-    setAdding(true);
-    try {
-      const res = await fetch("/api/koc", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          journey_id: journeyId,
-          ghid: ghidInput.trim(),
-          account_name: accountNameInput.trim() || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (data.id) {
-        setKocs((prev) => [data, ...prev]);
-        setGhidInput("");
-        setAccountNameInput("");
-      }
-    } catch (err) {
-      console.error("Add KOC failed:", err);
-    }
-    setAdding(false);
   }
 
   async function syncArticles(kocId: string) {
@@ -97,37 +56,31 @@ export default function KocPage() {
     setKocs((prev) => prev.filter((k) => k.id !== id));
   }
 
-  async function searchKOCs() {
-    if (!searchQuery.trim()) return;
-    setSearching(true);
+  async function importKOC() {
+    if (!input.trim()) return;
+    setImporting(true);
+    setError("");
     try {
-      const res = await fetch(`/api/koc?journey_id=${journeyId}&keyword=${encodeURIComponent(searchQuery.trim())}`);
-      if (res.ok) {
-        const data = await res.json();
-        setSearchResults(data);
-      }
-    } catch (err) {
-      console.error("Search failed:", err);
-    }
-    setSearching(false);
-  }
-
-  async function importKOC(ghid: string) {
-    setImporting(ghid);
-    try {
-      const res = await fetch(`/api/koc/${ghid}/import`, {
+      const res = await fetch("/api/koc/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ journey_id: journeyId }),
+        body: JSON.stringify({
+          journey_id: journeyId,
+          input: input.trim(),
+        }),
       });
       if (res.ok) {
         await fetchKocs();
-        setSearchResults(prev => prev.filter(r => r.ghid !== ghid));
+        setInput("");
+      } else {
+        const data = await res.json();
+        setError(data.error || "导入失败");
       }
     } catch (err) {
       console.error("Import failed:", err);
+      setError("导入失败");
     }
-    setImporting(null);
+    setImporting(false);
   }
 
   return (
@@ -141,16 +94,17 @@ export default function KocPage() {
         </div>
       </div>
 
-      {/* Search section */}
+      {/* Add KOC section */}
       <div style={{ padding: "16px 28px", borderBottom: "1px solid var(--border)" }}>
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && searchKOCs()}
-            placeholder="输入公众号名称，如「产品思维」"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && importKOC()}
+            placeholder="输入公众号名称 / ghid / 文章链接"
             style={{
               flex: 1,
+              minWidth: 200,
               background: "var(--bg-surface)",
               border: "1px solid var(--border)",
               borderRadius: 8,
@@ -162,8 +116,8 @@ export default function KocPage() {
             }}
           />
           <button
-            onClick={searchKOCs}
-            disabled={searching}
+            onClick={importKOC}
+            disabled={importing}
             style={{
               padding: "12px 24px",
               background: "var(--accent)",
@@ -172,75 +126,19 @@ export default function KocPage() {
               color: "var(--bg-void)",
               fontSize: 13,
               fontWeight: 500,
-              cursor: searching ? "not-allowed" : "pointer",
+              cursor: importing ? "not-allowed" : "pointer",
             }}
           >
-            {searching ? "搜索中..." : "搜索并导入"}
+            {importing ? "导入中..." : "添加 KOC"}
           </button>
         </div>
-      </div>
-
-      {/* Search results */}
-      {searchResults.length > 0 && (
-        <div style={{ padding: "16px 28px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginBottom: 12 }}>搜索结果</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {searchResults.map((result) => {
-              const alreadyAdded = kocs.some(k => k.ghid === result.ghid || k.account_id === result.ghid);
-              return (
-                <div
-                  key={result.ghid}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 12,
-                    padding: 12,
-                    background: "var(--bg-surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                  }}
-                >
-                  {result.avatar ? (
-                    <img src={result.avatar} alt="" style={{ width: 40, height: 40, borderRadius: "50%" }} />
-                  ) : (
-                    <div style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--border)" }} />
-                  )}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)", marginBottom: 4 }}>
-                      {result.name}
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--text-tertiary)", display: "flex", gap: 16 }}>
-                      <span>粉丝 {fmtCount(result.fans)}</span>
-                      <span>平均阅读 {fmtCount(result.avg_top_read)}</span>
-                      <span>平均在看 {fmtCount(result.avg_top_like)}</span>
-                    </div>
-                  </div>
-                  {alreadyAdded ? (
-                    <span style={{ fontSize: 11, color: "var(--text-tertiary)", padding: "6px 12px" }}>已添加</span>
-                  ) : (
-                    <button
-                      onClick={() => importKOC(result.ghid)}
-                      disabled={importing === result.ghid}
-                      style={{
-                        padding: "8px 16px",
-                        background: "var(--accent)",
-                        border: "none",
-                        borderRadius: 6,
-                        color: "var(--bg-void)",
-                        fontSize: 12,
-                        fontWeight: 500,
-                        cursor: importing === result.ghid ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      {importing === result.ghid ? "导入中..." : "导入"}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+        {error && (
+          <div style={{ color: "#f44336", fontSize: 12, marginTop: 8 }}>{error}</div>
+        )}
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>
+          支持输入：公众号名称（如「产品思维」）、ghid（如 gh_xxxxxx）、或任意文章链接
         </div>
-      )}
+      </div>
 
       {/* KOC list */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px" }}>
@@ -249,7 +147,7 @@ export default function KocPage() {
         ) : kocs.length === 0 ? (
           <div style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "60px 0" }}>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 8 }}>还没有追踪任何 KOC</div>
-            <div style={{ fontSize: 12 }}>在上方搜索关键词添加对标账号</div>
+            <div style={{ fontSize: 12 }}>在上方输入公众号信息添加</div>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

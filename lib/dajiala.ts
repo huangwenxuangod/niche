@@ -98,6 +98,47 @@ export interface DajialaArticleStats {
   comment_count: number;
 }
 
+export interface DajialaPostHistoryResponse {
+  code: number;
+  msg: string;
+  data: {
+    mp_nickname?: string;
+    mp_wxid?: string;
+    mp_ghid?: string;
+    head_img?: string;
+    cost_money?: number;
+    remain_money?: number;
+    list: DajialaArticleListItem[];
+  };
+}
+
+export interface DajialaHotArticle {
+  url: string;
+  mp_nickname: string;
+  title: string;
+  pub_time: string;
+  wxid: string;
+  hot: number;
+  read_num: number;
+  fans: number;
+  cover?: string;
+  avg?: number;
+  category?: string;
+  position?: number;
+  is_original?: string;
+  publish_type?: string;
+}
+
+export interface DajialaHotSearchResponse {
+  code: number;
+  msg: string;
+  cost?: number;
+  remain_money?: number;
+  total?: number;
+  total_page?: number;
+  data: DajialaHotArticle[];
+}
+
 export const dajiala = {
   searchAccounts: async (keyword: string, page = 1, pageSize = 20) => {
     const res = await post<{
@@ -111,6 +152,26 @@ export const dajiala = {
       mode: 1,
     });
     return res.data || [];
+  },
+
+  getPostHistory: async (input: string, page = 1) => {
+    const params: any = { page };
+
+    // 判断输入类型
+    if (input.startsWith("http")) {
+      params.link = input;
+    } else if (input.includes("__") || input.length > 20) {
+      // 可能是 ghid
+      params.ghid = input;
+    } else if (/^gh_/.test(input)) {
+      params.ghid = input;
+    } else {
+      // 否则按名称处理
+      params.name = input;
+    }
+
+    const res = await post<DajialaPostHistoryResponse>("/post_history", params);
+    return res.data;
   },
 
   getArticleList: async (ghid: string, page = 1) => {
@@ -143,5 +204,16 @@ export const dajiala = {
       data: DajialaArticleStats;
     }>("/read_zan_pro", { url });
     return res.data;
-  }
+  },
+
+  searchHotArticles: async (keyword: string, startTime: string, endTime: string, category = "0", page = "1") => {
+    const res = await post<DajialaHotSearchResponse>("/hot_typical_search", {
+      keyword,
+      category,
+      page,
+      start_time: startTime,
+      end_time: endTime,
+    });
+    return res;
+  },
 };
