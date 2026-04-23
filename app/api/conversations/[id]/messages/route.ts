@@ -44,6 +44,14 @@ type DraftToolResult = {
   draft_markdown: string;
 };
 
+type FullArticleToolResult = {
+  title: string;
+  summary: string;
+  title_options: string[];
+  article_markdown: string;
+  reference_note: string;
+};
+
 type ToolCallRow = {
   id: string;
   tool_name: string;
@@ -143,6 +151,22 @@ const AGENT_TOOLS: LlmTool[] = [
           topic_title: { type: "string", description: "选题标题" },
           angle: { type: "string", description: "切入角度" },
           format: { type: "string", description: "输出格式，默认 wechat_article_outline" },
+        },
+        required: ["topic_title"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "generate_full_article",
+      description: "基于已确认选题生成可发布级公众号完整 Markdown 初稿，包含摘要、备选标题和正文",
+      parameters: {
+        type: "object",
+        properties: {
+          topic_title: { type: "string", description: "选题标题" },
+          angle: { type: "string", description: "切入角度" },
+          style: { type: "string", description: "文风，默认克制专业、略有网感" },
         },
         required: ["topic_title"],
       },
@@ -266,6 +290,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
         }
 
         for (let step = 0; step < 3; step++) {
+          let shouldStopAfterTool = false;
           const completion = await llm.completeWithTools({
             systemPrompt,
             messages,
@@ -353,6 +378,15 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
                 result,
               });
 
+              if (toolCall.function.name === "generate_full_article") {
+                fullContent = formatFullArticleResponse(
+                  "我按你的要求写了一版可发布级公众号完整初稿。",
+                  result as FullArticleToolResult
+                );
+                await emitText(controller, encoder, fullContent);
+                shouldStopAfterTool = true;
+              }
+
               messages.push({
                 role: "tool",
                 tool_call_id: toolCall.id,
@@ -379,6 +413,10 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
                 content: JSON.stringify({ error: message }),
               });
             }
+          }
+
+          if (shouldStopAfterTool) {
+            break;
           }
         }
 
@@ -547,6 +585,23 @@ async function executeTool({
     });
   }
 
+  if (toolName === "generate_full_article") {
+    const topicTitle = String(args.topic_title || "").trim();
+    if (!topicTitle) {
+      throw new Error("topic_title is required");
+    }
+
+    return generateFullArticle({
+      supabase,
+      journeyId,
+      userId,
+      journey,
+      topicTitle,
+      angle: String(args.angle || ""),
+      style: String(args.style || "克制专业，可以有一点网感"),
+    });
+  }
+
   throw new Error(`Unsupported tool: ${toolName}`);
 }
 
@@ -684,6 +739,154 @@ ${references || "暂无"}
   };
 }
 
+async function generateFullArticle(params: {
+  supabase: ReturnType<typeof createClient>;
+  journeyId: string;
+  userId: string;
+  journey: ToolContextJourney | null;
+  topicTitle: string;
+  angle: string;
+  style: string;
+}) {
+  const [userMemory, journeyMemory, knowledge] = await Promise.all([
+    getUserMemory(params.supabase, params.userId),
+    getJourneyMemory(params.supabase, params.journeyId),
+    searchJourneyKnowledge(params.supabase, params.journeyId, params.topicTitle, 5),
+  ]);
+
+  const references = knowledge.articles
+    .map((item) => `- ${item.title} | ${item.account_name} | 阅读 ${item.read_count} | 摘要：${item.excerpt || "无"}`)
+    .join("\n");
+
+  const referenceNote = knowledge.articles.length
+    ? `已参考知识库中的 ${knowledge.articles.length} 篇相关文章。`
+    : "知识库暂无强相关参考，已按当前赛道和用户记忆生成，建议后续导入更多 KOC 文章增强案例。";
+
+  const text = await llm.chat(
+    "你是一个公众号主笔。只输出 JSON，不要任何额外解释，不要使用 Markdown 代码块。",
+    `请围绕下面的选题，生成一篇可发布级公众号完整初稿。
+
+赛道：${params.journey?.niche_level2 ?? "未知赛道"}
+选题：${params.topicTitle}
+切入角度：${params.angle || "从真实问题和可执行经验切入"}
+文风：${params.style}
+默认长度：1200-1800 字
+
+【用户记忆】
+${userMemory || "暂无"}
+
+【旅程记忆】
+${journeyMemory || "暂无"}
+
+【可参考知识库文章】
+${references || "暂无"}
+
+写作要求：
+1. 输出完整 Markdown 成稿，不是提纲
+2. 结构采用：痛点开场 + 真实案例/现象 + 方法论拆解 + 行动清单 + 总结 CTA
+3. 生成 1 个主标题和 5 个备选标题
+4. 生成一段 80 字以内的公众号摘要
+5. 正文中自然提到可参考案例标题；如果没有参考文章，不要伪造案例
+6. 风格克制专业，可以有一点网感，但不要标题党、不要贩卖焦虑
+7. 避免绝对化承诺，涉及收益、医疗、金融、政策时要保守表达
+
+返回 JSON：
+{
+  "title": "主标题",
+  "summary": "公众号摘要",
+  "title_options": ["备选标题1", "备选标题2", "备选标题3", "备选标题4", "备选标题5"],
+  "article_markdown": "完整 Markdown 正文"
+}`
+  );
+
+  const parsed = safeParseJson<Omit<FullArticleToolResult, "reference_note">>(text);
+  if (parsed?.article_markdown) {
+    return {
+      title: parsed.title || params.topicTitle,
+      summary: parsed.summary || "",
+      title_options: Array.isArray(parsed.title_options) ? parsed.title_options.slice(0, 5) : [],
+      article_markdown: parsed.article_markdown,
+      reference_note: referenceNote,
+    };
+  }
+
+  return {
+    title: params.topicTitle,
+    summary: "",
+    title_options: [],
+    article_markdown: text,
+    reference_note: referenceNote,
+  };
+}
+
+async function reviseFullArticle(params: {
+  supabase: ReturnType<typeof createClient>;
+  journeyId: string;
+  userId: string;
+  journey: ToolContextJourney | null;
+  previousArticle: FullArticleToolResult;
+  instruction: string;
+}) {
+  const [userMemory, journeyMemory] = await Promise.all([
+    getUserMemory(params.supabase, params.userId),
+    getJourneyMemory(params.supabase, params.journeyId),
+  ]);
+
+  const text = await llm.chat(
+    "你是一个公众号编辑。只输出 JSON，不要任何额外解释，不要使用 Markdown 代码块。",
+    `请基于上一版公众号完整稿，按照用户修改意见生成一版新稿。
+
+赛道：${params.journey?.niche_level2 ?? "未知赛道"}
+用户修改意见：${params.instruction}
+
+【用户记忆】
+${userMemory || "暂无"}
+
+【旅程记忆】
+${journeyMemory || "暂无"}
+
+【上一版标题】
+${params.previousArticle.title}
+
+【上一版摘要】
+${params.previousArticle.summary}
+
+【上一版正文】
+${params.previousArticle.article_markdown}
+
+要求：
+1. 保持完整 Markdown 成稿形态
+2. 按用户意见实质修改，不要只做表面替换
+3. 如果用户要求缩短，控制在原文 50%-70%
+4. 如果用户要求更犀利，可以增强观点冲突，但不要贩卖焦虑或做绝对化承诺
+5. 同时更新标题、摘要和备选标题
+
+返回 JSON：
+{
+  "title": "主标题",
+  "summary": "公众号摘要",
+  "title_options": ["备选标题1", "备选标题2", "备选标题3", "备选标题4", "备选标题5"],
+  "article_markdown": "完整 Markdown 正文"
+}`
+  );
+
+  const parsed = safeParseJson<Omit<FullArticleToolResult, "reference_note">>(text);
+  if (parsed?.article_markdown) {
+    return {
+      title: parsed.title || params.previousArticle.title,
+      summary: parsed.summary || params.previousArticle.summary,
+      title_options: Array.isArray(parsed.title_options) ? parsed.title_options.slice(0, 5) : [],
+      article_markdown: parsed.article_markdown,
+      reference_note: params.previousArticle.reference_note,
+    };
+  }
+
+  return {
+    ...params.previousArticle,
+    article_markdown: text,
+  };
+}
+
 async function handleNaturalLanguageFollowUp(params: {
   content: string;
   controller: ReadableStreamDefaultController;
@@ -714,42 +917,46 @@ async function handleNaturalLanguageFollowUp(params: {
 
       await emitEvent(params.controller, params.encoder, {
         type: "tool_start",
-        toolName: "generate_article_draft",
-        label: toolLabel("generate_article_draft"),
+        toolName: "generate_full_article",
+        label: toolLabel("generate_full_article"),
       });
 
       const toolLogId = await createToolCallLog(params.supabase, {
         conversationId: params.conversationId,
         journeyId: params.journeyId,
         messageId: params.messageId,
-        toolName: "generate_article_draft",
+        toolName: "generate_full_article",
         status: "running",
         arguments: { topic_title: topic.title, angle: topic.angle },
         requiresConfirmation: false,
       });
 
-      const draft = await generateArticleDraft({
+      const article = await generateFullArticle({
         supabase: params.supabase,
         journeyId: params.journeyId,
         userId: params.userId,
         journey: params.journey,
         topicTitle: topic.title,
         angle: topic.angle,
+        style: "克制专业，可以有一点网感",
       });
 
       await emitEvent(params.controller, params.encoder, {
         type: "tool_result",
-        toolName: "generate_article_draft",
-        label: toolLabel("generate_article_draft"),
-        payload: draft,
+        toolName: "generate_full_article",
+        label: toolLabel("generate_full_article"),
+        payload: article,
       });
 
       await finalizeToolCallLog(params.supabase, toolLogId, {
         status: "success",
-        result: draft,
+        result: article,
       });
 
-      const response = `你选了 **${topic.title}**，我先按这个方向起了一版公众号骨架稿：\n\n${draft.draft_markdown}`;
+      const response = formatFullArticleResponse(
+        `你选了 **${topic.title}**，我按这个方向写了一版可发布级公众号完整初稿。`,
+        article
+      );
       await emitText(params.controller, params.encoder, response);
       return response;
     }
@@ -769,7 +976,105 @@ async function handleNaturalLanguageFollowUp(params: {
         `已采用初稿：${result.title}`
       );
 
-      const response = `收到，我已经把这次偏好记下来了：**${result.title}** 这类方向和写法是你当前可接受的。下一轮我会更贴近这个结构继续给你写。`;
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_start",
+        toolName: "generate_full_article",
+        label: toolLabel("generate_full_article"),
+      });
+
+      const toolLogId = await createToolCallLog(params.supabase, {
+        conversationId: params.conversationId,
+        journeyId: params.journeyId,
+        messageId: params.messageId,
+        toolName: "generate_full_article",
+        status: "running",
+        arguments: { topic_title: result.title },
+        requiresConfirmation: false,
+      });
+
+      const article = await generateFullArticle({
+        supabase: params.supabase,
+        journeyId: params.journeyId,
+        userId: params.userId,
+        journey: params.journey,
+        topicTitle: result.title,
+        angle: "",
+        style: "克制专业，可以有一点网感",
+      });
+
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_result",
+        toolName: "generate_full_article",
+        label: toolLabel("generate_full_article"),
+        payload: article,
+      });
+
+      await finalizeToolCallLog(params.supabase, toolLogId, {
+        status: "success",
+        result: article,
+      });
+
+      const response = formatFullArticleResponse(
+        `收到，我已经把这次偏好记下来了，并基于 **${result.title}** 扩成一版完整公众号初稿。`,
+        article
+      );
+      await emitText(params.controller, params.encoder, response);
+      return response;
+    }
+  }
+
+  const latestFullArticleCall = params.recentToolCalls.find(
+    (item) => item.tool_name === "generate_full_article" && item.status === "success"
+  );
+
+  if (isRevisionRequest(params.content) && latestFullArticleCall) {
+    const previousArticle = latestFullArticleCall.result as FullArticleToolResult | null;
+    if (previousArticle?.article_markdown) {
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_start",
+        toolName: "revise_full_article",
+        label: toolLabel("revise_full_article"),
+      });
+
+      const toolLogId = await createToolCallLog(params.supabase, {
+        conversationId: params.conversationId,
+        journeyId: params.journeyId,
+        messageId: params.messageId,
+        toolName: "revise_full_article",
+        status: "running",
+        arguments: { instruction: params.content },
+        requiresConfirmation: false,
+      });
+
+      const revised = await reviseFullArticle({
+        supabase: params.supabase,
+        journeyId: params.journeyId,
+        userId: params.userId,
+        journey: params.journey,
+        previousArticle,
+        instruction: params.content,
+      });
+
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_result",
+        toolName: "revise_full_article",
+        label: toolLabel("revise_full_article"),
+        payload: revised,
+      });
+
+      await finalizeToolCallLog(params.supabase, toolLogId, {
+        status: "success",
+        result: revised,
+      });
+
+      await appendJourneyMemory(
+        params.supabase,
+        params.journeyId,
+        "用户修改偏好",
+        params.content
+      );
+
+      const response = formatFullArticleResponse("我按你的修改意见重写了一版：", revised);
       await emitText(params.controller, params.encoder, response);
       return response;
     }
@@ -792,6 +1097,36 @@ function detectTopicSelection(content: string) {
 
 function isDraftAccepted(content: string) {
   return /(这个可以|就按这个写|这个版本行|可以发|ok|好的|就这样)/i.test(content.trim());
+}
+
+function isRevisionRequest(content: string) {
+  return /(改|修改|重写|润色|优化|缩短|扩写|更.{0,4}(犀利|专业|克制|口语|有网感|故事化)|开头|结尾|标题|摘要)/i.test(content.trim());
+}
+
+function formatFullArticleResponse(prefix: string, article: FullArticleToolResult) {
+  const titleOptions = article.title_options.length
+    ? article.title_options.map((title, index) => `${index + 1}. ${title}`).join("\n")
+    : "暂无";
+
+  return `${prefix}
+
+**主标题**
+${article.title}
+
+**公众号摘要**
+${article.summary || "暂无"}
+
+**备选标题**
+${titleOptions}
+
+**参考说明**
+${article.reference_note}
+
+**完整初稿**
+
+${article.article_markdown}
+
+如果你想继续调，我可以按你的要求做：**更犀利一点、缩短一半、重写开头、换标题风格、改成保姆教程风**。`;
 }
 
 function safeParseJson<T>(text: string) {
@@ -826,6 +1161,10 @@ function toolLabel(toolName: string) {
       return "生成选题";
     case "generate_article_draft":
       return "生成初稿";
+    case "generate_full_article":
+      return "生成完整稿";
+    case "revise_full_article":
+      return "修改完整稿";
     case "import_koc_articles":
       return "导入 KOC";
     default:

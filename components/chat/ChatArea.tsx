@@ -608,6 +608,12 @@ function toolEventText(event: ToolEvent) {
   if (event.type === "tool_result" && event.toolName === "generate_article_draft") {
     return "已生成一版公众号 Markdown 骨架稿。";
   }
+  if (event.type === "tool_result" && event.toolName === "generate_full_article") {
+    return "已生成一版可发布级公众号完整初稿。";
+  }
+  if (event.type === "tool_result" && event.toolName === "revise_full_article") {
+    return "已按你的要求修改完整稿。";
+  }
   if (event.type === "tool_result" && event.payload?.imported) {
     return `已导入 ${event.payload.account_name || event.payload.ghid}，同步 ${event.payload.articleCount ?? 0} 篇文章。`;
   }

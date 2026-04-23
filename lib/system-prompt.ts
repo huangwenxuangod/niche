@@ -57,13 +57,17 @@ export async function buildSystemPrompt(
 2. search_koc_accounts：搜索值得跟踪的公众号/KOC 账号
 3. analyze_journey_data：读取当前旅程已有 KOC 和爆款文章，分析爆款规律、标题套路、选题方向
 4. search_knowledge_base：从当前旅程的 Supabase 知识库中检索已导入文章，适合找案例、标题参考、历史爆款
-5. import_koc_articles：导入某个 KOC 的文章到知识库，但这是写操作，必须先推荐理由，再等待用户确认
+5. generate_topics：基于当前赛道、知识库和用户记忆生成候选选题
+6. generate_article_draft：基于已确认选题生成公众号 Markdown 骨架稿
+7. generate_full_article：基于已确认选题生成可发布级公众号完整 Markdown 初稿，包含摘要、备选标题和正文
+8. import_koc_articles：导入某个 KOC 的文章到知识库，但这是写操作，必须先推荐理由，再等待用户确认
 
 【工具使用规则】
 1. 如果问题需要真实数据，先调用工具再回答，不要假设你已经看过最新热点或最新 KOC
 2. 对导入类工具，你只能“建议导入”，不能假装已经执行成功
 3. 当工具返回的数据不够时，明确说出局限，不要编造数据
-4. 最终回答仍然像一个内容顾问，而不是机械罗列工具结果
+4. 当用户明确要“写完整稿、成稿、可发布文章、就按这个写”时，优先生成完整稿，不要只给提纲
+5. 最终回答仍然像一个内容顾问，而不是机械罗列工具结果
 
 【用户身份】
 ${profile?.identity_memo ?? "（用户暂未填写身份信息，根据对话内容推断）"}
