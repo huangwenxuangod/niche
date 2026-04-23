@@ -1,43 +1,82 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { type SupabaseClient } from "@supabase/supabase-js";
 
-const MEMORY_ROOT = path.join(process.cwd(), "memory");
-
-export async function getUserMemory(userId: string) {
-  return readMemoryFile(getUserMemoryPath(userId));
+/**
+ * 获取用户记忆
+ */
+export async function getUserMemory(supabase: SupabaseClient, userId: string) {
+  const { data } = await supabase
+    .from("user_memories")
+    .select("content")
+    .eq("user_id", userId)
+    .single();
+  return data?.content || "";
 }
 
-export async function getJourneyMemory(journeyId: string) {
-  return readMemoryFile(getJourneyMemoryPath(journeyId));
+/**
+ * 获取旅程记忆
+ */
+export async function getJourneyMemory(supabase: SupabaseClient, journeyId: string) {
+  const { data } = await supabase
+    .from("journey_memories")
+    .select("content")
+    .eq("journey_id", journeyId)
+    .single();
+  return data?.content || "";
 }
 
-export async function saveUserMemory(userId: string, markdown: string) {
-  await writeMemoryFile(getUserMemoryPath(userId), markdown.trim());
+/**
+ * 保存用户记忆
+ */
+export async function saveUserMemory(supabase: SupabaseClient, userId: string, markdown: string) {
+  await supabase.from("user_memories").upsert(
+    {
+      user_id: userId,
+      content: markdown.trim(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" }
+  );
 }
 
-export async function saveJourneyMemory(journeyId: string, markdown: string) {
-  await writeMemoryFile(getJourneyMemoryPath(journeyId), markdown.trim());
+/**
+ * 保存旅程记忆
+ */
+export async function saveJourneyMemory(supabase: SupabaseClient, journeyId: string, markdown: string) {
+  await supabase.from("journey_memories").upsert(
+    {
+      journey_id: journeyId,
+      content: markdown.trim(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "journey_id" }
+  );
 }
 
-export async function syncUserIdentityMemory(userId: string, identityMemo: string) {
-  const current = await getUserMemory(userId);
+/**
+ * 同步用户身份记忆
+ */
+export async function syncUserIdentityMemory(supabase: SupabaseClient, userId: string, identityMemo: string) {
+  const current = await getUserMemory(supabase, userId);
   const next = upsertSection(
     current || defaultUserMemory(),
     "我是谁",
     identityMemo.trim() || "（暂未填写）"
   );
-  await saveUserMemory(userId, next);
+  await saveUserMemory(supabase, userId, next);
   return next;
 }
 
-export async function ensureJourneyMemory(params: {
+/**
+ * 确保旅程记忆存在（不存在则初始化）
+ */
+export async function ensureJourneyMemory(supabase: SupabaseClient, params: {
   journeyId: string;
   platform: string;
   nicheLevel1: string;
   nicheLevel2: string;
   nicheLevel3: string;
 }) {
-  const existing = await getJourneyMemory(params.journeyId);
+  const existing = await getJourneyMemory(supabase, params.journeyId);
   if (existing) return existing;
 
   const markdown = [
@@ -59,11 +98,14 @@ export async function ensureJourneyMemory(params: {
     "- 暂无",
   ].join("\n");
 
-  await saveJourneyMemory(params.journeyId, markdown);
+  await saveJourneyMemory(supabase, params.journeyId, markdown);
   return markdown;
 }
 
-export async function captureMessageMemory(params: {
+/**
+ * 从消息中捕获记忆
+ */
+export async function captureMessageMemory(supabase: SupabaseClient, params: {
   userId: string;
   journeyId: string;
   content: string;
@@ -71,8 +113,8 @@ export async function captureMessageMemory(params: {
   const entries = inferMemoryEntries(params.content);
   if (!entries.length) return;
 
-  let userMemory = (await getUserMemory(params.userId)) || defaultUserMemory();
-  let journeyMemory = (await getJourneyMemory(params.journeyId)) || defaultJourneyMemory();
+  let userMemory = (await getUserMemory(supabase, params.userId)) || defaultUserMemory();
+  let journeyMemory = (await getJourneyMemory(supabase, params.journeyId)) || defaultJourneyMemory();
 
   for (const entry of entries) {
     if (entry.scope === "user") {
@@ -83,18 +125,24 @@ export async function captureMessageMemory(params: {
   }
 
   await Promise.all([
-    saveUserMemory(params.userId, userMemory),
-    saveJourneyMemory(params.journeyId, journeyMemory),
+    saveUserMemory(supabase, params.userId, userMemory),
+    saveJourneyMemory(supabase, params.journeyId, journeyMemory),
   ]);
 }
 
-export async function appendJourneyMemory(journeyId: string, section: string, text: string) {
-  const current = (await getJourneyMemory(journeyId)) || defaultJourneyMemory();
+/**
+ * 追加旅程记忆
+ */
+export async function appendJourneyMemory(supabase: SupabaseClient, journeyId: string, section: string, text: string) {
+  const current = (await getJourneyMemory(supabase, journeyId)) || defaultJourneyMemory();
   const next = appendBullet(current, section, text);
-  await saveJourneyMemory(journeyId, next);
+  await saveJourneyMemory(supabase, journeyId, next);
   return next;
 }
 
+/**
+ * 从消息内容推断记忆条目
+ */
 function inferMemoryEntries(content: string) {
   const text = content.trim();
   const entries: Array<{
@@ -140,6 +188,9 @@ function inferMemoryEntries(content: string) {
   return entries;
 }
 
+/**
+ * 追加项目符号
+ */
 function appendBullet(markdown: string, section: string, text: string) {
   const cleanText = text.replace(/\s+/g, " ").trim();
   const current = ensureSection(markdown, section, "- 暂无");
@@ -158,12 +209,18 @@ function appendBullet(markdown: string, section: string, text: string) {
   return current.replace(regex, `$1${nextBody}$3`);
 }
 
+/**
+ * 更新或插入章节
+ */
 function upsertSection(markdown: string, section: string, body: string) {
   const current = ensureSection(markdown, section, "（暂未填写）");
   const regex = new RegExp(`(## ${escapeRegex(section)}\\n)([\\s\\S]*?)(\\n## |$)`);
   return current.replace(regex, `$1${body.trim() || "（暂未填写）"}$3`);
 }
 
+/**
+ * 确保章节存在
+ */
 function ensureSection(markdown: string, section: string, defaultBody: string) {
   if (markdown.includes(`## ${section}`)) {
     return markdown;
@@ -172,6 +229,9 @@ function ensureSection(markdown: string, section: string, defaultBody: string) {
   return `${markdown.trim()}\n\n## ${section}\n${defaultBody}`;
 }
 
+/**
+ * 默认用户记忆
+ */
 function defaultUserMemory() {
   return [
     "# 用户记忆",
@@ -187,6 +247,9 @@ function defaultUserMemory() {
   ].join("\n");
 }
 
+/**
+ * 默认旅程记忆
+ */
 function defaultJourneyMemory() {
   return [
     "# 旅程记忆",
@@ -208,27 +271,9 @@ function defaultJourneyMemory() {
   ].join("\n");
 }
 
-function getUserMemoryPath(userId: string) {
-  return path.join(MEMORY_ROOT, "users", `${userId}.md`);
-}
-
-function getJourneyMemoryPath(journeyId: string) {
-  return path.join(MEMORY_ROOT, "journeys", `${journeyId}.md`);
-}
-
-async function readMemoryFile(filePath: string) {
-  try {
-    return await readFile(filePath, "utf8");
-  } catch {
-    return "";
-  }
-}
-
-async function writeMemoryFile(filePath: string, content: string) {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${content.trim()}\n`, "utf8");
-}
-
+/**
+ * 转义正则表达式特殊字符
+ */
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

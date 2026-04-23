@@ -18,7 +18,7 @@ export async function GET() {
     .eq("user_id", user.id)
     .single();
 
-  const markdown = (await getUserMemory(user.id)) || (await syncUserIdentityMemory(user.id, profile?.identity_memo ?? ""));
+  const markdown = (await getUserMemory(supabase, user.id)) || (await syncUserIdentityMemory(supabase, user.id, profile?.identity_memo ?? ""));
 
   return NextResponse.json({
     identity_memo: profile?.identity_memo ?? "",
@@ -49,9 +49,9 @@ export async function POST(req: NextRequest) {
   );
 
   if (memoryMarkdown.trim()) {
-    await saveUserMemory(user.id, memoryMarkdown);
+    await saveUserMemory(supabase, user.id, memoryMarkdown);
   } else {
-    await syncUserIdentityMemory(user.id, identityMemo);
+    await syncUserIdentityMemory(supabase, user.id, identityMemo);
   }
 
   return NextResponse.json({ success: true });

@@ -189,7 +189,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
 
   const journeyRecord = Array.isArray(conv.journeys) ? conv.journeys[0] : conv.journeys;
 
-  await ensureJourneyMemory({
+  await ensureJourneyMemory(supabase, {
     journeyId: conv.journey_id,
     platform: journeyRecord?.platform === "wechat_mp" ? "公众号" : (journeyRecord?.platform ?? "未知平台"),
     nicheLevel1: journeyRecord?.niche_level1 ?? "",
@@ -207,7 +207,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
     .select("id")
     .single();
 
-  await captureMessageMemory({
+  await captureMessageMemory(supabase, {
     userId: user.id,
     journeyId: conv.journey_id,
     content,
@@ -582,8 +582,8 @@ async function generateTopics(params: {
   timeframe: string;
 }) {
   const [userMemory, journeyMemory, topArticlesRes] = await Promise.all([
-    getUserMemory(params.userId),
-    getJourneyMemory(params.journeyId),
+    getUserMemory(params.supabase, params.userId),
+    getJourneyMemory(params.supabase, params.journeyId),
     params.supabase
       .from("knowledge_articles")
       .select("title, read_count")
@@ -644,8 +644,8 @@ async function generateArticleDraft(params: {
   angle: string;
 }) {
   const [userMemory, journeyMemory, knowledge] = await Promise.all([
-    getUserMemory(params.userId),
-    getJourneyMemory(params.journeyId),
+    getUserMemory(params.supabase, params.userId),
+    getJourneyMemory(params.supabase, params.journeyId),
     searchJourneyKnowledge(params.supabase, params.journeyId, params.topicTitle, 4),
   ]);
 
@@ -706,6 +706,7 @@ async function handleNaturalLanguageFollowUp(params: {
     const topic = result?.topics?.[selectedIndex];
     if (topic) {
       await appendJourneyMemory(
+        params.supabase,
         params.journeyId,
         "已确认选题",
         `${topic.title}｜${topic.angle}`
@@ -762,6 +763,7 @@ async function handleNaturalLanguageFollowUp(params: {
     const result = latestDraftCall.result as DraftToolResult | null;
     if (result?.title) {
       await appendJourneyMemory(
+        params.supabase,
         params.journeyId,
         "用户反馈",
         `已采用初稿：${result.title}`

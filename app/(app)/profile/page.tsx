@@ -17,8 +17,8 @@ export default async function ProfilePage() {
     .single();
 
   const memoryMarkdown =
-    (await getUserMemory(user.id)) ||
-    (await syncUserIdentityMemory(user.id, profile?.identity_memo ?? ""));
+    (await getUserMemory(supabase, user.id)) ||
+    (await syncUserIdentityMemory(supabase, user.id, profile?.identity_memo ?? ""));
 
   return (
     <div

@@ -34,8 +34,8 @@ export async function buildSystemPrompt(
       .eq("is_viral", true)
       .order("read_count", { ascending: false })
       .limit(8),
-    getUserMemory(userId),
-    getJourneyMemory(journeyId),
+    getUserMemory(supabase, userId),
+    getJourneyMemory(supabase, journeyId),
   ]);
 
   const journey = journeyRes.data;

@@ -62,10 +62,10 @@ export async function POST(req: NextRequest) {
       { user_id: user.id, identity_memo, updated_at: new Date().toISOString() },
       { onConflict: "user_id" }
     );
-    await syncUserIdentityMemory(user.id, identity_memo);
+    await syncUserIdentityMemory(supabase, user.id, identity_memo);
   }
 
-  await ensureJourneyMemory({
+  await ensureJourneyMemory(supabase, {
     journeyId: journey.id,
     platform: platform === "wechat_mp" ? "公众号" : platform,
     nicheLevel1: niche_level1,
