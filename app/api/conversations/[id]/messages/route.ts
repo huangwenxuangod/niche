@@ -5,6 +5,7 @@ import { buildSystemPrompt } from "@/lib/system-prompt";
 import { llm, type LlmMessage, type LlmTool } from "@/lib/llm";
 import { tavilySearch } from "@/lib/tavily";
 import { dajiala } from "@/lib/dajiala";
+import { searchJourneyKnowledge } from "@/lib/knowledge-base";
 
 type ConversationHistoryEntry = {
   role: "user" | "assistant";
@@ -70,6 +71,21 @@ const AGENT_TOOLS: LlmTool[] = [
             description: "分析重点",
           },
         },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_knowledge_base",
+      description: "从当前旅程已导入到 Supabase 的文章知识库中检索相关文章、标题和案例",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "检索关键词，比如一个选题、概念或标题方向" },
+          limit: { type: "number", description: "返回结果数，默认 6" },
+        },
+        required: ["query"],
       },
     },
   },
@@ -377,6 +393,20 @@ async function executeTool({
     };
   }
 
+  if (toolName === "search_knowledge_base") {
+    const query = String(args.query || "").trim();
+    if (!query) {
+      throw new Error("Knowledge search query is required");
+    }
+
+    return searchJourneyKnowledge(
+      supabase,
+      journeyId,
+      query,
+      Math.min(normalizeNumber(args.limit, 6), 10)
+    );
+  }
+
   throw new Error(`Unsupported tool: ${toolName}`);
 }
 
@@ -418,6 +448,8 @@ function toolLabel(toolName: string) {
       return "搜索 KOC";
     case "analyze_journey_data":
       return "分析知识库";
+    case "search_knowledge_base":
+      return "检索知识库";
     case "import_koc_articles":
       return "导入 KOC";
     default:

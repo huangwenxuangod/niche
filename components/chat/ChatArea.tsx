@@ -27,6 +27,14 @@ type RecommendedAccount = {
   avg_top_read: number;
 };
 
+type KnowledgeArticleHit = {
+  id: string;
+  title: string;
+  account_name: string;
+  read_count: number;
+  excerpt: string;
+};
+
 export function ChatArea({ conversationId, journey, initialMessages, kocCount }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -420,6 +428,8 @@ function ToolTimeline({
 }) {
   const getAccounts = (payload?: Record<string, unknown>) =>
     (payload?.accounts as RecommendedAccount[] | undefined) ?? [];
+  const getKnowledgeArticles = (payload?: Record<string, unknown>) =>
+    (payload?.articles as KnowledgeArticleHit[] | undefined) ?? [];
   const getPayloadText = (payload: Record<string, unknown> | undefined, key: string) =>
     typeof payload?.[key] === "string" ? (payload[key] as string) : "";
   const getPayloadFlag = (payload: Record<string, unknown> | undefined, key: string) =>
@@ -479,6 +489,33 @@ function ToolTimeline({
               ))}
             </div>
           )}
+          {getKnowledgeArticles(event.payload).length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {getKnowledgeArticles(event.payload).map((article) => (
+                <div
+                  key={article.id}
+                  style={{
+                    padding: "10px 12px",
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 4 }}>
+                    {article.title}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginBottom: article.excerpt ? 6 : 0 }}>
+                    {article.account_name} · 阅读 {fmtCount(article.read_count)}
+                  </div>
+                  {article.excerpt && (
+                    <div style={{ fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+                      {article.excerpt}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
           {event.type === "tool_requires_confirmation" &&
             getPayloadText(event.payload, "ghid") &&
             !getPayloadFlag(event.payload, "imported") && (
@@ -530,6 +567,10 @@ function toolEventText(event: ToolEvent) {
   }
   if (event.type === "tool_result" && event.toolName === "analyze_journey_data") {
     return `已分析 ${event.payload?.article_count ?? 0} 篇文章和 ${event.payload?.koc_count ?? 0} 个 KOC。`;
+  }
+  if (event.type === "tool_result" && event.toolName === "search_knowledge_base") {
+    const articleCount = Array.isArray(event.payload?.articles) ? event.payload.articles.length : 0;
+    return `知识库命中 ${articleCount} 篇相关文章。`;
   }
   if (event.type === "tool_result" && event.payload?.imported) {
     return `已导入 ${event.payload.account_name || event.payload.ghid}，同步 ${event.payload.articleCount ?? 0} 篇文章。`;

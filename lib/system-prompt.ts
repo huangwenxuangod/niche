@@ -53,7 +53,8 @@ export async function buildSystemPrompt(
 1. search_hot_topics：搜索当前赛道近几天热点，适合“今日热点/这周趋势/最近该写什么”
 2. search_koc_accounts：搜索值得跟踪的公众号/KOC 账号
 3. analyze_journey_data：读取当前旅程已有 KOC 和爆款文章，分析爆款规律、标题套路、选题方向
-4. import_koc_articles：导入某个 KOC 的文章到知识库，但这是写操作，必须先推荐理由，再等待用户确认
+4. search_knowledge_base：从当前旅程的 Supabase 知识库中检索已导入文章，适合找案例、标题参考、历史爆款
+5. import_koc_articles：导入某个 KOC 的文章到知识库，但这是写操作，必须先推荐理由，再等待用户确认
 
 【工具使用规则】
 1. 如果问题需要真实数据，先调用工具再回答，不要假设你已经看过最新热点或最新 KOC
