@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from "react";
 import type { Message, Journey } from "@/lib/data";
 import { AccountAnalysisModal } from "./AccountAnalysisModal";
+import { ArticleLayoutPanel } from "./ArticleLayoutPanel";
+import { extractArticleFromAssistantMessage } from "@/lib/article-layout";
 
 interface Props {
   conversationId: string;
@@ -48,6 +50,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [importingGhid, setImportingGhid] = useState<string | null>(null);
+  const [layoutTarget, setLayoutTarget] = useState<{ id: string; content: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -73,6 +76,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
     setStreaming(true);
 
     const assistantId = crypto.randomUUID();
+    let currentAssistantId = assistantId;
     let assistantContent = "";
 
     setMessages((prev) => [
@@ -115,9 +119,17 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                 assistantContent += parsed.text;
                 setMessages((prev) =>
                   prev.map((m) =>
-                    m.id === assistantId ? { ...m, content: assistantContent } : m
+                    m.id === currentAssistantId ? { ...m, content: assistantContent } : m
                   )
                 );
+              } else if (parsed.type === "assistant_message" && parsed.messageId) {
+                const nextId = String(parsed.messageId);
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === currentAssistantId ? { ...m, id: nextId } : m
+                  )
+                );
+                currentAssistantId = nextId;
               } else if (parsed.type && parsed.type !== "text") {
                 setToolEvents((prev) => [
                   ...prev,
@@ -238,6 +250,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                 <MessageBubble
                   key={m.id}
                   message={m}
+                  onOpenLayout={(target) => setLayoutTarget(target)}
                   isStreaming={streaming && m.id === messages[messages.length - 1]?.id && m.role === "assistant"}
                 />
               ))}
@@ -317,6 +330,14 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
           }}
         />
       )}
+      <ArticleLayoutPanel
+        open={layoutTarget !== null}
+        conversationId={conversationId}
+        journeyId={journey.id}
+        messageId={layoutTarget?.id ?? null}
+        messageContent={layoutTarget?.content ?? ""}
+        onClose={() => setLayoutTarget(null)}
+      />
     </>
   );
 }
@@ -383,8 +404,17 @@ function WelcomeState({ journey, onPrompt }: { journey: Journey; onPrompt: (p: s
 
 // ---- Message bubble ----
 
-function MessageBubble({ message, isStreaming }: { message: Message; isStreaming: boolean }) {
+function MessageBubble({
+  message,
+  isStreaming,
+  onOpenLayout,
+}: {
+  message: Message;
+  isStreaming: boolean;
+  onOpenLayout: (target: { id: string; content: string }) => void;
+}) {
   const isUser = message.role === "user";
+  const hasLayoutTarget = !isUser && !isStreaming && extractArticleFromAssistantMessage(message.content) !== null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 5, alignItems: isUser ? "flex-end" : "flex-start" }}>
       <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--text-tertiary)", padding: "0 4px" }}>
@@ -412,6 +442,15 @@ function MessageBubble({ message, isStreaming }: { message: Message; isStreaming
         />
         {isStreaming && message.content && <span className="streaming-cursor" />}
       </div>
+      {hasLayoutTarget && (
+        <button
+          onClick={() => onOpenLayout({ id: message.id, content: message.content })}
+          style={layoutTriggerStyle}
+        >
+          <span style={{ fontSize: 12 }}>◫</span>
+          排版
+        </button>
+      )}
     </div>
   );
 }
@@ -718,4 +757,19 @@ const miniButtonStyle: React.CSSProperties = {
   fontFamily: "var(--font-body)",
   cursor: "pointer",
   flexShrink: 0,
+};
+
+const layoutTriggerStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  marginTop: 2,
+  padding: "6px 10px",
+  borderRadius: 999,
+  border: "1px solid rgba(200,150,90,0.28)",
+  background: "var(--accent-dim)",
+  color: "var(--accent)",
+  fontSize: 11,
+  fontFamily: "var(--font-body)",
+  cursor: "pointer",
 };

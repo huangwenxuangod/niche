@@ -319,14 +319,9 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
 
         if (handledFollowUp) {
           fullContent = handledFollowUp;
+          await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
-
-          await supabase.from("messages").insert({
-            conversation_id: conversationId,
-            role: "assistant",
-            content: fullContent,
-          });
           return;
         }
 
@@ -494,14 +489,9 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
           await emitText(controller, encoder, fullContent);
         }
 
+        await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
-
-        await supabase.from("messages").insert({
-          conversation_id: conversationId,
-          role: "assistant",
-          content: fullContent,
-        });
 
         if (!conv.title || conv.title === "新对话" || conv.title === "第一次对话") {
           const title = fullContent.slice(0, 40).replace(/\n/g, " ");
@@ -1750,6 +1740,33 @@ async function emitText(controller: ReadableStreamDefaultController, encoder: Te
   for (const chunk of chunks) {
     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "text", text: chunk })}\n\n`));
   }
+}
+
+async function persistAssistantMessageAndEmitId(
+  supabase: ReturnType<typeof createClient>,
+  controller: ReadableStreamDefaultController,
+  encoder: TextEncoder,
+  conversationId: string,
+  content: string
+) {
+  const { data } = await supabase
+    .from("messages")
+    .insert({
+      conversation_id: conversationId,
+      role: "assistant",
+      content,
+    })
+    .select("id")
+    .single();
+
+  if (data?.id) {
+    await emitEvent(controller, encoder, {
+      type: "assistant_message",
+      messageId: data.id,
+    });
+  }
+
+  return data?.id ?? null;
 }
 
 async function createToolCallLog(
