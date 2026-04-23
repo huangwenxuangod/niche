@@ -1,0 +1,480 @@
+# API 接口文档
+
+本文档基于当前项目代码生成，覆盖 `app/api` 下所有现有接口，以及登录流程相关的 `app/auth/callback`。
+
+## 基本说明
+
+- 基础地址：本地开发默认是 `http://localhost:3000`
+- 认证方式：依赖 Supabase 登录态 Cookie，大部分接口要求用户已登录
+- 数据格式：除流式接口外，默认使用 `application/json`
+- 错误格式：大多数接口返回 `{ "error": "..." }`
+
+## 接口总览
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/api/journeys` | 获取当前用户的旅程列表 |
+| `POST` | `/api/journeys` | 创建新旅程并初始化首个对话 |
+| `POST` | `/api/journeys/:id/init` | 将旅程标记为知识库初始化完成 |
+| `POST` | `/api/journeys/:id/create-conversation` | 为指定旅程创建或获取最新对话 |
+| `POST` | `/api/conversations` | 创建新对话 |
+| `POST` | `/api/conversations/:id/messages` | 发送消息并获取 AI 流式回复 |
+| `GET` | `/api/koc` | 按关键词搜索 KOC 账号 |
+| `POST` | `/api/koc` | 手动添加 KOC 账号 |
+| `POST` | `/api/koc/:id/sync` | 同步已存在 KOC 的文章和数据 |
+| `POST` | `/api/koc/:id/import` | 按 ghid 导入 KOC 及其文章 |
+| `GET` | `/auth/callback` | Supabase 登录回调，交换 session |
+
+## 1. 获取旅程列表
+
+### `GET /api/journeys`
+
+获取当前登录用户的全部旅程，按创建时间倒序返回。
+
+### 请求
+
+- 需要登录态 Cookie
+- 无请求体
+
+### 成功响应 `200`
+
+```json
+[
+  {
+    "id": "uuid",
+    "user_id": "uuid",
+    "name": "公众号×AI产品体验",
+    "platform": "wechat_mp",
+    "niche_level1": "AI与科技",
+    "niche_level2": "AI产品体验",
+    "niche_level3": "评测型",
+    "keywords": ["AI产品体验", "AI工具"],
+    "is_active": true,
+    "knowledge_initialized": false,
+    "init_status": "pending",
+    "created_at": "2026-04-23T10:00:00.000Z"
+  }
+]
+```
+
+### 失败响应
+
+- `401`：`{ "error": "Unauthorized" }`
+
+## 2. 创建旅程
+
+### `POST /api/journeys`
+
+创建一个新的内容创作旅程，并自动创建首个对话。
+
+### 请求体
+
+```json
+{
+  "platform": "wechat_mp",
+  "niche_level1": "AI与科技",
+  "niche_level2": "AI产品体验",
+  "niche_level3": "评测型",
+  "identity_memo": "我是转型中的 AI 产品经理，想做公众号"
+}
+```
+
+### 字段说明
+
+- `platform`：平台，目前主要使用 `wechat_mp`
+- `niche_level1`：一级赛道
+- `niche_level2`：二级赛道
+- `niche_level3`：内容类型
+- `identity_memo`：可选，用户身份描述，会写入 `user_profiles`
+
+### 成功响应 `200`
+
+```json
+{
+  "journey_id": "uuid",
+  "conversation_id": "uuid"
+}
+```
+
+### 失败响应
+
+- `401`：`{ "error": "Unauthorized" }`
+- `500`：`{ "error": "数据库或创建失败原因" }`
+
+### 备注
+
+- 接口内部会调用大模型生成旅程名称和关键词
+- 会先将该用户的历史旅程 `is_active` 全部设为 `false`
+
+## 3. 标记旅程初始化完成
+
+### `POST /api/journeys/:id/init`
+
+将指定旅程的 `knowledge_initialized` 标记为 `true`，并设置 `init_status=done`。
+
+### 路径参数
+
+- `id`：旅程 ID
+
+### 请求
+
+- 需要登录态 Cookie
+- 无请求体
+
+### 成功响应 `200`
+
+```json
+{
+  "status": "done"
+}
+```
+
+### 失败响应
+
+- `401`：`{ "error": "Unauthorized" }`
+- `404`：`{ "error": "Not found" }`
+
+## 4. 为旅程创建或获取对话
+
+### `POST /api/journeys/:id/create-conversation`
+
+如果该旅程已经有对话，则返回最新一条；否则新建一条对话。
+
+### 路径参数
+
+- `id`：旅程 ID
+
+### 请求
+
+- 需要登录态 Cookie
+- 无请求体
+
+### 成功响应 `200`
+
+```json
+{
+  "conversation_id": "uuid"
+}
+```
+
+### 失败响应
+
+- `401`：`{ "error": "Unauthorized" }`
+- `404`：`{ "error": "Not found" }`
+- `500`：`{ "error": "数据库错误" }`
+
+## 5. 创建新对话
+
+### `POST /api/conversations`
+
+为指定旅程创建一条新对话。
+
+### 请求体
+
+```json
+{
+  "journey_id": "uuid"
+}
+```
+
+### 成功响应 `200`
+
+返回完整 conversation 记录，例如：
+
+```json
+{
+  "id": "uuid",
+  "journey_id": "uuid",
+  "user_id": "uuid",
+  "title": null,
+  "created_at": "2026-04-23T10:00:00.000Z"
+}
+```
+
+### 失败响应
+
+- `401`：`{ "error": "Unauthorized" }`
+- `500`：`{ "error": "数据库错误" }`
+
+## 6. 发送消息并获取 AI 回复
+
+### `POST /api/conversations/:id/messages`
+
+向指定对话发送一条用户消息，并通过 SSE 流式返回 AI 回复内容。
+
+### 路径参数
+
+- `id`：对话 ID
+
+### 请求体
+
+```json
+{
+  "content": "帮我分析一下这个赛道最近的爆款规律"
+}
+```
+
+### 成功响应 `200`
+
+响应类型：
+
+```text
+Content-Type: text/event-stream
+```
+
+流式数据格式：
+
+```text
+data: {"text":"第一段内容"}
+
+data: {"text":"第二段内容"}
+
+data: [DONE]
+```
+
+### 行为说明
+
+- 会先将用户消息写入 `messages`
+- 会读取当前会话最近最多 20 条消息作为上下文
+- 如果用户问题命中“选题 / 热点 / 趋势”等关键词，会额外搜索 Tavily 热点结果
+- AI 回复结束后，会把完整回复再次写入 `messages`
+- 如果是首次对话，会自动用回复前 40 个字符生成对话标题
+
+### 失败响应
+
+- `401`：纯文本 `Unauthorized`
+- `404`：纯文本 `Not found`
+- 流式过程中报错：会在 SSE 中追加类似
+
+```text
+data: {"text":"\n\n[错误：具体错误信息]"}
+
+data: [DONE]
+```
+
+## 7. 搜索 KOC 账号
+
+### `GET /api/koc`
+
+通过大佳拉接口按关键词搜索公众号/KOC 账号。
+
+### 查询参数
+
+- `journey_id`：旅程 ID，必填
+- `keyword`：搜索关键词，必填
+
+### 请求示例
+
+```http
+GET /api/koc?journey_id=uuid&keyword=AI产品体验
+```
+
+### 成功响应 `200`
+
+返回大佳拉筛选后的账号列表，最多 12 条，例如：
+
+```json
+[
+  {
+    "name": "某公众号",
+    "biz": "biz_xxx",
+    "owner_name": "作者名",
+    "customer_type": "媒体",
+    "ghid": "ghid_xxx",
+    "wxid": "wxid_xxx",
+    "fans": 3200,
+    "avg_top_read": 18000,
+    "avg_top_like": 560,
+    "avatar": "https://..."
+  }
+]
+```
+
+### 筛选逻辑
+
+- 优先返回粉丝量 `500-10000` 的账号
+- 如果没有结果，则放宽到 `100-50000`
+- 最终只返回前 12 条
+
+### 失败响应
+
+- `400`：`{ "error": "Missing parameters" }`
+- `401`：`{ "error": "Unauthorized" }`
+- `404`：`{ "error": "Not found" }`
+- `500`：`{ "error": "Search failed" }`
+
+## 8. 手动添加 KOC
+
+### `POST /api/koc`
+
+手动向当前旅程添加一个 KOC 账号。
+
+### 请求体
+
+```json
+{
+  "journey_id": "uuid",
+  "ghid": "ghid_xxx",
+  "account_name": "账号名"
+}
+```
+
+### 字段说明
+
+- `journey_id`：旅程 ID，必填
+- `ghid`：公众号唯一标识，可选但建议传
+- `account_name`：账号名称，可选
+
+### 成功响应 `200`
+
+返回插入后的 `koc_sources` 记录，例如：
+
+```json
+{
+  "id": "uuid",
+  "journey_id": "uuid",
+  "platform": "wechat_mp",
+  "account_name": "某公众号",
+  "account_id": "ghid_xxx",
+  "ghid": "ghid_xxx",
+  "is_manually_added": true
+}
+```
+
+### 失败响应
+
+- `401`：`{ "error": "Unauthorized" }`
+- `404`：`{ "error": "Not found" }`
+- `500`：`{ "error": "数据库错误" }`
+
+### 备注
+
+- 如果传了 `ghid`，接口会尝试再次调用大佳拉补充账号资料
+
+## 9. 同步已有 KOC 的文章数据
+
+### `POST /api/koc/:id/sync`
+
+对已存在的 KOC 账号重新抓取文章列表、阅读点赞等数据，并更新文章库。
+
+### 路径参数
+
+- `id`：`koc_sources.id`
+
+### 请求
+
+- 需要登录态 Cookie
+- 无请求体
+
+### 成功响应 `200`
+
+```json
+{
+  "success": true,
+  "articleCount": 20
+}
+```
+
+### 行为说明
+
+- 最多同步最近 20 篇文章
+- 会为每篇文章抓取：
+  - 标题、正文、摘要、作者
+  - 阅读、点赞、在看、分享、收藏、评论
+  - 发布时间、原文链接、封面等
+- 会按 `(journey_id, url)` 做 upsert
+- 会更新 `koc_sources` 上的统计字段：
+  - `max_read_count`
+  - `avg_read_count`
+  - `article_count`
+  - `last_fetched_at`
+
+### 失败响应
+
+- `401`：`{ "error": "Unauthorized" }`
+- `403`：`{ "error": "Forbidden" }`
+- `404`：`{ "error": "Not found" }`
+- `400`：`{ "error": "No account identifier" }`
+- `500`：`{ "error": "Sync failed" }`
+
+## 10. 导入 KOC 及文章
+
+### `POST /api/koc/:id/import`
+
+根据 `ghid` 导入一个 KOC 账号，并抓取其最近文章到知识库。
+
+### 路径参数
+
+- `id`：这里的 `id` 实际上是 `ghid`
+
+### 请求体
+
+```json
+{
+  "journey_id": "uuid"
+}
+```
+
+### 成功响应 `200`
+
+```json
+{
+  "success": true,
+  "articleCount": 20
+}
+```
+
+### 行为说明
+
+- 会先根据旅程关键词搜索账号，再匹配出对应 `ghid`
+- 找到账号后插入 `koc_sources`
+- 再抓取最近 20 篇文章并写入 `knowledge_articles`
+- 同时更新 KOC 统计字段
+
+### 失败响应
+
+- `401`：`{ "error": "Unauthorized" }`
+- `404`：`{ "error": "Not found" }` 或 `{ "error": "Account not found" }`
+- `500`：`{ "error": "Import failed" }`
+
+## 11. 登录回调
+
+### `GET /auth/callback`
+
+Supabase 邮箱登录或 OAuth 回调接口，用来把 `code` 交换成 session，并重定向回首页。
+
+### 查询参数
+
+- `code`：Supabase 回调 code
+
+### 成功行为
+
+- 调用 `supabase.auth.exchangeCodeForSession(code)`
+- 之后重定向到站点根路径 `/`
+
+### 响应
+
+- `302` 或框架对应的重定向响应
+
+## 典型调用流程
+
+### 旅程初始化流程
+
+1. `POST /api/journeys` 创建旅程
+2. `GET /api/koc?journey_id=...&keyword=...` 搜索推荐账号
+3. `POST /api/koc/:ghid/import` 导入账号和文章
+4. `POST /api/journeys/:id/create-conversation` 获取对话
+5. `POST /api/conversations/:id/messages` 开始聊天
+
+### 已有 KOC 的手动管理流程
+
+1. `POST /api/koc` 手动添加账号
+2. `POST /api/koc/:id/sync` 同步文章数据
+
+## 当前接口设计上的注意点
+
+- `/api/koc/:id/import` 的 `:id` 实际传的是 `ghid`，语义上和 `/api/koc/:id/sync` 不一致，后续建议改名或补文档说明
+- `/api/conversations/:id/messages` 是 SSE 流，前端不能按普通 JSON 接口处理
+- 当前接口没有统一的响应 envelope，例如没有统一使用 `{ code, message, data }`
+- 认证依赖 Supabase Cookie，不适合直接拿来做开放平台 API
+
