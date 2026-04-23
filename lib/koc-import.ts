@@ -52,8 +52,8 @@ export async function importKocForJourney(
   let maxReads = 0;
   let articleCount = 0;
 
-  // 遍历文章列表获取详情和数据
-  for (const article of articles.slice(0, 20)) {
+  // 遍历文章列表获取详情和数据（最多10篇）
+  for (const article of articles.slice(0, 10)) {
     articleCount++;
     let readCount = 0;
     let likeCount = 0;
@@ -79,16 +79,16 @@ export async function importKocForJourney(
         content = detail.content || "";
       }
     } catch {
-      // 跳过获取失败的文章
+      // 跳过获取失败的文章，继续处理下一篇
     }
 
     totalReads += readCount;
     maxReads = Math.max(maxReads, readCount);
 
-    // 判断是否为爆款（平均阅读的10倍或1万）
-    const viralThreshold = Math.max(10000, 10000);
-    const isViral = readCount >= viralThreshold;
+    // 判断是否为爆款（阅读≥1万）
+    const isViral = readCount >= 10000;
 
+    // 所有文章都保存到数据库（无论是否是爆款）
     await supabase.from("knowledge_articles").upsert(
       {
         journey_id: journeyId,

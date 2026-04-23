@@ -157,14 +157,14 @@ export const dajiala = {
   getPostHistory: async (input: string, page = 1) => {
     const params: any = { page };
 
-    // 判断输入类型
+    // 判断输入类型，优先顺序：biz > url > name
     if (input.startsWith("http")) {
-      params.link = input;
-    } else if (input.includes("__") || input.length > 20) {
-      // 可能是 ghid
-      params.ghid = input;
+      params.url = input;
     } else if (/^gh_/.test(input)) {
       params.ghid = input;
+    } else if (input.length > 15 && !input.includes(" ")) {
+      // 可能是 biz (通常很长)
+      params.biz = input;
     } else {
       // 否则按名称处理
       params.name = input;
