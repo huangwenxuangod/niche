@@ -35,6 +35,12 @@ type KnowledgeArticleHit = {
   excerpt: string;
 };
 
+type GeneratedTopic = {
+  index: number;
+  title: string;
+  angle: string;
+};
+
 export function ChatArea({ conversationId, journey, initialMessages, kocCount }: Props) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -430,6 +436,8 @@ function ToolTimeline({
     (payload?.accounts as RecommendedAccount[] | undefined) ?? [];
   const getKnowledgeArticles = (payload?: Record<string, unknown>) =>
     (payload?.articles as KnowledgeArticleHit[] | undefined) ?? [];
+  const getGeneratedTopics = (payload?: Record<string, unknown>) =>
+    (payload?.topics as GeneratedTopic[] | undefined) ?? [];
   const getPayloadText = (payload: Record<string, unknown> | undefined, key: string) =>
     typeof payload?.[key] === "string" ? (payload[key] as string) : "";
   const getPayloadFlag = (payload: Record<string, unknown> | undefined, key: string) =>
@@ -516,6 +524,28 @@ function ToolTimeline({
               ))}
             </div>
           )}
+          {getGeneratedTopics(event.payload).length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {getGeneratedTopics(event.payload).map((topic) => (
+                <div
+                  key={`${topic.index}-${topic.title}`}
+                  style={{
+                    padding: "10px 12px",
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                  }}
+                >
+                  <div style={{ fontSize: 13, color: "var(--text-primary)", marginBottom: 4 }}>
+                    {topic.index}. {topic.title}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+                    {topic.angle}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           {event.type === "tool_requires_confirmation" &&
             getPayloadText(event.payload, "ghid") &&
             !getPayloadFlag(event.payload, "imported") && (
@@ -571,6 +601,12 @@ function toolEventText(event: ToolEvent) {
   if (event.type === "tool_result" && event.toolName === "search_knowledge_base") {
     const articleCount = Array.isArray(event.payload?.articles) ? event.payload.articles.length : 0;
     return `知识库命中 ${articleCount} 篇相关文章。`;
+  }
+  if (event.type === "tool_result" && event.toolName === "generate_topics") {
+    return `已生成 ${topicCount} 个候选选题。你可以直接回复“第一个可以”这种话来确认。`;
+  }
+  if (event.type === "tool_result" && event.toolName === "generate_article_draft") {
+    return "已生成一版公众号 Markdown 骨架稿。";
   }
   if (event.type === "tool_result" && event.payload?.imported) {
     return `已导入 ${event.payload.account_name || event.payload.ghid}，同步 ${event.payload.articleCount ?? 0} 篇文章。`;

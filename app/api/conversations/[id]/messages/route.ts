@@ -6,7 +6,7 @@ import { llm, type LlmMessage, type LlmTool } from "@/lib/llm";
 import { tavilySearch } from "@/lib/tavily";
 import { dajiala } from "@/lib/dajiala";
 import { searchJourneyKnowledge } from "@/lib/knowledge-base";
-import { captureMessageMemory, ensureJourneyMemory } from "@/lib/memory";
+import { appendJourneyMemory, captureMessageMemory, ensureJourneyMemory, getJourneyMemory, getUserMemory } from "@/lib/memory";
 
 type ConversationHistoryEntry = {
   role: "user" | "assistant";
@@ -23,6 +23,33 @@ type AnalyzedArticle = {
   read_count: number | null;
   is_viral: boolean | null;
   publish_time: string | null;
+};
+
+type GeneratedTopic = {
+  index: number;
+  title: string;
+  angle: string;
+  why_fit_user: string;
+  why_now: string;
+  reference_titles: string[];
+};
+
+type TopicToolResult = {
+  topics: GeneratedTopic[];
+};
+
+type DraftToolResult = {
+  title: string;
+  subtitle?: string;
+  draft_markdown: string;
+};
+
+type ToolCallRow = {
+  id: string;
+  tool_name: string;
+  status: string;
+  result: Record<string, unknown> | null;
+  created_at: string;
 };
 
 const AGENT_TOOLS: LlmTool[] = [
@@ -87,6 +114,37 @@ const AGENT_TOOLS: LlmTool[] = [
           limit: { type: "number", description: "返回结果数，默认 6" },
         },
         required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "generate_topics",
+      description: "基于当前赛道、知识库和用户记忆生成 3 个适合当前用户的选题",
+      parameters: {
+        type: "object",
+        properties: {
+          count: { type: "number", description: "选题数量，默认 3" },
+          goal: { type: "string", description: "例如公众号选题、本周选题" },
+          timeframe: { type: "string", description: "例如今天、本周" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "generate_article_draft",
+      description: "基于已确认选题生成公众号 Markdown 骨架稿",
+      parameters: {
+        type: "object",
+        properties: {
+          topic_title: { type: "string", description: "选题标题" },
+          angle: { type: "string", description: "切入角度" },
+          format: { type: "string", description: "输出格式，默认 wechat_article_outline" },
+        },
+        required: ["topic_title"],
       },
     },
   },
@@ -162,6 +220,13 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
     .order("created_at", { ascending: true })
     .limit(20);
 
+  const { data: recentToolCalls } = await supabase
+    .from("tool_calls")
+    .select("id, tool_name, status, result, created_at")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: false })
+    .limit(8);
+
   const systemPrompt = await buildSystemPrompt(conv.journey_id, user.id, supabase);
   const encoder = new TextEncoder();
   let fullContent = "";
@@ -173,6 +238,32 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
           role: m.role,
           content: m.content,
         }));
+
+        const handledFollowUp = await handleNaturalLanguageFollowUp({
+          content,
+          controller,
+          encoder,
+          supabase,
+          conversationId,
+          journeyId: conv.journey_id,
+          messageId: userMessage?.id ?? null,
+          userId: user.id,
+          journey: (journeyRecord ?? null) as ToolContextJourney | null,
+          recentToolCalls: (recentToolCalls ?? []) as ToolCallRow[],
+        });
+
+        if (handledFollowUp) {
+          fullContent = handledFollowUp;
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+
+          await supabase.from("messages").insert({
+            conversation_id: conversationId,
+            role: "assistant",
+            content: fullContent,
+          });
+          return;
+        }
 
         for (let step = 0; step < 3; step++) {
           const completion = await llm.completeWithTools({
@@ -245,6 +336,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
                 toolName: toolCall.function.name,
                 args,
                 journeyId: conv.journey_id,
+                userId: user.id,
                 supabase,
                 journey: (journeyRecord ?? null) as ToolContextJourney | null,
               });
@@ -335,12 +427,14 @@ async function executeTool({
   toolName,
   args,
   journeyId,
+  userId,
   supabase,
   journey,
 }: {
   toolName: string;
   args: Record<string, unknown>;
   journeyId: string;
+  userId: string;
   supabase: ReturnType<typeof createClient>;
   journey: ToolContextJourney | null;
 }) {
@@ -424,6 +518,35 @@ async function executeTool({
     );
   }
 
+  if (toolName === "generate_topics") {
+    const count = Math.min(normalizeNumber(args.count, 3), 5);
+    return generateTopics({
+      supabase,
+      journeyId,
+      userId,
+      journey,
+      count,
+      goal: String(args.goal || "公众号选题"),
+      timeframe: String(args.timeframe || "本周"),
+    });
+  }
+
+  if (toolName === "generate_article_draft") {
+    const topicTitle = String(args.topic_title || "").trim();
+    if (!topicTitle) {
+      throw new Error("topic_title is required");
+    }
+
+    return generateArticleDraft({
+      supabase,
+      journeyId,
+      userId,
+      journey,
+      topicTitle,
+      angle: String(args.angle || ""),
+    });
+  }
+
   throw new Error(`Unsupported tool: ${toolName}`);
 }
 
@@ -449,6 +572,236 @@ function normalizeNumber(value: unknown, fallback: number) {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+async function generateTopics(params: {
+  supabase: ReturnType<typeof createClient>;
+  journeyId: string;
+  userId: string;
+  journey: ToolContextJourney | null;
+  count: number;
+  goal: string;
+  timeframe: string;
+}) {
+  const [userMemory, journeyMemory, topArticlesRes] = await Promise.all([
+    getUserMemory(params.userId),
+    getJourneyMemory(params.journeyId),
+    params.supabase
+      .from("knowledge_articles")
+      .select("title, read_count")
+      .eq("journey_id", params.journeyId)
+      .order("read_count", { ascending: false })
+      .limit(8),
+  ]);
+
+  const references = (topArticlesRes.data ?? [])
+    .map((item: { title: string; read_count: number | null }) => `- ${item.title} | 阅读 ${item.read_count ?? 0}`)
+    .join("\n");
+
+  const text = await llm.chat(
+    "你是一个选题策划助手，只输出 JSON，不要任何额外解释。",
+    `请基于以下信息，生成 ${params.count} 个适合当前用户的${params.goal}。
+
+时间范围：${params.timeframe}
+赛道：${params.journey?.niche_level2 ?? "未知赛道"}
+
+【用户记忆】
+${userMemory || "暂无"}
+
+【旅程记忆】
+${journeyMemory || "暂无"}
+
+【知识库中的高阅读文章】
+${references || "暂无"}
+
+返回 JSON：
+{
+  "topics": [
+    {
+      "index": 1,
+      "title": "选题标题",
+      "angle": "切入角度",
+      "why_fit_user": "为什么适合这个用户",
+      "why_now": "为什么现在值得写",
+      "reference_titles": ["参考标题1", "参考标题2"]
+    }
+  ]
+}`
+  );
+
+  const parsed = safeParseJson<TopicToolResult>(text);
+  if (parsed?.topics?.length) return parsed;
+
+  return {
+    topics: [],
+  };
+}
+
+async function generateArticleDraft(params: {
+  supabase: ReturnType<typeof createClient>;
+  journeyId: string;
+  userId: string;
+  journey: ToolContextJourney | null;
+  topicTitle: string;
+  angle: string;
+}) {
+  const [userMemory, journeyMemory, knowledge] = await Promise.all([
+    getUserMemory(params.userId),
+    getJourneyMemory(params.journeyId),
+    searchJourneyKnowledge(params.supabase, params.journeyId, params.topicTitle, 4),
+  ]);
+
+  const references = knowledge.articles
+    .map((item) => `- ${item.title} | ${item.account_name} | 阅读 ${item.read_count}`)
+    .join("\n");
+
+  const draftMarkdown = await llm.chat(
+    "你是一个公众号写作助手。输出必须是 Markdown 骨架稿，不要输出 JSON，不要解释。",
+    `请围绕下面的选题，生成一篇公众号 Markdown 骨架稿。
+
+赛道：${params.journey?.niche_level2 ?? "未知赛道"}
+选题：${params.topicTitle}
+切入角度：${params.angle || "从真实问题和可执行经验切入"}
+
+【用户记忆】
+${userMemory || "暂无"}
+
+【旅程记忆】
+${journeyMemory || "暂无"}
+
+【可参考知识库文章】
+${references || "暂无"}
+
+要求：
+1. 输出 Markdown
+2. 只写骨架稿，不要写成完整长文
+3. 必须包含：标题、导语、3-4 个主体小节、结尾总结、CTA
+4. 风格直接、克制、像懂行朋友，不要空话
+5. 排版适合公众号阅读`
+  );
+
+  return {
+    title: params.topicTitle,
+    draft_markdown: draftMarkdown,
+  };
+}
+
+async function handleNaturalLanguageFollowUp(params: {
+  content: string;
+  controller: ReadableStreamDefaultController;
+  encoder: TextEncoder;
+  supabase: ReturnType<typeof createClient>;
+  conversationId: string;
+  journeyId: string;
+  messageId: string | null;
+  userId: string;
+  journey: ToolContextJourney | null;
+  recentToolCalls: ToolCallRow[];
+}) {
+  const selectedIndex = detectTopicSelection(params.content);
+  const latestTopicsCall = params.recentToolCalls.find(
+    (item) => item.tool_name === "generate_topics" && item.status === "success"
+  );
+
+  if (selectedIndex !== null && latestTopicsCall) {
+    const result = latestTopicsCall.result as TopicToolResult | null;
+    const topic = result?.topics?.[selectedIndex];
+    if (topic) {
+      await appendJourneyMemory(
+        params.journeyId,
+        "已确认选题",
+        `${topic.title}｜${topic.angle}`
+      );
+
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_start",
+        toolName: "generate_article_draft",
+        label: toolLabel("generate_article_draft"),
+      });
+
+      const toolLogId = await createToolCallLog(params.supabase, {
+        conversationId: params.conversationId,
+        journeyId: params.journeyId,
+        messageId: params.messageId,
+        toolName: "generate_article_draft",
+        status: "running",
+        arguments: { topic_title: topic.title, angle: topic.angle },
+        requiresConfirmation: false,
+      });
+
+      const draft = await generateArticleDraft({
+        supabase: params.supabase,
+        journeyId: params.journeyId,
+        userId: params.userId,
+        journey: params.journey,
+        topicTitle: topic.title,
+        angle: topic.angle,
+      });
+
+      await emitEvent(params.controller, params.encoder, {
+        type: "tool_result",
+        toolName: "generate_article_draft",
+        label: toolLabel("generate_article_draft"),
+        payload: draft,
+      });
+
+      await finalizeToolCallLog(params.supabase, toolLogId, {
+        status: "success",
+        result: draft,
+      });
+
+      const response = `你选了 **${topic.title}**，我先按这个方向起了一版公众号骨架稿：\n\n${draft.draft_markdown}`;
+      await emitText(params.controller, params.encoder, response);
+      return response;
+    }
+  }
+
+  const latestDraftCall = params.recentToolCalls.find(
+    (item) => item.tool_name === "generate_article_draft" && item.status === "success"
+  );
+
+  if (isDraftAccepted(params.content) && latestDraftCall) {
+    const result = latestDraftCall.result as DraftToolResult | null;
+    if (result?.title) {
+      await appendJourneyMemory(
+        params.journeyId,
+        "用户反馈",
+        `已采用初稿：${result.title}`
+      );
+
+      const response = `收到，我已经把这次偏好记下来了：**${result.title}** 这类方向和写法是你当前可接受的。下一轮我会更贴近这个结构继续给你写。`;
+      await emitText(params.controller, params.encoder, response);
+      return response;
+    }
+  }
+
+  return "";
+}
+
+function detectTopicSelection(content: string) {
+  const text = content.trim();
+  if (!/(第[一二三123]|第\s*[123])/.test(text) && !/(就这个|就它|可以|ok|好的)/i.test(text)) {
+    return null;
+  }
+
+  if (/第\s*(一|1)/.test(text)) return 0;
+  if (/第\s*(二|2)/.test(text)) return 1;
+  if (/第\s*(三|3)/.test(text)) return 2;
+  return null;
+}
+
+function isDraftAccepted(content: string) {
+  return /(这个可以|就按这个写|这个版本行|可以发|ok|好的|就这样)/i.test(content.trim());
+}
+
+function safeParseJson<T>(text: string) {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    return JSON.parse(match[0]) as T;
+  } catch {
+    return null;
+  }
+}
+
 function safeParseArgs(raw: string) {
   try {
     return JSON.parse(raw) as Record<string, unknown>;
@@ -467,6 +820,10 @@ function toolLabel(toolName: string) {
       return "分析知识库";
     case "search_knowledge_base":
       return "检索知识库";
+    case "generate_topics":
+      return "生成选题";
+    case "generate_article_draft":
+      return "生成初稿";
     case "import_koc_articles":
       return "导入 KOC";
     default:

@@ -88,6 +88,13 @@ export async function captureMessageMemory(params: {
   ]);
 }
 
+export async function appendJourneyMemory(journeyId: string, section: string, text: string) {
+  const current = (await getJourneyMemory(journeyId)) || defaultJourneyMemory();
+  const next = appendBullet(current, section, text);
+  await saveJourneyMemory(journeyId, next);
+  return next;
+}
+
 function inferMemoryEntries(content: string) {
   const text = content.trim();
   const entries: Array<{
