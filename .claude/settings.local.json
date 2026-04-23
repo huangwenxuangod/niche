@@ -10,7 +10,8 @@
       "Bash(bun add *)",
       "Bash(bun run *)",
       "Bash(bunx tsc *)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(rm:*)"
     ]
   }
 }
