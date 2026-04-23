@@ -70,8 +70,11 @@ export default function KocPage() {
         }),
       });
       if (res.ok) {
-        await fetchKocs();
         setInput("");
+        // 后台导入，立即刷新列表，不等待完成
+        fetchKocs();
+        // 稍后再刷新一次以获取更新后的数据
+        setTimeout(fetchKocs, 2000);
       } else {
         const data = await res.json();
         setError(data.error || "导入失败");

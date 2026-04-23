@@ -59,20 +59,32 @@ export default function KOCRecommendationModal({ journeyId, keywords, onImportCo
     setImportProgress({ current: 0, total: selected.length });
 
     try {
-      for (let i = 0; i < selected.length; i++) {
-        const wxid = selected[i];
-        const res = await fetch(`/api/koc/import`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ journey_id: journeyId, input: wxid }),
-        });
-        if (!res.ok) throw new Error("Import failed");
-        setImportProgress({ current: i + 1, total: selected.length });
-      }
-      setStage("done");
+      // 并行发起所有导入请求，但不等待全部完成
+      const importPromises = selected.map(async (wxid, index) => {
+        try {
+          await fetch(`/api/koc/import`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ journey_id: journeyId, input: wxid }),
+          });
+        } catch {
+          // 忽略单个导入失败
+        }
+        setImportProgress({ current: index + 1, total: selected.length });
+      });
+
+      // 立即调用完成回调，让用户继续使用
+      setTimeout(() => {
+        handleDone();
+      }, 500);
+
+      // 后台继续执行导入
+      await Promise.all(importPromises);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Import failed");
-      setStage("done");
+      // 即使出错也让用户继续
+      setTimeout(() => {
+        handleDone();
+      }, 500);
     }
   };
 

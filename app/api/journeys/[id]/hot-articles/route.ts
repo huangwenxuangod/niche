@@ -30,18 +30,18 @@ export async function GET(_req: NextRequest, { params }: Params) {
   try {
     // Step 1: Use Tavily to search recent hot topics in this niche
     const searchQuery = `${journey.niche_level2} ${journey.niche_level3} 最近热点 2025`;
-    const tavilyResults = await tavilySearch(searchQuery, { max_results: 5, days: 7 });
+    const tavilyResults = await tavilySearch(searchQuery, { max_results: 8, days: 7 });
 
-    // Step 2: Use LLM to extract keywords from search results
-    const searchContext = tavilyResults.map(r => `- ${r.title}`).join("\n");
-    const keywordPrompt = `基于以下搜索结果，提取5个适合搜索微信公众号爆文的关键词，用JSON数组返回：
+    // Step 2: Use LLM to extract 1-2 keywords from search results
+    const searchContext = tavilyResults.map(r => `- ${r.title}\n  ${r.content?.substring(0, 150) || ""}`).join("\n");
+    const keywordPrompt = `基于以下搜索结果，提取1-2个最热门、最具体的关键词，适合搜索微信公众号爆文。不要用太泛的词（比如"AI科技"），要用具体的热点事件或产品（比如"Claude code"）。用JSON数组返回。
 
 搜索结果：
 ${searchContext}
 
 赛道：${journey.niche_level1} > ${journey.niche_level2} > ${journey.niche_level3}
 
-只返回JSON数组，不要其他内容，例如：["关键词1", "关键词2", "关键词3"]`;
+只返回JSON数组，不要其他内容，例如：["关键词1"] 或 ["关键词1", "关键词2"]`;
 
     let keywords: string[] = [];
     try {
@@ -53,7 +53,7 @@ ${searchContext}
     }
 
     if (keywords.length === 0) {
-      keywords = [journey.niche_level2, journey.niche_level3, `${journey.niche_level2} ${journey.niche_level3}`];
+      keywords = [`${journey.niche_level2} ${journey.niche_level3}`, journey.niche_level3];
     }
 
     // Step 3: Calculate date range (last 7 days)

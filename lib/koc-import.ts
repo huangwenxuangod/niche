@@ -11,19 +11,26 @@ export async function importKocForJourney(
 
   console.log("[koc-import] Full response:", response);
 
-  // 尝试找到数据字段
-  const data = response.data || response;
-  console.log("[koc-import] Using data:", data);
-
-  if (!data || (!data.mp_ghid && !data.ghid)) {
-    throw new Error("无法获取公众号信息，请检查输入是否正确");
+  // 检查是否有错误信息
+  if (response.code && response.code !== 200 && response.code !== 0) {
+    throw new Error(`API错误: code=${response.code}, msg=${response.msg}`);
   }
 
-  const ghid = data.mp_ghid || data.ghid;
-  const mp_nickname = data.mp_nickname || data.nickname || data.name;
-  const mp_wxid = data.mp_wxid || data.wxid;
-  const head_img = data.head_img || data.avatar;
-  const list = data.list || [];
+  // 账号信息在 response 顶层！
+  const mp_nickname = response.mp_nickname;
+  const mp_wxid = response.mp_wxid;
+  const mp_ghid = response.mp_ghid;
+  const head_img = response.head_img;
+  const list = response.data || []; // 文章列表在 data 字段
+
+  console.log("[koc-import] Account info:", { mp_nickname, mp_wxid, mp_ghid, head_img });
+  console.log("[koc-import] Article count:", list.length);
+
+  if (!mp_ghid) {
+    throw new Error(`无法获取公众号原始ID，API返回: ${JSON.stringify(response)}`);
+  }
+
+  const ghid = mp_ghid;
 
   // 先检查是否已经添加过
   const { data: existing } = await supabase
@@ -152,8 +159,8 @@ export async function importKocForJourney(
   return {
     success: true,
     articleCount,
-    costMoney: data.cost_money,
-    remainMoney: data.remain_money,
+    costMoney: response.cost_money,
+    remainMoney: response.remain_money,
     account: {
       name: mp_nickname || input,
       ghid: ghid,
