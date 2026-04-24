@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { llm, type LlmMessage, type LlmTool } from "@/lib/llm";
 import { tavilySearch } from "@/lib/tavily";
-import { dajiala } from "@/lib/dajiala";
 import { searchJourneyKnowledge } from "@/lib/knowledge-base";
 import { appendJourneyMemory, captureMessageMemory, ensureJourneyMemory, getJourneyMemory, getUserMemory } from "@/lib/memory";
 
@@ -105,22 +104,6 @@ const AGENT_TOOLS: LlmTool[] = [
   {
     type: "function",
     function: {
-      name: "search_koc_accounts",
-      description: "搜索适合跟踪的公众号/KOC 账号",
-      parameters: {
-        type: "object",
-        properties: {
-          keyword: { type: "string", description: "账号搜索关键词，通常是赛道关键词" },
-          page: { type: "number", description: "页码，默认 1" },
-          page_size: { type: "number", description: "每页条数，默认 12" },
-        },
-        required: ["keyword"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
       name: "analyze_journey_data",
       description: "分析当前旅程下已有 KOC 和爆款文章，适合回答爆款规律、标题套路、选题建议",
       parameters: {
@@ -210,22 +193,6 @@ const AGENT_TOOLS: LlmTool[] = [
           article_markdown: { type: "string", description: "文章 Markdown 正文" },
         },
         required: ["title", "summary", "article_markdown"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "import_koc_articles",
-      description: "建议导入某个 KOC 的文章到知识库。注意：这是写操作，必须等待用户确认。",
-      parameters: {
-        type: "object",
-        properties: {
-          ghid: { type: "string", description: "公众号 ghid" },
-          account_name: { type: "string", description: "账号名称" },
-          reason: { type: "string", description: "推荐导入理由" },
-        },
-        required: ["ghid"],
       },
     },
   },
@@ -376,40 +343,10 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
               journeyId: conv.journey_id,
               messageId: userMessage?.id ?? null,
               toolName: toolCall.function.name,
-              status: toolCall.function.name === "import_koc_articles" ? "requires_confirmation" : "running",
+              status: "running",
               arguments: args,
-              requiresConfirmation: toolCall.function.name === "import_koc_articles",
+              requiresConfirmation: false,
             });
-
-            if (toolCall.function.name === "import_koc_articles") {
-              const pendingImport = {
-                status: "requires_confirmation",
-                ghid: String(args.ghid || ""),
-                account_name: String(args.account_name || ""),
-                reason: String(args.reason || "这个账号和当前赛道相关，适合加入知识库"),
-                journey_id: conv.journey_id,
-              };
-
-              await emitEvent(controller, encoder, {
-                type: "tool_requires_confirmation",
-                toolName: toolCall.function.name,
-                label: toolLabel(toolCall.function.name),
-                toolCallId: toolLogId,
-                payload: pendingImport,
-              });
-
-              await finalizeToolCallLog(supabase, toolLogId, {
-                status: "requires_confirmation",
-                result: pendingImport,
-              });
-
-              messages.push({
-                role: "tool",
-                tool_call_id: toolCall.id,
-                content: JSON.stringify(pendingImport),
-              });
-              continue;
-            }
 
             try {
               const result = await executeTool({
@@ -586,28 +523,6 @@ async function executeTool({
         title: item.title,
         url: item.url,
         published_date: item.published_date,
-      })),
-    };
-  }
-
-  if (toolName === "search_koc_accounts") {
-    const keyword = String(args.keyword || journey?.keywords?.[0] || journey?.niche_level2 || "");
-    const page = normalizeNumber(args.page, 1);
-    const pageSize = normalizeNumber(args.page_size, 12);
-    const results = await dajiala.searchAccounts(keyword, page, Math.min(pageSize, 20));
-    let filtered = results.filter((k) => k.fans >= 500 && k.fans <= 10000);
-    if (!filtered.length) {
-      filtered = results.filter((k) => k.fans >= 100 && k.fans <= 50000);
-    }
-    return {
-      keyword,
-      accounts: filtered.slice(0, 8).map((account) => ({
-        name: account.name,
-        ghid: account.ghid,
-        fans: account.fans,
-        avg_top_read: account.avg_top_read,
-        avg_top_like: account.avg_top_like,
-        avatar: account.avatar,
       })),
     };
   }
@@ -1553,8 +1468,6 @@ function toolLabel(toolName: string) {
   switch (toolName) {
     case "search_hot_topics":
       return "搜索赛道热点";
-    case "search_koc_accounts":
-      return "搜索 KOC";
     case "analyze_journey_data":
       return "分析知识库";
     case "search_knowledge_base":
@@ -1569,8 +1482,6 @@ function toolLabel(toolName: string) {
       return "合规检查";
     case "revise_full_article":
       return "修改完整稿";
-    case "import_koc_articles":
-      return "导入 KOC";
     default:
       return toolName;
   }

@@ -45,22 +45,6 @@ async function get<T>(path: string, params: Record<string, unknown>): Promise<T>
   return res.json();
 }
 
-export interface DajialaAccount {
-  name: string;
-  biz: string;
-  owner_name: string;
-  customer_type: string;
-  ghid: string;
-  wxid: string;
-  fans: number;
-  avg_top_read: number;
-  avg_top_like: number;
-  avatar: string;
-  qrcode: string;
-  week_articles: number;
-  signature?: string;
-}
-
 export interface DajialaArticleListItem {
   title: string;
   url: string;
@@ -167,20 +151,6 @@ export interface DajialaHotSearchResponse {
 }
 
 export const dajiala = {
-  searchAccounts: async (keyword: string, page = 1, pageSize = 20) => {
-    const res = await post<{
-      code: number;
-      msg: string;
-      data: DajialaAccount[];
-    }>("/wx_account/search", {
-      keyword,
-      page,
-      page_size: pageSize,
-      mode: 1,
-    });
-    return res.data || [];
-  },
-
   getPostHistory: async (input: string, page = 1) => {
     const params: Record<string, unknown> = {
       page,

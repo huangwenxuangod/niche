@@ -19,7 +19,7 @@
 | `POST` | `/api/journeys/:id/create-conversation` | 为指定旅程创建或获取最新对话 |
 | `POST` | `/api/conversations` | 创建新对话 |
 | `POST` | `/api/conversations/:id/messages` | 发送消息并获取 AI 流式回复 |
-| `GET` | `/api/koc` | 按关键词搜索 KOC 账号 |
+| `GET` | `/api/koc` | KOC 搜索能力已下线 |
 | `POST` | `/api/koc` | 手动添加 KOC 账号 |
 | `POST` | `/api/koc/:id/sync` | 同步已存在 KOC 的文章和数据 |
 | `POST` | `/api/koc/:id/import` | 按 ghid 导入 KOC 及其文章 |
@@ -252,56 +252,23 @@ data: {"text":"\n\n[错误：具体错误信息]"}
 data: [DONE]
 ```
 
-## 7. 搜索 KOC 账号
+## 7. KOC 搜索能力状态
 
 ### `GET /api/koc`
 
-通过大佳拉接口按关键词搜索公众号/KOC 账号。
+KOC 搜索能力已下线，不再调用按条收费的公众号搜索接口。
 
 ### 查询参数
 
 - `journey_id`：旅程 ID，必填
 - `keyword`：搜索关键词，必填
 
-### 请求示例
-
-```http
-GET /api/koc?journey_id=uuid&keyword=AI产品体验
-```
-
-### 成功响应 `200`
-
-返回大佳拉筛选后的账号列表，最多 12 条，例如：
-
-```json
-[
-  {
-    "name": "某公众号",
-    "biz": "biz_xxx",
-    "owner_name": "作者名",
-    "customer_type": "媒体",
-    "ghid": "ghid_xxx",
-    "wxid": "wxid_xxx",
-    "fans": 3200,
-    "avg_top_read": 18000,
-    "avg_top_like": 560,
-    "avatar": "https://..."
-  }
-]
-```
-
-### 筛选逻辑
-
-- 优先返回粉丝量 `500-10000` 的账号
-- 如果没有结果，则放宽到 `100-50000`
-- 最终只返回前 12 条
-
-### 失败响应
+### 响应
 
 - `400`：`{ "error": "Missing parameters" }`
 - `401`：`{ "error": "Unauthorized" }`
 - `404`：`{ "error": "Not found" }`
-- `500`：`{ "error": "Search failed" }`
+- `410`：`{ "error": "KOC 搜索能力已下线，不再调用按条收费接口" }`
 
 ## 8. 手动添加 KOC
 
@@ -349,7 +316,7 @@ GET /api/koc?journey_id=uuid&keyword=AI产品体验
 
 ### 备注
 
-- 如果传了 `ghid`，接口会尝试再次调用大佳拉补充账号资料
+- 当前接口只写入用户显式提供的 `ghid` 和 `account_name`
 
 ## 9. 同步已有 KOC 的文章数据
 
@@ -426,9 +393,7 @@ GET /api/koc?journey_id=uuid&keyword=AI产品体验
 
 ### 行为说明
 
-- 会先根据旅程关键词搜索账号，再匹配出对应 `ghid`
-- 找到账号后插入 `koc_sources`
-- 再抓取最近 20 篇文章并写入 `knowledge_articles`
+- 会根据传入的账号标识直接抓取最近文章并写入 `knowledge_articles`
 - 同时更新 KOC 统计字段
 
 ### 失败响应
@@ -461,10 +426,9 @@ Supabase 邮箱登录或 OAuth 回调接口，用来把 `code` 交换成 session
 ### 旅程初始化流程
 
 1. `POST /api/journeys` 创建旅程
-2. `GET /api/koc?journey_id=...&keyword=...` 搜索推荐账号
-3. `POST /api/koc/:ghid/import` 导入账号和文章
-4. `POST /api/journeys/:id/create-conversation` 获取对话
-5. `POST /api/conversations/:id/messages` 开始聊天
+2. `POST /api/koc/:ghid/import` 导入账号和文章
+3. `POST /api/journeys/:id/create-conversation` 获取对话
+4. `POST /api/conversations/:id/messages` 开始聊天
 
 ### 已有 KOC 的手动管理流程
 
@@ -477,4 +441,3 @@ Supabase 邮箱登录或 OAuth 回调接口，用来把 `code` 交换成 session
 - `/api/conversations/:id/messages` 是 SSE 流，前端不能按普通 JSON 接口处理
 - 当前接口没有统一的响应 envelope，例如没有统一使用 `{ code, message, data }`
 - 认证依赖 Supabase Cookie，不适合直接拿来做开放平台 API
-

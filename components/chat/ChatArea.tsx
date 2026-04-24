@@ -1,14 +1,12 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bubble,
   Prompts,
   Sender,
-  ThoughtChain,
   Welcome,
   type BubbleItemType,
-  type ThoughtChainItemType,
 } from "@ant-design/x";
 import {
   AppstoreOutlined,
@@ -18,7 +16,7 @@ import {
   RadarChartOutlined,
   ReadOutlined,
 } from "@ant-design/icons";
-import { Button, Card, Space, Tag } from "antd";
+import { Button, Space, Tag } from "antd";
 import type { Message, Journey } from "@/lib/data";
 import { AccountAnalysisModal } from "./AccountAnalysisModal";
 import { ArticleLayoutPanel } from "./ArticleLayoutPanel";
@@ -38,27 +36,6 @@ type ToolEvent = {
   label: string;
   payload?: Record<string, unknown>;
   error?: string;
-};
-
-type RecommendedAccount = {
-  name: string;
-  ghid: string;
-  fans: number;
-  avg_top_read: number;
-};
-
-type KnowledgeArticleHit = {
-  id: string;
-  title: string;
-  account_name: string;
-  read_count: number;
-  excerpt: string;
-};
-
-type GeneratedTopic = {
-  index: number;
-  title: string;
-  angle: string;
 };
 
 type LoadingStep = {
@@ -87,56 +64,8 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
-  const [importingGhid, setImportingGhid] = useState<string | null>(null);
   const [layoutTarget, setLayoutTarget] = useState<{ id: string; content: string } | null>(null);
   const loadingSnapshot = buildLoadingSnapshot(toolEvents, assistantStatus);
-  const thoughtItems = buildThoughtChainItems(toolEvents, loadingSnapshot);
-
-  const importRecommendedKoc = useCallback(async (ghid: string) => {
-    setImportingGhid(ghid);
-    try {
-      const res = await fetch(`/api/koc/${ghid}/import`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ journey_id: journey.id }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "导入失败");
-      }
-
-      setToolEvents((prev) =>
-        prev.map((event) =>
-          event.type === "tool_requires_confirmation" && event.payload?.ghid === ghid
-            ? {
-                ...event,
-                type: "tool_result",
-                payload: {
-                  ...event.payload,
-                  imported: true,
-                  articleCount: data.articleCount,
-                  account_name: data.account?.name || event.payload?.account_name,
-                },
-              }
-            : event
-        )
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "导入失败";
-      setToolEvents((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          type: "tool_error",
-          label: "导入 KOC",
-          error: message,
-        },
-      ]);
-    } finally {
-      setImportingGhid(null);
-    }
-  }, [journey.id]);
 
   const bubbleItems = useMemo<BubbleItemType[]>(() => {
     const items: BubbleItemType[] = [];
@@ -147,24 +76,6 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
         streaming && latestMessageId === message.id && message.role === "assistant";
       const isLatestAssistant = latestMessageId === message.id && message.role === "assistant";
 
-      if (
-        isLatestAssistant &&
-        toolEvents.length > 0
-      ) {
-        items.push({
-          key: `tool-trace-${message.id}`,
-          role: "system",
-          content: (
-            <ToolTracePanel
-              events={toolEvents}
-              importingGhid={importingGhid}
-              onImport={importRecommendedKoc}
-              thoughtItems={thoughtItems}
-            />
-          ),
-        });
-      }
-
       const hasLayoutTarget =
         message.role === "assistant" &&
         !isStreamingAssistant &&
@@ -174,12 +85,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
         key: message.id,
         role: message.role === "user" ? "user" : "assistant",
         placement: message.role === "user" ? "end" : "start",
-        content:
-          isStreamingAssistant && !message.content ? (
-            <WaitingState snapshot={loadingSnapshot} thoughtItems={thoughtItems} />
-          ) : (
-            <div className="msg-prose" dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }} />
-          ),
+        content: <div className="msg-prose" dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }} />,
         streaming: isStreamingAssistant,
         typing: false,
         variant: message.role === "user" ? "filled" : "borderless",
@@ -187,9 +93,10 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
         footer:
           message.role === "assistant" ? (
             <AssistantFooter
+              isLatest={isLatestAssistant}
               isStreaming={isStreamingAssistant}
               loadingSnapshot={loadingSnapshot}
-              thoughtItems={thoughtItems}
+              toolEvents={toolEvents}
               hasLayoutTarget={hasLayoutTarget}
               onOpenLayout={() => setLayoutTarget({ id: message.id, content: message.content })}
             />
@@ -198,7 +105,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
     });
 
     return items;
-  }, [messages, streaming, toolEvents, thoughtItems, loadingSnapshot, importingGhid, importRecommendedKoc]);
+  }, [messages, streaming, toolEvents, loadingSnapshot]);
 
   async function sendMessage(text: string) {
     if (!text.trim() || streaming) return;
@@ -532,34 +439,54 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
 }
 
 function AssistantFooter({
+  isLatest,
   isStreaming,
   loadingSnapshot,
-  thoughtItems,
+  toolEvents,
   hasLayoutTarget,
   onOpenLayout,
 }: {
+  isLatest: boolean;
   isStreaming: boolean;
   loadingSnapshot: LoadingSnapshot;
-  thoughtItems: ThoughtChainItemType[];
+  toolEvents: ToolEvent[];
   hasLayoutTarget: boolean;
   onOpenLayout: () => void;
 }) {
+  const shouldShowProcess = isLatest && (isStreaming || toolEvents.length > 0);
+  const summary = buildToolSummary(toolEvents);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    let timer: number | undefined;
+
+    if (isStreaming) {
+      timer = window.setTimeout(() => {
+        setCollapsed(false);
+      }, 0);
+      return () => window.clearTimeout(timer);
+    }
+
+    if (shouldShowProcess) {
+      timer = window.setTimeout(() => {
+        setCollapsed(true);
+      }, 1600);
+    }
+
+    return () => {
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [isStreaming, shouldShowProcess, summary]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {isStreaming && (
-        <div style={miniThoughtWrapStyle}>
+      {shouldShowProcess && (
+        <div style={collapsed ? miniProcessCollapsedStyle : miniProcessLineStyle}>
           <div style={miniStateTitleStyle}>
-            <LoadingOutlined />
-            {loadingSnapshot.title}
+            {isStreaming ? <LoadingOutlined /> : <span style={miniDoneDotStyle} />}
+            {isStreaming ? loadingSnapshot.title : summary}
           </div>
-          <div style={miniStateHintStyle}>{loadingSnapshot.hint}</div>
-          <ThoughtChain
-            items={thoughtItems}
-            styles={{
-              root: { marginTop: 10 },
-              item: { paddingBottom: 6 },
-            }}
-          />
+          {isStreaming ? <div style={miniStateHintStyle}>{loadingSnapshot.hint}</div> : null}
         </div>
       )}
       {hasLayoutTarget && (
@@ -576,217 +503,32 @@ function AssistantFooter({
   );
 }
 
-function WaitingState({
-  snapshot,
-  thoughtItems,
-}: {
-  snapshot: LoadingSnapshot;
-  thoughtItems: ThoughtChainItemType[];
-}) {
-  return (
-    <div style={waitingCardStyle}>
-      <div style={waitingTopStyle}>
-        <Tag bordered={false} style={waitingTagStyle}>
-          <LoadingOutlined />
-          {snapshot.title}
-        </Tag>
-      </div>
-      <div style={waitingHintStyle}>{snapshot.hint}</div>
-      <ThoughtChain
-        items={thoughtItems}
-        styles={{
-          root: { marginTop: 2 },
-          item: { paddingBottom: 10 },
-        }}
-      />
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ ...skeletonLineStyle, width: "68%" }} />
-        <div style={{ ...skeletonLineStyle, width: "100%" }} />
-        <div style={{ ...skeletonLineStyle, width: "84%" }} />
-      </div>
-    </div>
-  );
-}
+function buildToolSummary(events: ToolEvent[]) {
+  const latestResult = [...events].reverse().find((event) => event.type === "tool_result");
+  if (!latestResult) return "已完成这轮处理";
 
-function ToolTracePanel({
-  events,
-  importingGhid,
-  onImport,
-  thoughtItems,
-}: {
-  events: ToolEvent[];
-  importingGhid: string | null;
-  onImport: (ghid: string) => void;
-  thoughtItems: ThoughtChainItemType[];
-}) {
-  const isRunning = thoughtItems.some((item) => item.status === "loading");
-  const [expanded, setExpanded] = useState(false);
-  const accounts =
-    events.flatMap((event) => (event.payload?.accounts as RecommendedAccount[] | undefined) ?? []);
-  const articles =
-    events.flatMap((event) => (event.payload?.articles as KnowledgeArticleHit[] | undefined) ?? []);
-  const topics =
-    events.flatMap((event) => (event.payload?.topics as GeneratedTopic[] | undefined) ?? []);
-  const pendingImport = events.find((event) => event.type === "tool_requires_confirmation");
-  const pendingPayload = (pendingImport?.payload ?? null) as Record<string, unknown> | null;
-  const summary = buildTraceSummary({ accounts, articles, topics, pendingPayload, thoughtItems });
-  const displayExpanded = isRunning || expanded;
+  const payload = latestResult.payload ?? {};
 
-  return (
-    <div style={toolPanelCardStyle}>
-      <div style={traceHeaderStyle}>
-        <div>
-          <div style={toolPanelTitleStyle}>Agent Trace</div>
-          {!displayExpanded && <div style={traceSummaryStyle}>{summary}</div>}
-        </div>
-        {!isRunning && (
-          <Button
-            size="small"
-            type="text"
-            onClick={() => setExpanded((value) => !value)}
-            style={traceToggleStyle}
-          >
-            {displayExpanded ? "收起" : "展开"}
-          </Button>
-        )}
-      </div>
-      {displayExpanded && (
-        <ThoughtChain
-          items={thoughtItems}
-          styles={{
-            root: { marginBottom: 8 },
-            item: { paddingBottom: 4 },
-          }}
-        />
-      )}
-
-      {displayExpanded && accounts.length > 0 && (
-        <div style={toolSectionStyle}>
-          {accounts.map((account) => (
-            <Card key={account.ghid} size="small" style={traceItemCardStyle}>
-              <div style={traceCardHeaderStyle}>
-                <div>
-                  <div style={traceItemTitleStyle}>{account.name}</div>
-                  <div style={traceItemMetaStyle}>
-                    粉丝 {fmtCount(account.fans)} · 平均阅读 {fmtCount(account.avg_top_read)}
-                  </div>
-                </div>
-                <Button
-                  size="small"
-                  type="primary"
-                  loading={importingGhid === account.ghid}
-                  onClick={() => onImport(account.ghid)}
-                >
-                  导入
-                </Button>
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {displayExpanded && articles.length > 0 && (
-        <div style={toolSectionStyle}>
-          {articles.map((article) => (
-            <Card key={article.id} size="small" style={traceItemCardStyle}>
-              <div style={traceItemTitleStyle}>{article.title}</div>
-              <div style={traceItemMetaStyle}>
-                {article.account_name} · 阅读 {fmtCount(article.read_count)}
-              </div>
-              {article.excerpt && <div style={traceExcerptStyle}>{article.excerpt}</div>}
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {displayExpanded && topics.length > 0 && (
-        <div style={toolSectionStyle}>
-          {topics.map((topic) => (
-            <Card key={`${topic.index}-${topic.title}`} size="small" style={traceItemCardStyle}>
-              <div style={traceItemTitleStyle}>
-                {topic.index}. {topic.title}
-              </div>
-              <div style={traceItemMetaStyle}>{topic.angle}</div>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {displayExpanded && pendingPayload?.ghid ? (
-        <Card size="small" style={pendingCardStyle}>
-          <div style={traceItemTitleStyle}>
-            推荐导入 {String(pendingPayload.account_name || pendingPayload.ghid)}
-          </div>
-          <div style={traceExcerptStyle}>
-            {String(pendingPayload.reason || "这个账号和当前赛道相关，适合加入知识库。")}
-          </div>
-          <Button
-            type="primary"
-            size="small"
-            loading={importingGhid === String(pendingPayload.ghid)}
-            onClick={() => onImport(String(pendingPayload.ghid))}
-          >
-            确认导入
-          </Button>
-        </Card>
-      ) : null}
-    </div>
-  );
-}
-
-function buildTraceSummary(params: {
-  accounts: RecommendedAccount[];
-  articles: KnowledgeArticleHit[];
-  topics: GeneratedTopic[];
-  pendingPayload: Record<string, unknown> | null;
-  thoughtItems: ThoughtChainItemType[];
-}) {
-  const finished = params.thoughtItems
-    .filter((item) => item.status === "success")
-    .map((item) => String(item.title));
-  const fragments: string[] = [];
-
-  if (finished.length > 0) {
-    fragments.push(`已完成 ${finished.slice(0, 3).join(" / ")}`);
+  if (latestResult.toolName === "search_hot_topics" && Array.isArray(payload.topics)) {
+    return `已搜索热点，找到 ${payload.topics.length} 条候选`;
   }
-  if (params.articles.length > 0) {
-    fragments.push(`知识库命中 ${params.articles.length} 篇`);
+  if (latestResult.toolName === "search_knowledge_base" && Array.isArray(payload.articles)) {
+    return `已检索知识库，命中 ${payload.articles.length} 篇内容`;
   }
-  if (params.topics.length > 0) {
-    fragments.push(`生成选题 ${params.topics.length} 个`);
+  if (latestResult.toolName === "generate_topics" && Array.isArray(payload.topics)) {
+    return `已生成 ${payload.topics.length} 个选题方向`;
   }
-  if (params.accounts.length > 0) {
-    fragments.push(`筛出账号 ${params.accounts.length} 个`);
+  if (latestResult.toolName === "generate_full_article") {
+    return "已生成完整稿";
   }
-  if (params.pendingPayload?.ghid) {
-    fragments.push("有 1 个待确认导入");
+  if (latestResult.toolName === "generate_article_draft") {
+    return "已生成骨架稿";
+  }
+  if (latestResult.toolName === "compliance_check") {
+    return "已完成合规检查";
   }
 
-  return fragments.length > 0 ? fragments.join(" · ") : "这轮处理已完成，展开可查看过程明细。";
-}
-
-function buildThoughtChainItems(
-  events: ToolEvent[],
-  snapshot: LoadingSnapshot
-): ThoughtChainItemType[] {
-  const activeTool = [...events].reverse().find((event) => event.type === "tool_start")?.toolName;
-
-  return snapshot.steps.map((step) => ({
-    key: step.key,
-    title: step.label,
-    description: step.state === "active" ? snapshot.hint : undefined,
-    status:
-      step.state === "done"
-        ? "success"
-        : step.state === "active"
-          ? "loading"
-          : step.state === "error"
-            ? "error"
-            : undefined,
-    collapsible: false,
-    blink: step.state === "active",
-    icon: step.key === resolveActiveStage(activeTool, snapshot.title) ? <LoadingOutlined /> : undefined,
-  }));
+  return `已完成${latestResult.label}`;
 }
 
 function buildLoadingSnapshot(events: ToolEvent[], assistantStatus: string | null): LoadingSnapshot {
@@ -823,7 +565,7 @@ function stageState(
 }
 
 function resolveActiveStage(toolName?: string, assistantStatus?: string | null) {
-  if (toolName === "search_hot_topics" || toolName === "search_koc_accounts" || toolName === "search_knowledge_base" || toolName === "analyze_journey_data") {
+  if (toolName === "search_hot_topics" || toolName === "search_knowledge_base" || toolName === "analyze_journey_data") {
     return "retrieve";
   }
   if (toolName === "generate_topics") return "compose";
@@ -838,28 +580,26 @@ function resolveActiveStage(toolName?: string, assistantStatus?: string | null) 
 function getToolMeta(toolName?: string, assistantStatus?: string | null) {
   switch (toolName) {
     case "search_hot_topics":
-      return { title: "正在搜索热点", hint: "从近期内容里找最值得跟进的话题。" };
-    case "search_koc_accounts":
-      return { title: "正在搜索 KOC", hint: "筛选和当前赛道最相关的账号样本。" };
+      return { title: "搜索热点中", hint: "从近期内容里找最值得跟进的话题。" };
     case "search_knowledge_base":
-      return { title: "正在检索知识库", hint: "从已同步文章里找能支撑答案的案例。" };
+      return { title: "检索知识库中", hint: "从已同步文章里找能支撑答案的案例。" };
     case "analyze_journey_data":
-      return { title: "正在分析旅程数据", hint: "总结爆款规律、账号特征和内容偏好。" };
+      return { title: "分析数据中", hint: "总结爆款规律、账号特征和内容偏好。" };
     case "generate_topics":
-      return { title: "正在组织选题", hint: "把检索到的信息压缩成可执行的方向。" };
+      return { title: "生成选题中", hint: "把检索到的信息压缩成可执行的方向。" };
     case "generate_article_draft":
-      return { title: "正在生成骨架稿", hint: "先搭好结构，再填内容。" };
+      return { title: "生成骨架稿中", hint: "先搭好结构，再填内容。" };
     case "generate_full_article":
-      return { title: "正在生成完整稿", hint: "把结构扩成可读、可发的长文正文。" };
+      return { title: "生成完整稿中", hint: "把结构扩成可读、可发的长文正文。" };
     case "revise_full_article":
-      return { title: "正在修改完整稿", hint: "按你的要求调整语气、结构和表达。" };
+      return { title: "修改完整稿中", hint: "按你的要求调整语气、结构和表达。" };
     case "compliance_check":
-      return { title: "正在做风控检查", hint: "检查标题、摘要、正文和 CTA 的风险点。" };
+      return { title: "风控检查中", hint: "检查标题、摘要、正文和 CTA 的风险点。" };
     default:
-      if (assistantStatus === "输出答案中") return { title: "正在输出答案", hint: "先把核心结论流式发出来。" };
-      if (assistantStatus === "组织回答中") return { title: "正在组织回答", hint: "把线索压缩成更清晰的回答结构。" };
-      if (assistantStatus === "整理上下文中") return { title: "正在整理上下文", hint: "结合当前对话和赛道背景继续处理。" };
-      return { title: "正在理解问题", hint: "先判断你想要的是分析、检索还是生成。" };
+      if (assistantStatus === "输出答案中") return { title: "输出答案中", hint: "先把核心结论流式发出来。" };
+      if (assistantStatus === "组织回答中") return { title: "组织回答中", hint: "把线索压缩成更清晰的回答结构。" };
+      if (assistantStatus === "整理上下文中") return { title: "整理上下文中", hint: "结合当前对话和赛道背景继续处理。" };
+      return { title: "理解问题中", hint: "先判断你想要的是分析、检索还是生成。" };
   }
 }
 
@@ -868,12 +608,6 @@ function formatMessage(content: string): string {
     .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--accent);font-weight:500">$1</strong>')
     .replace(/`([^`]+)`/g, '<code style="font-family:var(--font-mono);font-size:11px;background:var(--accent-dim);color:var(--accent);padding:1px 5px;border-radius:3px">$1</code>')
     .replace(/\n/g, "<br />");
-}
-
-function fmtCount(n: number) {
-  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n ?? 0);
 }
 
 const chatPageStyle: React.CSSProperties = {
@@ -966,48 +700,18 @@ const senderFooterStyle: React.CSSProperties = {
   fontSize: 11,
 };
 
-const waitingCardStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 14,
-  minWidth: 320,
-  padding: "4px 0 12px",
-};
-
-const waitingTopStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-};
-
-const waitingTagStyle: React.CSSProperties = {
-  background: "var(--accent-dim)",
-  color: "var(--accent)",
-  borderRadius: 999,
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 6,
-};
-
-const waitingHintStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "var(--text-secondary)",
-  lineHeight: 1.7,
-};
-
-const skeletonLineStyle: React.CSSProperties = {
-  height: 10,
-  borderRadius: 999,
-  background: "linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.12), rgba(255,255,255,0.06))",
-};
-
-const miniThoughtWrapStyle: React.CSSProperties = {
+const miniProcessLineStyle: React.CSSProperties = {
   maxWidth: 560,
-  padding: "12px 14px 10px",
-  borderRadius: 18,
-  background: "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012))",
-  border: "1px solid rgba(255,255,255,0.06)",
-  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
+  padding: "2px 0",
+};
+
+const miniProcessCollapsedStyle: React.CSSProperties = {
+  width: "fit-content",
+  maxWidth: 420,
+  padding: "6px 10px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.035)",
+  border: "1px solid rgba(255,255,255,0.05)",
 };
 
 const miniStateTitleStyle: React.CSSProperties = {
@@ -1022,10 +726,18 @@ const miniStateTitleStyle: React.CSSProperties = {
 };
 
 const miniStateHintStyle: React.CSSProperties = {
-  marginTop: 6,
+  marginTop: 4,
   fontSize: 12,
   color: "var(--text-secondary)",
-  lineHeight: 1.7,
+  lineHeight: 1.6,
+};
+
+const miniDoneDotStyle: React.CSSProperties = {
+  width: 7,
+  height: 7,
+  borderRadius: "50%",
+  background: "var(--accent)",
+  boxShadow: "0 0 0 4px rgba(200,150,90,0.12)",
 };
 
 const layoutActionButtonStyle: React.CSSProperties = {
@@ -1034,90 +746,4 @@ const layoutActionButtonStyle: React.CSSProperties = {
   borderColor: "rgba(200,150,90,0.25)",
   color: "var(--accent)",
   background: "var(--accent-dim)",
-};
-
-const toolPanelCardStyle: React.CSSProperties = {
-  maxWidth: 620,
-  padding: "14px 16px",
-  background: "linear-gradient(180deg, rgba(255,255,255,0.028), rgba(255,255,255,0.01))",
-  border: "1px solid rgba(255,255,255,0.06)",
-  borderRadius: 20,
-  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
-};
-
-const traceHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: 12,
-  marginBottom: 4,
-};
-
-const toolPanelTitleStyle: React.CSSProperties = {
-  fontFamily: "var(--font-mono)",
-  fontSize: 10,
-  letterSpacing: "0.14em",
-  textTransform: "uppercase",
-  color: "var(--text-tertiary)",
-  marginBottom: 10,
-};
-
-const traceSummaryStyle: React.CSSProperties = {
-  marginTop: -2,
-  color: "var(--text-secondary)",
-  fontSize: 12,
-  lineHeight: 1.7,
-};
-
-const traceToggleStyle: React.CSSProperties = {
-  color: "var(--text-secondary)",
-  paddingInline: 8,
-  borderRadius: 999,
-};
-
-const toolSectionStyle: React.CSSProperties = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 8,
-  marginTop: 10,
-};
-
-const traceItemCardStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.025)",
-  borderColor: "rgba(255,255,255,0.06)",
-  borderRadius: 14,
-  boxShadow: "none",
-};
-
-const traceCardHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 12,
-};
-
-const traceItemTitleStyle: React.CSSProperties = {
-  fontSize: 13,
-  color: "var(--text-primary)",
-  marginBottom: 4,
-  lineHeight: 1.5,
-};
-
-const traceItemMetaStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "var(--text-tertiary)",
-  lineHeight: 1.6,
-};
-
-const traceExcerptStyle: React.CSSProperties = {
-  marginTop: 8,
-  fontSize: 11,
-  color: "var(--text-secondary)",
-  lineHeight: 1.65,
-};
-
-const pendingCardStyle: React.CSSProperties = {
-  ...traceItemCardStyle,
-  borderColor: "rgba(200,150,90,0.24)",
-  background: "rgba(200,150,90,0.05)",
 };

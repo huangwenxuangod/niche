@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { dajiala, type DajialaAccount, type DajialaArticleListItem, type DajialaPostHistoryResult } from "./dajiala";
+import { dajiala, type DajialaArticleListItem, type DajialaPostHistoryResult } from "./dajiala";
 
 type KocSourceForSync = {
   id: string;
@@ -73,11 +73,6 @@ export async function importKocForJourney(
   }
 
   const ghid = postHistory.mp_ghid;
-  const accountProfile = await findAccountProfile({
-    name: postHistory.mp_nickname || input,
-    ghid,
-    wxid: postHistory.mp_wxid,
-  });
 
   const { data: existing } = await supabase
     .from("koc_sources")
@@ -95,19 +90,11 @@ export async function importKocForJourney(
     .insert({
       journey_id: journeyId,
       platform: "wechat_mp",
-      account_name: postHistory.mp_nickname || accountProfile?.name || input,
+      account_name: postHistory.mp_nickname || input,
       account_id: ghid,
       ghid,
-      wxid: postHistory.mp_wxid || accountProfile?.wxid,
-      biz: accountProfile?.biz,
-      fans_count: accountProfile?.fans ?? 0,
-      avg_top_read: accountProfile?.avg_top_read ?? 0,
-      avg_top_like: accountProfile?.avg_top_like ?? 0,
-      week_articles_count: accountProfile?.week_articles ?? 0,
-      avatar_url: normalizeImageUrl(postHistory.head_img || accountProfile?.avatar),
-      signature: accountProfile?.signature,
-      qrcode: normalizeImageUrl(accountProfile?.qrcode),
-      customer_type: accountProfile?.customer_type,
+      wxid: postHistory.mp_wxid,
+      avatar_url: normalizeImageUrl(postHistory.head_img),
       is_manually_added: false,
     })
     .select()
@@ -134,9 +121,9 @@ export async function importKocForJourney(
     costMoney: postHistory.cost_money,
     remainMoney: postHistory.remain_money,
     account: {
-      name: postHistory.mp_nickname || accountProfile?.name || input,
+      name: postHistory.mp_nickname || input,
       ghid,
-      wxid: postHistory.mp_wxid || accountProfile?.wxid,
+      wxid: postHistory.mp_wxid,
     },
     kocId: koc.id,
   };
@@ -166,32 +153,13 @@ export async function syncKocSourceArticles(
     };
   }
 
-  const accountProfile = await findAccountProfile({
-    name: postHistory.mp_nickname || koc.account_name || "",
-    ghid: postHistory.mp_ghid || koc.ghid || koc.account_id || undefined,
-    wxid: postHistory.mp_wxid || koc.wxid || undefined,
-  });
-  const accountProfileUpdate = accountProfile
-    ? {
-        biz: accountProfile.biz,
-        fans_count: accountProfile.fans,
-        avg_top_read: accountProfile.avg_top_read,
-        avg_top_like: accountProfile.avg_top_like,
-        week_articles_count: accountProfile.week_articles,
-        signature: accountProfile.signature,
-        qrcode: normalizeImageUrl(accountProfile.qrcode),
-        customer_type: accountProfile.customer_type,
-      }
-    : {};
-
   await supabase
     .from("koc_sources")
     .update({
-      account_name: postHistory.mp_nickname || accountProfile?.name || koc.account_name,
-      ghid: postHistory.mp_ghid || accountProfile?.ghid || koc.ghid || koc.account_id,
-      wxid: postHistory.mp_wxid || accountProfile?.wxid || koc.wxid,
-      avatar_url: normalizeImageUrl(postHistory.head_img || accountProfile?.avatar),
-      ...accountProfileUpdate,
+      account_name: postHistory.mp_nickname || koc.account_name,
+      ghid: postHistory.mp_ghid || koc.ghid || koc.account_id,
+      wxid: postHistory.mp_wxid || koc.wxid,
+      avatar_url: normalizeImageUrl(postHistory.head_img),
     })
     .eq("id", koc.id);
 
@@ -380,33 +348,6 @@ async function updateKocStats(
   if (error) {
     throw new Error(`更新 KOC 统计失败: ${error.message}`);
   }
-}
-
-async function findAccountProfile({
-  name,
-  ghid,
-  wxid,
-}: {
-  name: string;
-  ghid?: string;
-  wxid?: string;
-}) {
-  try {
-    const accounts = await dajiala.searchAccounts(name, 1, 10);
-    return accounts.find((account) => isSameAccount(account, { name, ghid, wxid })) ?? accounts[0];
-  } catch (err) {
-    console.warn("[koc-import] Failed to enrich account profile:", name, err);
-    return null;
-  }
-}
-
-function isSameAccount(
-  account: DajialaAccount,
-  target: { name: string; ghid?: string; wxid?: string }
-) {
-  return account.ghid === target.ghid ||
-    account.wxid === target.wxid ||
-    account.name === target.name;
 }
 
 function assertPostHistorySuccess(postHistory: DajialaPostHistoryResult) {
