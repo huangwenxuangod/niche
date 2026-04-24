@@ -207,12 +207,19 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
+      let buffered = "";
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
+        const chunk = value ? decoder.decode(value, { stream: !done }) : "";
+        buffered += chunk;
+        const lines = buffered.split("\n");
+        buffered = lines.pop() ?? "";
+
+        if (done && buffered) {
+          lines.push(buffered);
+          buffered = "";
+        }
 
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
@@ -260,6 +267,8 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
             // Ignore malformed chunks and keep stream alive.
           }
         }
+
+        if (done) break;
       }
     } catch (error) {
       console.error(error);
@@ -672,10 +681,95 @@ function getToolMeta(toolName?: string, assistantStatus?: string | null) {
 }
 
 function formatMessage(content: string): string {
-  return content
-    .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--accent);font-weight:500">$1</strong>')
-    .replace(/`([^`]+)`/g, '<code style="font-family:var(--font-mono);font-size:11px;background:var(--accent-dim);color:var(--accent);padding:1px 5px;border-radius:3px">$1</code>')
-    .replace(/\n/g, "<br />");
+  const escaped = escapeHtml(content).replace(/\r\n/g, "\n");
+  const lines = escaped.split("\n");
+  const blocks: string[] = [];
+  let paragraphBuffer: string[] = [];
+  let listBuffer: Array<{ ordered: boolean; content: string }> = [];
+
+  const flushParagraph = () => {
+    if (!paragraphBuffer.length) return;
+    const text = paragraphBuffer.join("<br />");
+    blocks.push(`<p>${formatInline(text)}</p>`);
+    paragraphBuffer = [];
+  };
+
+  const flushList = () => {
+    if (!listBuffer.length) return;
+    const ordered = listBuffer.every((item) => item.ordered);
+    const tag = ordered ? "ol" : "ul";
+    blocks.push(
+      `<${tag}>${listBuffer
+        .map((item) => `<li>${formatInline(item.content)}</li>`)
+        .join("")}</${tag}>`
+    );
+    listBuffer = [];
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      const level = Math.min(headingMatch[1].length, 3);
+      blocks.push(`<h${level}>${formatInline(headingMatch[2])}</h${level}>`);
+      continue;
+    }
+
+    if (/^>\s+/.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      blocks.push(`<blockquote>${formatInline(trimmed.replace(/^>\s+/, ""))}</blockquote>`);
+      continue;
+    }
+
+    const orderedMatch = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (orderedMatch) {
+      flushParagraph();
+      listBuffer.push({ ordered: true, content: orderedMatch[1] });
+      continue;
+    }
+
+    const unorderedMatch = trimmed.match(/^[-*]\s+(.+)$/);
+    if (unorderedMatch) {
+      flushParagraph();
+      listBuffer.push({ ordered: false, content: unorderedMatch[1] });
+      continue;
+    }
+
+    if (listBuffer.length) {
+      flushList();
+    }
+
+    paragraphBuffer.push(trimmed);
+  }
+
+  flushParagraph();
+  flushList();
+
+  return blocks.join("");
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function formatInline(value: string) {
+  return value
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
 const chatPageStyle: React.CSSProperties = {

@@ -106,15 +106,63 @@ html, body {
 
 .msg-prose {
   font-size: 16px;
-  line-height: 1.82;
+  line-height: 1.86;
   color: var(--text-primary);
   letter-spacing: 0.002em;
 }
 
-.msg-prose br + br {
-  content: "";
-  display: block;
-  margin-top: 0.45em;
+.msg-prose > * + * {
+  margin-top: 14px;
+}
+
+.msg-prose p {
+  margin: 0;
+}
+
+.msg-prose h1,
+.msg-prose h2,
+.msg-prose h3 {
+  margin: 22px 0 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.28;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.msg-prose h1 {
+  font-size: 26px;
+}
+
+.msg-prose h2 {
+  font-size: 22px;
+}
+
+.msg-prose h3 {
+  font-size: 18px;
+}
+
+.msg-prose ul,
+.msg-prose ol {
+  margin: 0;
+  padding-left: 1.3em;
+}
+
+.msg-prose li {
+  margin: 0;
+  padding-left: 0.15em;
+}
+
+.msg-prose li + li {
+  margin-top: 8px;
+}
+
+.msg-prose blockquote {
+  margin: 0;
+  padding: 2px 0 2px 14px;
+  border-left: 3px solid var(--accent);
+  color: var(--text-secondary);
+  background: transparent;
 }
 
 .msg-prose code {

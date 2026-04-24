@@ -1,6 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  CopyOutlined,
+  EditOutlined,
+  EyeOutlined,
+  SaveOutlined,
+  SendOutlined,
+} from "@ant-design/icons";
 import { extractArticleFromAssistantMessage, renderWechatHtml } from "@/lib/article-layout";
 import { toast } from "@/lib/toast";
 
@@ -51,6 +58,7 @@ export function ArticleLayoutPanel({
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const [wechatConfig, setWechatConfig] = useState<WechatConfig | null>(null);
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
@@ -275,19 +283,58 @@ export function ArticleLayoutPanel({
         </div>
 
         <div style={toolbarStyle}>
-          <button onClick={() => setMode("preview")} style={mode === "preview" ? activeToolButtonStyle : toolButtonStyle}>
-            预览
+          <button
+            onClick={() => setMode((current) => (current === "preview" ? "edit" : "preview"))}
+            style={mode === "preview" ? activeToolButtonStyle : toolButtonStyle}
+            title={mode === "preview" ? "切换到编辑" : "切换到预览"}
+          >
+            {mode === "preview" ? <EditOutlined /> : <EyeOutlined />}
           </button>
-          <button onClick={() => setMode("edit")} style={mode === "edit" ? activeToolButtonStyle : toolButtonStyle}>
-            编辑
+          <div style={copyWrapStyle}>
+            <button
+              onClick={() => setCopyMenuOpen((prev) => !prev)}
+              style={toolButtonStyle}
+              title="复制内容"
+            >
+              <CopyOutlined />
+            </button>
+            {copyMenuOpen && (
+              <div style={copyMenuStyle}>
+                <button
+                  onClick={() => {
+                    setCopyMenuOpen(false);
+                    void handleCopyHtml();
+                  }}
+                  style={copyMenuItemStyle}
+                >
+                  复制 HTML
+                </button>
+                <button
+                  onClick={() => {
+                    setCopyMenuOpen(false);
+                    void handleCopyMarkdown();
+                  }}
+                  style={copyMenuItemStyle}
+                >
+                  复制 Markdown
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => void handleSave()}
+            disabled={saving}
+            style={toolButtonStyle}
+            title={saving ? "保存中" : "保存草稿"}
+          >
+            <SaveOutlined />
           </button>
-          <button onClick={handleCopyHtml} style={toolButtonStyle}>复制 HTML</button>
-          <button onClick={handleCopyMarkdown} style={toolButtonStyle}>复制 Markdown</button>
-          <button onClick={handleSave} disabled={saving} style={toolButtonStyle}>
-            {saving ? "保存中..." : "保存草稿"}
-          </button>
-          <button onClick={() => setPublishOpen((prev) => !prev)} style={publishButtonStyle}>
-            发布到公众号
+          <button
+            onClick={() => setPublishOpen((prev) => !prev)}
+            style={publishButtonStyle}
+            title="发布到公众号"
+          >
+            <SendOutlined />
           </button>
         </div>
 
@@ -441,19 +488,23 @@ const closeButtonStyle: React.CSSProperties = {
 const toolbarStyle: React.CSSProperties = {
   display: "flex",
   gap: 8,
-  flexWrap: "wrap",
+  alignItems: "center",
   padding: "14px 18px 10px",
   borderBottom: "1px solid var(--border)",
 };
 
 const toolButtonStyle: React.CSSProperties = {
-  padding: "7px 10px",
-  borderRadius: 8,
+  width: 34,
+  height: 34,
+  borderRadius: 10,
   border: "1px solid var(--border)",
   background: "var(--bg-surface)",
   color: "var(--text-secondary)",
-  fontSize: 11,
+  fontSize: 14,
   cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
 
 const activeToolButtonStyle: React.CSSProperties = {
@@ -467,6 +518,38 @@ const publishButtonStyle: React.CSSProperties = {
   ...toolButtonStyle,
   borderColor: "rgba(200,150,90,0.35)",
   color: "var(--accent)",
+};
+
+const copyWrapStyle: React.CSSProperties = {
+  position: "relative",
+};
+
+const copyMenuStyle: React.CSSProperties = {
+  position: "absolute",
+  top: 42,
+  left: 0,
+  minWidth: 124,
+  padding: 6,
+  borderRadius: 12,
+  border: "1px solid var(--border)",
+  background: "rgba(18,18,17,0.98)",
+  boxShadow: "0 14px 36px rgba(0,0,0,0.26)",
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  zIndex: 4,
+};
+
+const copyMenuItemStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "8px 10px",
+  border: "none",
+  borderRadius: 8,
+  background: "transparent",
+  color: "var(--text-secondary)",
+  fontSize: 12,
+  textAlign: "left",
+  cursor: "pointer",
 };
 
 const inputStyle: React.CSSProperties = {
