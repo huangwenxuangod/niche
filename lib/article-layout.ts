@@ -86,13 +86,43 @@ function captureBody(content: string) {
 function formatDefaultBlock(block: string) {
   if (!block) return [];
   if (block.startsWith(":::")) {
-    return [block];
+    const normalizedCustom = normalizeCustomBlock(block);
+    return normalizedCustom ? [normalizedCustom] : [];
   }
   if (/^#{1,3}\s/.test(block) || /^>\s/.test(block) || /^-\s/.test(block) || /^\d+\.\s/.test(block)) {
     return [block];
   }
 
+  const expandedInlineList = expandInlineOrderedListBlock(block);
+  if (expandedInlineList) {
+    return expandedInlineList;
+  }
+
   return splitLongParagraph(block);
+}
+
+function normalizeCustomBlock(block: string) {
+  const match = block.match(/^:::(\w+)\s*([\s\S]*?)\n:::\s*$/);
+  if (!match) return stripCustomBlock(block);
+
+  const blockType = match[1];
+  const body = match[2].trim();
+  if (!body) return "";
+
+  if (blockType === "cta" || blockType === "image") {
+    return `:::${blockType}\n${body}\n:::`;
+  }
+
+  if (blockType === "quote") {
+    return body
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => `> ${line}`)
+      .join("\n");
+  }
+
+  return body;
 }
 
 function splitLongParagraph(paragraph: string) {
@@ -119,6 +149,31 @@ function splitLongParagraph(paragraph: string) {
   }
 
   return parts.length ? parts : [compact];
+}
+
+function expandInlineOrderedListBlock(block: string) {
+  const compact = block.replace(/\n+/g, " ").replace(/\s+/g, " ").trim();
+  const markerMatches = compact.match(/\d+\.\s/g) ?? [];
+  if (markerMatches.length < 2) {
+    return null;
+  }
+
+  const firstMarkerIndex = compact.search(/\d+\.\s/);
+  if (firstMarkerIndex <= 0) {
+    return null;
+  }
+
+  const intro = compact.slice(0, firstMarkerIndex).trim();
+  const listPart = compact.slice(firstMarkerIndex).trim();
+  const items = listPart.match(/\d+\.\s[\s\S]*?(?=(?:\s\d+\.\s)|$)/g) ?? [];
+  if (items.length < 2) {
+    return null;
+  }
+
+  return [
+    ...(intro ? splitLongParagraph(intro) : []),
+    ...items.map((item) => item.trim()),
+  ].filter(Boolean);
 }
 
 function shouldWrapAsCta(block: string) {
@@ -236,8 +291,18 @@ function renderBlock(block: Block) {
       return `<p style="${paragraphStyle}">${formatInline(block.text)}</p>`;
     case "list":
       return block.ordered
-        ? `<ol style="${orderedListStyle}">${block.items.map((item) => `<li style="${listItemStyle}">${formatInline(item)}</li>`).join("")}</ol>`
-        : `<ul style="${unorderedListStyle}">${block.items.map((item) => `<li style="${listItemStyle}">${formatInline(item)}</li>`).join("")}</ul>`;
+        ? `<ol style="${orderedListStyle}">${block.items
+            .map(
+              (item) =>
+                `<li style="${listItemStyle}"><span style="${listContentStyle}">${formatInline(item)}</span></li>`
+            )
+            .join("")}</ol>`
+        : `<ul style="${unorderedListStyle}">${block.items
+            .map(
+              (item) =>
+                `<li style="${listItemStyle}"><span style="${listContentStyle}">${formatInline(item)}</span></li>`
+            )
+            .join("")}</ul>`;
     case "blockquote":
       return `<blockquote style="${blockquoteStyle}">${block.lines.map((line) => `<p style="${blockquoteParagraphStyle}">${formatInline(line)}</p>`).join("")}</blockquote>`;
     case "highlight":
@@ -260,7 +325,7 @@ function renderHeading(level: 1 | 2 | 3, text: string) {
     return `<h1 style="${h1Style}">${formatInline(text)}</h1>`;
   }
   if (level === 2) {
-    return `<h2 style="${h2Style}">${formatInline(text)}</h2>`;
+    return `<section style="${sectionHeadingWrapStyle}"><div style="${sectionHeadingLineStyle}"></div><h2 style="${h2Style}">${formatInline(text)}</h2></section>`;
   }
   return `<h3 style="${h3Style}">${formatInline(text)}</h3>`;
 }
@@ -300,8 +365,8 @@ const themeVars = [
   "--niche-radius:14px",
   "--niche-font-size:16px",
   "--niche-line-height:1.85",
-  "--niche-paragraph-gap:18px",
-  "--niche-list-gap:9px",
+  "--niche-paragraph-gap:20px",
+  "--niche-list-gap:10px",
 ].join(";");
 
 const containerStyle = [
@@ -325,8 +390,8 @@ const h1Style = [
 ].join(";");
 
 const h2Style = [
-  "margin:30px 0 14px",
-  "padding:0 0 0 12px",
+  "margin:0 0 14px",
+  "padding:2px 0 2px 12px",
   "border-left:3px solid var(--niche-primary)",
   "font-size:19px",
   "line-height:1.5",
@@ -352,19 +417,23 @@ const paragraphStyle = [
 const orderedListStyle = [
   "margin:0 0 18px 22px",
   "padding:0",
-  "color:var(--niche-text)",
+  "color:var(--niche-primary)",
+  "list-style-position:outside",
 ].join(";");
 
 const unorderedListStyle = [
   "margin:0 0 18px 20px",
   "padding:0",
-  "color:var(--niche-text)",
+  "color:var(--niche-primary)",
+  "list-style-position:outside",
 ].join(";");
 
 const listItemStyle = [
   "margin:0 0 var(--niche-list-gap)",
   "padding-left:2px",
 ].join(";");
+
+const listContentStyle = "color:var(--niche-text);";
 
 const blockquoteStyle = [
   "margin:22px 0",
@@ -374,7 +443,7 @@ const blockquoteStyle = [
   "border-radius:0 12px 12px 0",
 ].join(";");
 
-const blockquoteParagraphStyle = "margin:0 0 8px;color:var(--niche-text-soft);";
+const blockquoteParagraphStyle = "margin:0 0 8px;color:var(--niche-text-soft);line-height:1.8;";
 
 const highlightStyle = [
   "margin:24px 0",
@@ -394,7 +463,7 @@ const quoteCardStyle = [
   "border-radius:var(--niche-radius)",
 ].join(";");
 
-const quoteParagraphStyle = "margin:0 0 10px;color:var(--niche-text-soft);font-style:italic;";
+const quoteParagraphStyle = "margin:0 0 10px;color:var(--niche-text-soft);font-style:italic;line-height:1.8;";
 
 const ctaStyle = [
   "margin:28px 0",
@@ -402,10 +471,13 @@ const ctaStyle = [
   "background:var(--niche-surface)",
   "border:1px solid var(--niche-primary-line)",
   "border-radius:16px",
+  "box-shadow:inset 0 1px 0 rgba(255,255,255,0.7)",
 ].join(";");
 
-const ctaParagraphStyle = "margin:0 0 8px;color:var(--niche-text);font-weight:520;";
+const ctaParagraphStyle = "margin:0 0 8px;color:var(--niche-text);font-weight:520;line-height:1.8;";
 
+const sectionHeadingWrapStyle = "margin:36px 0 18px;";
+const sectionHeadingLineStyle = "width:100%;height:1px;background:var(--niche-divider);margin:0 0 15px;";
 const dividerWrapStyle = "display:flex;align-items:center;gap:12px;margin:26px 0;";
 const dividerLineStyle = "flex:1;height:1px;background:var(--niche-divider);";
 const dividerLabelStyle = "font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--niche-text-muted);";
@@ -430,6 +502,6 @@ const imagePlaceholderLabelStyle = [
   "color:var(--niche-text-soft)",
 ].join(";");
 
-const imagePlaceholderTextStyle = "margin:0;color:var(--niche-text-muted);";
+const imagePlaceholderTextStyle = "margin:0;color:var(--niche-text-muted);line-height:1.75;";
 const strongStyle = "color:var(--niche-text);font-weight:700;";
 const codeStyle = "padding:2px 6px;border-radius:6px;background:var(--niche-code-bg);font-size:0.9em;font-family:'SFMono-Regular',Consolas,monospace;color:var(--niche-code-text);";

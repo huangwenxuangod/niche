@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CopyOutlined,
   EditOutlined,
@@ -62,11 +62,26 @@ export function ArticleLayoutPanel({
   const [wechatConfig, setWechatConfig] = useState<WechatConfig | null>(null);
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
+  const copyWrapRef = useRef<HTMLDivElement | null>(null);
 
   const renderedHtml = useMemo(
     () => renderWechatHtml(renderedMarkdown || sourceMarkdown),
     [renderedMarkdown, sourceMarkdown]
   );
+
+  useEffect(() => {
+    if (!copyMenuOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!copyWrapRef.current) return;
+      if (!copyWrapRef.current.contains(event.target as Node)) {
+        setCopyMenuOpen(false);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [copyMenuOpen]);
 
   const persistDraft = useCallback(async (payload: DraftPayload, status: "draft" | "published" = "draft") => {
     if (!messageId) return;
@@ -287,14 +302,16 @@ export function ArticleLayoutPanel({
             onClick={() => setMode((current) => (current === "preview" ? "edit" : "preview"))}
             style={mode === "preview" ? activeToolButtonStyle : toolButtonStyle}
             title={mode === "preview" ? "切换到编辑" : "切换到预览"}
+            aria-label={mode === "preview" ? "切换到编辑" : "切换到预览"}
           >
             {mode === "preview" ? <EditOutlined /> : <EyeOutlined />}
           </button>
-          <div style={copyWrapStyle}>
+          <div ref={copyWrapRef} style={copyWrapStyle}>
             <button
               onClick={() => setCopyMenuOpen((prev) => !prev)}
               style={toolButtonStyle}
               title="复制内容"
+              aria-label="复制内容"
             >
               <CopyOutlined />
             </button>
@@ -326,6 +343,7 @@ export function ArticleLayoutPanel({
             disabled={saving}
             style={toolButtonStyle}
             title={saving ? "保存中" : "保存草稿"}
+            aria-label={saving ? "保存中" : "保存草稿"}
           >
             <SaveOutlined />
           </button>
@@ -333,6 +351,7 @@ export function ArticleLayoutPanel({
             onClick={() => setPublishOpen((prev) => !prev)}
             style={publishButtonStyle}
             title="发布到公众号"
+            aria-label="发布到公众号"
           >
             <SendOutlined />
           </button>
@@ -505,6 +524,7 @@ const toolButtonStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
+  transition: "border-color 0.18s ease, color 0.18s ease, background 0.18s ease",
 };
 
 const activeToolButtonStyle: React.CSSProperties = {
@@ -528,7 +548,7 @@ const copyMenuStyle: React.CSSProperties = {
   position: "absolute",
   top: 42,
   left: 0,
-  minWidth: 124,
+  minWidth: 132,
   padding: 6,
   borderRadius: 12,
   border: "1px solid var(--border)",
@@ -550,6 +570,7 @@ const copyMenuItemStyle: React.CSSProperties = {
   fontSize: 12,
   textAlign: "left",
   cursor: "pointer",
+  transition: "background 0.18s ease, color 0.18s ease",
 };
 
 const inputStyle: React.CSSProperties = {

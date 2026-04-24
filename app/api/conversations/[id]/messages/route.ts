@@ -1705,47 +1705,50 @@ ${article.article_markdown}
 }
 
 function formatComplianceResponse(result: ComplianceCheckResult) {
-  return `我帮你做了一次合规风控检查：
+  return `## 合规检查总览
 
-**风险评分**
-${result.score}/100
+- **风险评分**：${result.score}/100
+- **发布建议**：${result.publish_recommendation}
 
-**发布建议**
-${result.publish_recommendation}
+> ${result.overview}
 
-**整体判断**
-${result.overview}
+## 主要风险项
 
 ${formatComplianceIssues(result.issues)}
 
-**更安全的标题**
+## 更安全的替代表达
+
+### 标题建议
 ${result.safer_title}
 
-**更安全的摘要**
+### 摘要建议
 ${result.safer_summary || "暂无"}
 
-**更安全的 CTA**
+### CTA 建议
 ${result.safer_cta || "暂无"}
 
-**提示**
+## 提示
+
 ${result.disclaimer}
 
-如果你要，我可以继续：**按这些建议直接重写整篇文章，或者只改高风险段落。**`;
+如果你愿意，我可以继续帮你：**按这些建议直接重写整篇文章，或者只改高风险段落。**`;
 }
 
 function formatComplianceIssues(issues: ComplianceIssue[]) {
   if (!issues.length) {
-    return "**风险项**\n未发现明显高风险表达，但仍建议人工再过一遍标题、摘要和 CTA。";
+    return `未发现明显高风险表达，但仍建议人工再过一遍标题、摘要和 CTA。`;
   }
 
-  return `**风险项**
-${issues
+  return `${issues
   .slice(0, 6)
-  .map((issue, index) => `${index + 1}. [${levelLabel(issue.level)}｜${riskTypeLabel(issue.risk_type)}] ${issue.category}
-命中文本：${issue.target_text}
-原因：${issue.reason}
-建议：${issue.suggestion}
-替代表达：${issue.replacement}`)
+  .map(
+    (issue, index) => `### 风险 ${index + 1}｜${issue.category}
+- 风险等级：${levelLabel(issue.level)}｜${riskTypeLabel(issue.risk_type)}
+- 命中文本：${issue.target_text}
+- 原因：${issue.reason}
+- 建议：${issue.suggestion}
+- 替代表达：${issue.replacement || "—"}`
+  )
   .join("\n\n")}`;
 }
 
