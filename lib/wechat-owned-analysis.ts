@@ -1,10 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { llm } from "@/lib/llm";
-import { decryptWechatSecret, fetchWechatAccessToken } from "@/lib/wechat-publish";
-
-const FREEPUBLISH_BATCHGET_URL = "https://api.weixin.qq.com/cgi-bin/freepublish/batchget";
-const DATACUBE_ARTICLE_SUMMARY_URL = "https://api.weixin.qq.com/datacube/getarticlesummary";
-const DATACUBE_ARTICLE_TOTAL_URL = "https://api.weixin.qq.com/datacube/getarticletotal";
+import {
+  decryptWechatSecret,
+  fetchWechatAccessToken,
+  fetchWechatArticleSummary,
+  fetchWechatArticleTotal,
+  fetchWechatPublishedBatch,
+} from "@/lib/wechat-publish";
 
 type WechatConfigRow = {
   id: string;
@@ -243,20 +245,12 @@ async function fetchWechatPublishedArticles(accessToken: string) {
   const count = 20;
 
   for (let page = 0; page < 3; page += 1) {
-    const res = await fetch(`${FREEPUBLISH_BATCHGET_URL}?access_token=${encodeURIComponent(accessToken)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ offset, count, no_content: 0 }),
+    const payload = await fetchWechatPublishedBatch({
+      accessToken,
+      offset,
+      count,
+      noContent: 0,
     });
-
-    if (!res.ok) {
-      throw new Error(`拉取已发布文章失败：${res.status}`);
-    }
-
-    const payload = (await res.json()) as Record<string, unknown>;
-    if (typeof payload.errcode === "number" && payload.errcode !== 0) {
-      throw new Error(String(payload.errmsg || "拉取已发布文章失败"));
-    }
 
     const items = Array.isArray(payload.item) ? payload.item : [];
     if (!items.length) break;
@@ -324,35 +318,20 @@ function normalizePublishedArticle(item: Record<string, unknown>): OwnedWechatAr
 async function fetchWechatArticleMetrics(accessToken: string, days: number) {
   const range = buildDateRange(days);
   const [summaryRows, totalRows] = await Promise.all([
-    postWechatJson(DATACUBE_ARTICLE_SUMMARY_URL, accessToken, range),
-    postWechatJson(DATACUBE_ARTICLE_TOTAL_URL, accessToken, range),
+    fetchWechatArticleSummary({
+      accessToken,
+      beginDate: range.begin_date,
+      endDate: range.end_date,
+    }),
+    fetchWechatArticleTotal({
+      accessToken,
+      beginDate: range.begin_date,
+      endDate: range.end_date,
+    }),
   ]);
 
   const allRows = [...extractMetricRows(summaryRows), ...extractMetricRows(totalRows)];
   return allRows;
-}
-
-async function postWechatJson(
-  url: string,
-  accessToken: string,
-  payload: Record<string, unknown>
-) {
-  const res = await fetch(`${url}?access_token=${encodeURIComponent(accessToken)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    throw new Error(`拉取公众号统计失败：${res.status}`);
-  }
-
-  const data = (await res.json()) as Record<string, unknown>;
-  if (typeof data.errcode === "number" && data.errcode !== 0) {
-    throw new Error(String(data.errmsg || "拉取公众号统计失败"));
-  }
-
-  return data;
 }
 
 function buildDateRange(days: number) {

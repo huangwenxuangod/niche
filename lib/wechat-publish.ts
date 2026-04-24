@@ -3,6 +3,12 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 const TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token";
 const DRAFT_URL = "https://api.weixin.qq.com/cgi-bin/draft/add";
 const UPLOAD_MATERIAL_URL = "https://api.weixin.qq.com/cgi-bin/material/add_material";
+const FREEPUBLISH_BATCHGET_URL = "https://api.weixin.qq.com/cgi-bin/freepublish/batchget";
+const DATACUBE_ARTICLE_SUMMARY_URL = "https://api.weixin.qq.com/datacube/getarticlesummary";
+const DATACUBE_ARTICLE_TOTAL_URL = "https://api.weixin.qq.com/datacube/getarticletotal";
+
+const GATEWAY_URL = process.env.WECHAT_GATEWAY_URL?.replace(/\/$/, "") || "";
+const GATEWAY_TOKEN = process.env.WECHAT_GATEWAY_TOKEN || "";
 
 type AccessTokenResponse = {
   access_token?: string;
@@ -21,6 +27,10 @@ type DraftAddResponse = {
   media_id?: string;
   errcode?: number;
   errmsg?: string;
+};
+
+type GatewayResponse<T> = T & {
+  error?: string;
 };
 
 function getEncryptionKey() {
@@ -58,6 +68,17 @@ export function decryptWechatSecret(value: string) {
 }
 
 export async function fetchWechatAccessToken(appId: string, appSecret: string) {
+  if (GATEWAY_URL) {
+    const data = await callWechatGateway<AccessTokenResponse>("/v1/access-token", {
+      appId,
+      appSecret,
+    });
+    if (data.errcode || !data.access_token) {
+      throw new Error(data.errmsg || data.error || "access_token 返回异常");
+    }
+    return data.access_token;
+  }
+
   const url = `${TOKEN_URL}?grant_type=client_credential&appid=${encodeURIComponent(appId)}&secret=${encodeURIComponent(appSecret)}`;
   const res = await fetch(url);
   if (!res.ok) {
@@ -71,6 +92,17 @@ export async function fetchWechatAccessToken(appId: string, appSecret: string) {
 }
 
 export async function uploadWechatImageFromUrl(imageUrl: string, accessToken: string) {
+  if (GATEWAY_URL) {
+    const data = await callWechatGateway<UploadResponse>("/v1/material/upload-url", {
+      imageUrl,
+      accessToken,
+    });
+    if (data.errcode || !data.media_id) {
+      throw new Error(data.errmsg || data.error || "封面图上传失败");
+    }
+    return data.media_id;
+  }
+
   const imageRes = await fetch(imageUrl);
   if (!imageRes.ok) {
     throw new Error("封面图下载失败，请检查图片链接是否可访问。");
@@ -142,6 +174,21 @@ export async function saveWechatDraft(params: {
   html: string;
   thumbMediaId: string;
 }) {
+  if (GATEWAY_URL) {
+    const data = await callWechatGateway<DraftAddResponse>("/v1/draft/add", {
+      accessToken: params.accessToken,
+      title: params.title,
+      author: params.author || "",
+      summary: params.summary || "",
+      html: params.html,
+      thumbMediaId: params.thumbMediaId,
+    });
+    if (data.errcode || !data.media_id) {
+      throw new Error(data.errmsg || data.error || "保存公众号草稿失败");
+    }
+    return data.media_id;
+  }
+
   const res = await fetch(`${DRAFT_URL}?access_token=${encodeURIComponent(params.accessToken)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -166,4 +213,100 @@ export async function saveWechatDraft(params: {
     throw new Error(data.errmsg || "保存公众号草稿失败");
   }
   return data.media_id;
+}
+
+export async function fetchWechatPublishedBatch(params: {
+  accessToken: string;
+  offset?: number;
+  count?: number;
+  noContent?: number;
+}) {
+  if (GATEWAY_URL) {
+    return callWechatGateway<Record<string, unknown>>("/v1/freepublish/batchget", {
+      accessToken: params.accessToken,
+      offset: params.offset ?? 0,
+      count: params.count ?? 20,
+      noContent: params.noContent ?? 0,
+    });
+  }
+
+  return postWechatJson(FREEPUBLISH_BATCHGET_URL, params.accessToken, {
+    offset: params.offset ?? 0,
+    count: params.count ?? 20,
+    no_content: params.noContent ?? 0,
+  });
+}
+
+export async function fetchWechatArticleSummary(params: {
+  accessToken: string;
+  beginDate: string;
+  endDate: string;
+}) {
+  if (GATEWAY_URL) {
+    return callWechatGateway<Record<string, unknown>>("/v1/datacube/articlesummary", params);
+  }
+
+  return postWechatJson(DATACUBE_ARTICLE_SUMMARY_URL, params.accessToken, {
+    begin_date: params.beginDate,
+    end_date: params.endDate,
+  });
+}
+
+export async function fetchWechatArticleTotal(params: {
+  accessToken: string;
+  beginDate: string;
+  endDate: string;
+}) {
+  if (GATEWAY_URL) {
+    return callWechatGateway<Record<string, unknown>>("/v1/datacube/articletotal", params);
+  }
+
+  return postWechatJson(DATACUBE_ARTICLE_TOTAL_URL, params.accessToken, {
+    begin_date: params.beginDate,
+    end_date: params.endDate,
+  });
+}
+
+async function callWechatGateway<T>(path: string, body: Record<string, unknown>) {
+  if (!GATEWAY_URL) {
+    throw new Error("未配置 WECHAT_GATEWAY_URL。");
+  }
+
+  if (!GATEWAY_TOKEN) {
+    throw new Error("已配置 WECHAT_GATEWAY_URL，但缺少 WECHAT_GATEWAY_TOKEN。");
+  }
+
+  const res = await fetch(`${GATEWAY_URL}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${GATEWAY_TOKEN}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = (await res.json()) as GatewayResponse<T>;
+  if (!res.ok) {
+    throw new Error(data.error || `微信网关请求失败：${res.status}`);
+  }
+  return data;
+}
+
+async function postWechatJson(url: string, accessToken: string, payload: Record<string, unknown>) {
+  const res = await fetch(`${url}?access_token=${encodeURIComponent(accessToken)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    throw new Error(`微信接口请求失败：${res.status}`);
+  }
+
+  const data = (await res.json()) as Record<string, unknown>;
+  if (typeof data.errcode === "number" && data.errcode !== 0) {
+    throw new Error(String(data.errmsg || "微信接口返回异常"));
+  }
+
+  return data;
 }
