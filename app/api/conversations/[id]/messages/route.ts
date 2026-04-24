@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { buildSystemPrompt } from "@/lib/system-prompt";
 import { llm, type LlmMessage, type LlmTool } from "@/lib/llm";
-import { tavilySearch } from "@/lib/tavily";
+import { searchHotTopicCandidates } from "@/lib/hot-topic-search";
 import { searchJourneyKnowledge } from "@/lib/knowledge-base";
 import { appendJourneyMemory, captureMessageMemory, ensureJourneyMemory, getJourneyMemory, getUserMemory } from "@/lib/memory";
 
@@ -14,7 +14,9 @@ type ConversationHistoryEntry = {
 
 type ToolContextJourney = {
   keywords?: string[];
+  niche_level1?: string;
   niche_level2?: string;
+  niche_level3?: string;
 };
 
 type AnalyzedArticle = {
@@ -712,16 +714,12 @@ async function executeTool({
     const query = String(args.query || journey?.keywords?.[0] || journey?.niche_level2 || "");
     const maxResults = normalizeNumber(args.max_results, 5);
     const days = normalizeNumber(args.days, 3);
-    const results = await tavilySearch(query, { max_results: maxResults, days });
-    return {
-      query,
-      topics: results.map((item) => ({
-        title: item.title,
-        url: item.url,
-        published_date: item.published_date,
-        excerpt: item.content ? item.content.slice(0, 200) : "",
-      })),
-    };
+    return searchHotTopicCandidates({
+      baseQuery: query,
+      journey,
+      maxResults,
+      days,
+    });
   }
 
   if (toolName === "analyze_journey_data") {
