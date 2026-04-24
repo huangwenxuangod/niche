@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getJourneyMemory, getUserMemory } from "./memory";
+import {
+  formatJourneyProjectMemoryForPrompt,
+  getJourneyMemory,
+  getJourneyProjectMemory,
+  getUserMemory,
+} from "./memory";
 
 type PromptKoc = {
   account_name: string;
@@ -18,7 +23,7 @@ export async function buildSystemPrompt(
   userId: string,
   supabase: SupabaseClient
 ): Promise<string> {
-  const [journeyRes, profileRes, kocRes, viralRes, userMemory, journeyMemory] = await Promise.all([
+  const [journeyRes, profileRes, kocRes, viralRes, userMemory, journeyMemory, projectMemory] = await Promise.all([
     supabase.from("journeys").select("*").eq("id", journeyId).single(),
     supabase.from("user_profiles").select("identity_memo").eq("user_id", userId).single(),
     supabase
@@ -36,6 +41,7 @@ export async function buildSystemPrompt(
       .limit(8),
     getUserMemory(supabase, userId),
     getJourneyMemory(supabase, journeyId),
+    getJourneyProjectMemory(supabase, journeyId),
   ]);
 
   const journey = journeyRes.data;
@@ -96,6 +102,8 @@ ${userMemory || "（暂无用户记忆）"}
 
 【当前旅程记忆】
 ${journeyMemory || "（暂无旅程记忆）"}
+
+${formatJourneyProjectMemoryForPrompt(projectMemory)}
 
 【当前赛道】
 平台：${platformLabel}

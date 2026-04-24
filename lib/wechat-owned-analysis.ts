@@ -1,11 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { dajiala } from "@/lib/dajiala";
 import { llm } from "@/lib/llm";
 import {
   decryptWechatSecret,
   fetchWechatAccessToken,
   fetchWechatArticleSummary,
   fetchWechatArticleTotal,
-  fetchWechatPublishedBatch,
 } from "@/lib/wechat-publish";
 
 type WechatConfigRow = {
@@ -13,6 +13,11 @@ type WechatConfigRow = {
   app_id: string;
   app_secret_encrypted: string;
   account_name: string | null;
+};
+
+type OwnedWechatProfileRow = {
+  id: string;
+  account_name: string;
 };
 
 type OwnedWechatArticleRecord = {
@@ -86,21 +91,27 @@ export async function runOwnedWechatAnalysis(params: {
   supabase: SupabaseClient;
   userId: string;
   journeyId: string;
+  accountName: string;
+  wechatConfigId?: string | null;
 }) {
-  const config = await getWechatConfig(params.supabase, params.userId);
-  if (!config) {
-    throw new Error("请先填写并保存公众号配置。");
+  const accountName = params.accountName.trim();
+  if (!accountName) {
+    throw new Error("请先填写你的公众号名称。");
   }
 
-  const accessToken = await fetchWechatAccessToken(
-    config.app_id,
-    decryptWechatSecret(config.app_secret_encrypted)
-  );
+  const config =
+    params.wechatConfigId
+      ? await getWechatConfigById(params.supabase, params.userId, params.wechatConfigId)
+      : await getWechatConfig(params.supabase, params.userId);
+
+  let accessToken = "";
+  let metrics: ArticleMetric[] = [];
+  let officialMetricsEnabled = false;
 
   const syncJob = await createSyncJob(params.supabase, {
     userId: params.userId,
     journeyId: params.journeyId,
-    wechatConfigId: config.id,
+    wechatConfigId: config?.id ?? null,
   });
 
   try {
@@ -109,16 +120,45 @@ export async function runOwnedWechatAnalysis(params: {
       step: "fetching_articles",
     });
 
-    const publishedArticles = await fetchWechatPublishedArticles(accessToken);
+    const ownedProfile = await upsertOwnedWechatProfile(params.supabase, {
+      userId: params.userId,
+      journeyId: params.journeyId,
+      wechatConfigId: config?.id ?? null,
+      accountName,
+    });
+
+    await updateSyncJob(params.supabase, syncJob.id, {
+      step: "importing_owned_articles",
+    });
+
+    const importedArticles = await importOwnedWechatArticlesByAccountName(params.supabase, {
+      journeyId: params.journeyId,
+      userId: params.userId,
+      accountName,
+      ownedProfileId: ownedProfile.id,
+      wechatConfigId: config?.id ?? null,
+    });
 
     await updateSyncJob(params.supabase, syncJob.id, {
       step: "fetching_metrics",
-      articles_synced: publishedArticles.length,
+      articles_synced: importedArticles.length,
     });
 
-    const metrics = await fetchWechatArticleMetrics(accessToken, 30);
+    if (config) {
+      try {
+        accessToken = await fetchWechatAccessToken(
+          config.app_id,
+          decryptWechatSecret(config.app_secret_encrypted)
+        );
+        metrics = await fetchWechatArticleMetrics(accessToken, 30);
+        officialMetricsEnabled = metrics.length > 0;
+      } catch (error) {
+        console.warn("[owned-analysis] official metrics unavailable:", error);
+      }
+    }
+
     const metricMatches = buildMetricsMap(metrics);
-    const syncedArticles = publishedArticles.map((article) => mergeArticleMetrics(article, metricMatches));
+    const syncedArticles = importedArticles.map((article) => mergeArticleMetrics(article, metricMatches));
 
     await updateSyncJob(params.supabase, syncJob.id, {
       step: "saving_articles",
@@ -128,9 +168,20 @@ export async function runOwnedWechatAnalysis(params: {
     await saveOwnedWechatArticles(params.supabase, {
       userId: params.userId,
       journeyId: params.journeyId,
-      wechatConfigId: config.id,
+      ownedProfileId: ownedProfile.id,
+      wechatConfigId: config?.id ?? null,
       articles: syncedArticles,
     });
+
+    await params.supabase
+      .from("owned_wechat_profiles")
+      .update({
+        official_sync_enabled: Boolean(config),
+        official_metrics_enabled: officialMetricsEnabled,
+        import_source: officialMetricsEnabled ? "mixed" : "dajiala",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", ownedProfile.id);
 
     await updateSyncJob(params.supabase, syncJob.id, {
       step: "building_report",
@@ -139,7 +190,8 @@ export async function runOwnedWechatAnalysis(params: {
     const report = await buildOwnedWechatAnalysisReport(params.supabase, {
       journeyId: params.journeyId,
       userId: params.userId,
-      accountName: config.account_name || syncedArticles[0]?.accountName || "已绑定公众号",
+      accountName: syncedArticles[0]?.accountName || accountName,
+      ownedProfileId: ownedProfile.id,
     });
 
     const { data: savedReport, error: reportError } = await params.supabase
@@ -201,16 +253,31 @@ async function getWechatConfig(supabase: SupabaseClient, userId: string) {
   return data as WechatConfigRow | null;
 }
 
+async function getWechatConfigById(supabase: SupabaseClient, userId: string, configId: string) {
+  const { data, error } = await supabase
+    .from("wechat_publish_configs")
+    .select("id, app_id, app_secret_encrypted, account_name")
+    .eq("user_id", userId)
+    .eq("id", configId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data as WechatConfigRow | null;
+}
+
 async function createSyncJob(
   supabase: SupabaseClient,
-  payload: { userId: string; journeyId: string; wechatConfigId: string }
+  payload: { userId: string; journeyId: string; wechatConfigId?: string | null }
 ) {
   const { data, error } = await supabase
     .from("owned_wechat_sync_jobs")
     .insert({
       user_id: payload.userId,
       journey_id: payload.journeyId,
-      wechat_config_id: payload.wechatConfigId,
+      wechat_config_id: payload.wechatConfigId ?? null,
       status: "pending",
       step: "queued",
     })
@@ -236,83 +303,6 @@ async function updateSyncJob(
       updated_at: new Date().toISOString(),
     })
     .eq("id", jobId);
-}
-
-async function fetchWechatPublishedArticles(accessToken: string) {
-  const articles: OwnedWechatArticleRecord[] = [];
-  const seen = new Set<string>();
-  let offset = 0;
-  const count = 20;
-
-  for (let page = 0; page < 3; page += 1) {
-    const payload = await fetchWechatPublishedBatch({
-      accessToken,
-      offset,
-      count,
-      noContent: 0,
-    });
-
-    const items = Array.isArray(payload.item) ? payload.item : [];
-    if (!items.length) break;
-
-    for (const item of items) {
-      const record = normalizePublishedArticle(item as Record<string, unknown>);
-      if (!record) continue;
-      if (seen.has(record.url)) continue;
-      seen.add(record.url);
-      articles.push(record);
-    }
-
-    offset += items.length;
-    if (items.length < count) break;
-  }
-
-  return articles;
-}
-
-function normalizePublishedArticle(item: Record<string, unknown>): OwnedWechatArticleRecord | null {
-  const outerPublishId = pickString(item, ["publish_id", "article_id", "publishId"]);
-  const outerUpdateTime = pickNumber(item, ["update_time", "publish_time", "publishTime"]);
-  const candidates = Array.isArray(item.article_detail)
-    ? item.article_detail
-    : Array.isArray(item.articles)
-      ? item.articles
-      : item.article_detail && typeof item.article_detail === "object"
-        ? [item.article_detail]
-        : typeof item === "object"
-          ? [item]
-          : [];
-
-  const candidate = candidates.find((entry) => typeof entry === "object") as Record<string, unknown> | undefined;
-  if (!candidate) return null;
-
-  const title = pickString(candidate, ["title"]);
-  if (!title) return null;
-
-  const articleIdx = pickNumber(candidate, ["idx", "article_idx"], 0);
-  const publishId = outerPublishId || pickString(candidate, ["article_id", "publish_id"]) || `${title}-${articleIdx}`;
-  const url =
-    pickString(candidate, ["url", "content_url", "content_source_url"]) ||
-    `wechat://publish/${publishId}/${articleIdx}`;
-
-  const contentHtml =
-    pickString(candidate, ["content", "article_content", "content_html"]) || "";
-
-  return {
-    publishId,
-    msgId: pickString(candidate, ["msg_id", "msgid"]),
-    articleIdx,
-    title,
-    digest: pickString(candidate, ["digest", "desc"], "") || "",
-    content: htmlToText(contentHtml),
-    contentHtml,
-    url,
-    coverUrl: pickString(candidate, ["thumb_url", "cover_url", "pic_url"]),
-    author: pickString(candidate, ["author"]),
-    accountName: pickString(candidate, ["nickname", "account_name"]),
-    publishTime: unixToIso(outerUpdateTime || pickNumber(candidate, ["update_time", "publish_time"])),
-    rawPayload: item,
-  };
 }
 
 async function fetchWechatArticleMetrics(accessToken: string, days: number) {
@@ -411,7 +401,8 @@ async function saveOwnedWechatArticles(
   params: {
     userId: string;
     journeyId: string;
-    wechatConfigId: string;
+    ownedProfileId: string;
+    wechatConfigId?: string | null;
     articles: Array<OwnedWechatArticleRecord & {
       readNum: number;
       likeNum: number;
@@ -428,7 +419,8 @@ async function saveOwnedWechatArticles(
   const rows = params.articles.map((article) => ({
     user_id: params.userId,
     journey_id: params.journeyId,
-    wechat_config_id: params.wechatConfigId,
+    wechat_config_id: params.wechatConfigId ?? null,
+    owned_profile_id: params.ownedProfileId,
     publish_id: article.publishId || null,
     msg_id: article.msgId,
     article_idx: article.articleIdx,
@@ -467,6 +459,7 @@ async function buildOwnedWechatAnalysisReport(
     journeyId: string;
     userId: string;
     accountName: string;
+    ownedProfileId: string;
   }
 ) {
   const [ownedArticlesRes, competitorArticlesRes, competitorKocsRes] = await Promise.all([
@@ -474,6 +467,7 @@ async function buildOwnedWechatAnalysisReport(
       .from("owned_wechat_articles")
       .select("title, digest, publish_time, read_num, like_num, share_num, comment_num, favorite_num, author, account_name")
       .eq("journey_id", params.journeyId)
+      .eq("owned_profile_id", params.ownedProfileId)
       .order("publish_time", { ascending: false })
       .limit(30),
     supabase
@@ -747,12 +741,6 @@ function pickNumber(source: Record<string, unknown>, keys: string[], fallback = 
   return fallback;
 }
 
-function unixToIso(value: number) {
-  if (!value) return null;
-  const milliseconds = value > 1_000_000_000_000 ? value : value * 1000;
-  return new Date(milliseconds).toISOString();
-}
-
 function normalizeComparisonText(value: string) {
   return value.toLowerCase().replace(/\s+/g, "");
 }
@@ -765,4 +753,133 @@ function safeParseJson<T>(text: string) {
   } catch {
     return null;
   }
+}
+
+async function upsertOwnedWechatProfile(
+  supabase: SupabaseClient,
+  params: {
+    userId: string;
+    journeyId: string;
+    wechatConfigId?: string | null;
+    accountName: string;
+  }
+) {
+  const { data, error } = await supabase
+    .from("owned_wechat_profiles")
+    .upsert(
+      {
+        user_id: params.userId,
+        journey_id: params.journeyId,
+        wechat_config_id: params.wechatConfigId ?? null,
+        account_name: params.accountName,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "journey_id,account_name" }
+    )
+    .select("id, account_name")
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message || "创建自己的公众号档案失败");
+  }
+
+  return data as OwnedWechatProfileRow;
+}
+
+async function importOwnedWechatArticlesByAccountName(
+  supabase: SupabaseClient,
+  params: {
+    journeyId: string;
+    userId: string;
+    accountName: string;
+    ownedProfileId: string;
+    wechatConfigId?: string | null;
+  }
+) {
+  const postHistory = await dajiala.getPostHistory(params.accountName, 1);
+  if (postHistory.code && postHistory.code !== 200 && postHistory.code !== 0) {
+    throw new Error(`公众号内容导入失败：${postHistory.msg || postHistory.code}`);
+  }
+
+  const seen = new Set<string>();
+  const articles: Array<
+    OwnedWechatArticleRecord & {
+      readNum: number;
+      likeNum: number;
+      shareNum: number;
+      commentNum: number;
+      favoriteNum: number;
+    }
+  > = [];
+
+  for (const article of postHistory.articles.slice(0, 20)) {
+    const url = article.url?.trim();
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+
+    let stats = {
+      read: 0,
+      zan: 0,
+      looking: 0,
+      share_num: 0,
+      collect_num: 0,
+      comment_count: 0,
+    };
+
+    let detail = {
+      title: article.title || "",
+      content: "",
+      content_multi_text: "",
+      digest: article.digest || "",
+      author: article.author || "",
+      url,
+    };
+
+    try {
+      stats = await dajiala.getArticleStats(url);
+    } catch (error) {
+      console.warn("[owned-analysis] failed to fetch own article stats:", url, error);
+    }
+
+    try {
+      const detailResult = await dajiala.getArticleDetail(url);
+      detail = {
+        title: detailResult.title || article.title || "",
+        content: detailResult.content || "",
+        content_multi_text: detailResult.content_multi_text || "",
+        digest: detailResult.digest || article.digest || "",
+        author: detailResult.author || article.author || "",
+        url: detailResult.url || url,
+      };
+    } catch (error) {
+      console.warn("[owned-analysis] failed to fetch own article detail:", url, error);
+    }
+
+    articles.push({
+      publishId: `${params.ownedProfileId}-${article.idx || 0}-${url}`,
+      msgId: null,
+      articleIdx: Number(article.idx || 0),
+      title: detail.title || article.title || "未命名文章",
+      digest: detail.digest || "",
+      content: detail.content || htmlToText(detail.content_multi_text || ""),
+      contentHtml: detail.content_multi_text || "",
+      url,
+      coverUrl: article.cover_url || null,
+      author: detail.author || null,
+      accountName: postHistory.mp_nickname || params.accountName,
+      publishTime: article.post_time ? new Date(article.post_time * 1000).toISOString() : null,
+      rawPayload: article as unknown as Record<string, unknown>,
+      readNum: stats.read || 0,
+      likeNum: stats.zan || 0,
+      shareNum: stats.share_num || 0,
+      commentNum: stats.comment_count || 0,
+      favoriteNum: stats.collect_num || 0,
+    });
+  }
+
+  if (!articles.length) {
+    throw new Error("没有获取到这个公众号的文章内容，请检查公众号名称是否正确。");
+  }
+
+  return articles;
 }

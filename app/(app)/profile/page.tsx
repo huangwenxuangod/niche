@@ -38,7 +38,7 @@ export default async function ProfilePage() {
         我是谁
       </div>
       <div style={{ fontSize: 13, color: "var(--text-tertiary)", marginBottom: 32, lineHeight: 1.6 }}>
-        用几句话描述你自己，AI 会在每次对话中记住这些信息，给出更有针对性的建议。
+        用半结构化方式定义你的身份、赛道、目标用户和当前目标，AI 会把这些信息持续带入每次对话和项目推进。
       </div>
       <IdentityForm
         initialValue={profile?.identity_memo ?? ""}

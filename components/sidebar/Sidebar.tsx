@@ -7,6 +7,7 @@ import { Button, Tooltip } from "antd";
 import { Conversations } from "@ant-design/x";
 import type { ConversationItemType } from "@ant-design/x";
 import { type Journey, type Conversation } from "@/lib/data";
+import type { JourneyProjectMemory } from "@/lib/memory";
 import { KOCListPanel } from "./KOCListPanel";
 import { createClient } from "@/lib/supabase/client";
 import { useThemeMode } from "@/components/providers/AntdProvider";
@@ -15,6 +16,7 @@ interface SidebarProps {
   journeys: Journey[];
   activeJourney: Journey | null;
   conversations: Conversation[];
+  activeProjectMemory: JourneyProjectMemory | null;
 }
 
 function groupByDate(conversations: Conversation[]) {
@@ -37,7 +39,7 @@ function groupByDate(conversations: Conversation[]) {
   return groups;
 }
 
-export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps) {
+export function Sidebar({ journeys, activeJourney, conversations, activeProjectMemory }: SidebarProps) {
   const router = useRouter();
   const params = useParams();
   const currentConvId = params?.conversationId as string | undefined;
@@ -120,6 +122,33 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
                 </div>
               )}
             </div>
+
+            {activeProjectMemory && (
+              <div style={projectCardStyle}>
+                <div style={projectCardEyebrowStyle}>项目档案卡</div>
+                <div style={projectCardTitleStyle}>
+                  {activeProjectMemory.project_card.positioning || "AI 内容增长教练"}
+                </div>
+                <div style={projectCardMetaStyle}>
+                  目标用户：{activeProjectMemory.project_card.target_user || "待确认"}
+                </div>
+                <div style={projectCardMetaStyle}>
+                  当前阶段：{activeProjectMemory.project_card.current_stage || "待确认"}
+                </div>
+                <div style={projectCardBlockStyle}>
+                  <div style={projectCardLabelStyle}>当前目标</div>
+                  <div style={projectCardValueStyle}>
+                    {activeProjectMemory.project_card.current_goal || "待确认"}
+                  </div>
+                </div>
+                <div style={projectCardBlockStyle}>
+                  <div style={projectCardLabelStyle}>下一步</div>
+                  <div style={projectCardValueStyle}>
+                    {activeProjectMemory.strategy_state.next_best_action || "待确认"}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Benchmark accounts toggle */}
             <div style={{ display: "flex", alignItems: "center", padding: "0 8px 0 12px" }}>
@@ -301,6 +330,57 @@ const sectionTitleStyle: React.CSSProperties = {
   textTransform: "uppercase",
   color: "var(--text-tertiary)",
   padding: "6px 16px 2px",
+};
+
+const projectCardStyle: React.CSSProperties = {
+  margin: "8px 12px 10px",
+  padding: "12px 12px 10px",
+  borderRadius: 14,
+  background: "color-mix(in srgb, var(--bg-surface) 88%, var(--accent) 12%)",
+  border: "1px solid color-mix(in srgb, var(--border) 78%, var(--accent) 22%)",
+};
+
+const projectCardEyebrowStyle: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 9,
+  letterSpacing: "0.14em",
+  textTransform: "uppercase",
+  color: "var(--text-tertiary)",
+  marginBottom: 6,
+};
+
+const projectCardTitleStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: "var(--text-primary)",
+  lineHeight: 1.45,
+  marginBottom: 6,
+};
+
+const projectCardMetaStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "var(--text-secondary)",
+  lineHeight: 1.5,
+  marginBottom: 3,
+};
+
+const projectCardBlockStyle: React.CSSProperties = {
+  marginTop: 8,
+};
+
+const projectCardLabelStyle: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 9,
+  letterSpacing: "0.12em",
+  textTransform: "uppercase",
+  color: "var(--text-tertiary)",
+  marginBottom: 4,
+};
+
+const projectCardValueStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "var(--text-primary)",
+  lineHeight: 1.55,
 };
 
 const navItemStyle: React.CSSProperties = {

@@ -4,16 +4,19 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 
 interface Props {
+  journeyId: string;
   onClose: () => void;
   onResult: (message: string) => void;
 }
 
 type ConfigState = "checking" | "configured" | "not_configured";
 
-export function AccountAnalysisModal({ onClose, onResult }: Props) {
+export function AccountAnalysisModal({ journeyId, onClose, onResult }: Props) {
   const [configState, setConfigState] = useState<ConfigState>("checking");
   const [appId, setAppId] = useState("");
+  const [appSecret, setAppSecret] = useState("");
   const [accountName, setAccountName] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const canAnalyze = accountName.trim().length > 0;
 
@@ -63,18 +66,32 @@ export function AccountAnalysisModal({ onClose, onResult }: Props) {
       toast.error("请先填写要分析的公众号名称。");
       return;
     }
+    setSubmitting(true);
 
-    const prompt = [
-      `请分析公众号“${normalizedName}”的内容。`,
-      "如果当前旅程对标内容库里已经有这个号的文章，优先基于样本内容做分析。",
-      "请重点输出：",
-      "1. 最近内容为什么容易传播",
-      "2. 标题、选题和结构上的规律",
-      "3. 它和当前赛道竞品相比的差异",
-      "4. 我可以直接借鉴的 3 条改进建议",
-    ].join("\n");
-
-    onResult(prompt);
+    fetch("/api/wechat/owned-analysis", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        journey_id: journeyId,
+        account_name: normalizedName,
+        app_id: appId.trim(),
+        app_secret: appSecret.trim(),
+      }),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "增长分析失败");
+        }
+        toast.success("增长分析已完成");
+        onResult(data.report?.message_for_chat || `请基于公众号“${normalizedName}”的分析结果，给我下一步建议。`);
+      })
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : "增长分析失败");
+      })
+      .finally(() => {
+        setSubmitting(false);
+      });
   }
 
   return (
@@ -136,20 +153,37 @@ export function AccountAnalysisModal({ onClose, onResult }: Props) {
                 style={{ ...inputStyle, marginBottom: 18 }}
               />
 
+              <div style={labelStyle}>AppID（可选，用于增强官方数据）</div>
+              <input
+                value={appId}
+                onChange={(e) => setAppId(e.target.value)}
+                placeholder="如已配置可不填"
+                style={{ ...inputStyle, marginBottom: 12 }}
+              />
+
+              <div style={labelStyle}>AppSecret（可选，用于增强官方数据）</div>
+              <input
+                value={appSecret}
+                onChange={(e) => setAppSecret(e.target.value)}
+                placeholder="如已配置可不填"
+                type="password"
+                style={{ ...inputStyle, marginBottom: 18 }}
+              />
+
               <AnalysisCapabilityList />
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
                 <button onClick={onClose} style={ghostBtnStyle}>取消</button>
                 <button
                   onClick={handleAnalyze}
-                  disabled={!canAnalyze}
+                  disabled={!canAnalyze || submitting}
                   style={{
                     ...primaryBtnStyle,
-                    opacity: canAnalyze ? 1 : 0.45,
-                    cursor: canAnalyze ? "pointer" : "not-allowed",
+                    opacity: canAnalyze && !submitting ? 1 : 0.45,
+                    cursor: canAnalyze && !submitting ? "pointer" : "not-allowed",
                   }}
                 >
-                  开始分析 →
+                  {submitting ? "分析中..." : "开始分析 →"}
                 </button>
               </div>
             </>
@@ -185,8 +219,8 @@ function PublishStatusCard({
       </div>
       <div style={statusHintStyle}>
         {configured
-          ? `当前已绑定 AppID：${appId}，后续排版完成后可以继续走官方 API 保存草稿。`
-          : "这不影响内容分析；后续如果要自动发布，再在排版发布流程里配置 AppID 和 AppSecret。"}
+          ? `当前已绑定 AppID：${appId}。增长分析会优先导入你的公众号内容，再尽量补官方表现数据；后续排版完成后也可以继续走官方 API 保存草稿。`
+          : "这不影响内容分析。增长分析会优先按公众号名称导入你的内容；如果补充 AppID 和 AppSecret，会尽量增强官方表现数据。"}
       </div>
     </div>
   );
@@ -198,10 +232,10 @@ function AnalysisCapabilityList() {
       <div style={labelStyle}>将为你分析</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 24 }}>
         {[
-          "公众号近期内容为什么更容易传播",
-          "标题、选题和结构上的稳定规律",
-          "和当前赛道竞品相比的差异与机会",
-          "3 条可直接执行的优化建议",
+          "自动导入你自己的公众号内容，和竞品内容分开分析",
+          "优先分析标题、选题、结构上的稳定规律",
+          "尽量补官方表现数据，失败也不影响内容分析",
+          "输出自己 vs 对标差距与 3 条可执行建议",
         ].map((item) => (
           <div
             key={item}
