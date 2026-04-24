@@ -66,7 +66,7 @@ export function AccountAnalysisModal({ onClose, onResult }: Props) {
 
     const prompt = [
       `请分析公众号“${normalizedName}”的内容。`,
-      "如果当前旅程知识库里已经有这个号的文章，优先基于知识库内容做分析。",
+      "如果当前旅程对标内容库里已经有这个号的文章，优先基于样本内容做分析。",
       "请重点输出：",
       "1. 最近内容为什么容易传播",
       "2. 标题、选题和结构上的规律",
@@ -113,7 +113,7 @@ export function AccountAnalysisModal({ onClose, onResult }: Props) {
               color: "var(--text-primary)",
             }}
           >
-            分析你的公众号
+            增长分析
           </div>
           <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4 }}>
             {headerDescription}

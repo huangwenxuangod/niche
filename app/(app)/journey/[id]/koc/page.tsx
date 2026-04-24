@@ -99,19 +99,19 @@ export default function KocPage() {
       <div style={{ padding: "18px 28px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 16 }}>
         <button onClick={() => router.back()} style={{ background: "none", border: "none", color: "var(--text-tertiary)", cursor: "pointer", fontSize: 18 }}>←</button>
         <div>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 400, color: "var(--text-primary)" }}>KOC 管理</div>
-          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 2 }}>手动管理竞品公众号</div>
+          <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 400, color: "var(--text-primary)" }}>对标账号管理</div>
+          <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 2 }}>持续补充你的对标内容库，用来做增长分析与内容生成</div>
         </div>
       </div>
 
-      {/* Add KOC section */}
+      {/* Add benchmark accounts section */}
       <div style={{ padding: "16px 28px", borderBottom: "1px solid var(--border)" }}>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && importKOC()}
-            placeholder="输入公众号名称 / ghid / 文章链接"
+            placeholder="输入对标公众号名称 / ghid / 文章链接"
             style={{
               flex: 1,
               minWidth: 200,
@@ -139,7 +139,7 @@ export default function KocPage() {
               cursor: importing ? "not-allowed" : "pointer",
             }}
           >
-            {importing ? "导入中..." : "添加 KOC"}
+            {importing ? "导入中..." : "导入对标账号"}
           </button>
         </div>
         <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>
@@ -153,8 +153,8 @@ export default function KocPage() {
           <div style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "40px 0" }}>加载中...</div>
         ) : kocs.length === 0 ? (
           <div style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "60px 0" }}>
-            <div style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 8 }}>还没有追踪任何 KOC</div>
-            <div style={{ fontSize: 12 }}>在上方输入公众号信息添加</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 16, marginBottom: 8 }}>还没有导入任何对标账号</div>
+            <div style={{ fontSize: 12 }}>先补一批同赛道样本，后面分析和生成都会更稳</div>
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -184,7 +184,7 @@ export default function KocPage() {
                         {k.account_name || k.account_id || "未命名"}
                       </span>
                       {k.is_manually_added && (
-                        <span style={manualTagStyle}>手动添加</span>
+                        <span style={manualTagStyle}>已导入</span>
                       )}
                     </div>
                     <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
@@ -215,7 +215,7 @@ export default function KocPage() {
                       color: "var(--accent)",
                     }}
                   >
-                    {syncing === k.id ? "同步中..." : "同步文章"}
+                    {syncing === k.id ? "同步中..." : "同步内容"}
                   </button>
                   <button onClick={() => deleteKOC(k.id)} disabled={syncing !== null} style={deleteBtnStyle}>
                     删除

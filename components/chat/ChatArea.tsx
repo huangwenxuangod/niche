@@ -51,10 +51,10 @@ type LoadingSnapshot = {
 };
 
 const QUICK_PROMPTS = [
-  { key: "topic", label: "给我今日 3 个选题", icon: <FireOutlined /> },
-  { key: "pattern", label: "分析同赛道爆款规律", icon: <RadarChartOutlined /> },
-  { key: "schedule", label: "最佳发布时间是什么时候", icon: <ReadOutlined /> },
-  { key: "competitor", label: "帮我拆解竞品标题", icon: <EditOutlined /> },
+  { key: "topic", label: "给我 3 个涨粉选题", icon: <FireOutlined /> },
+  { key: "pattern", label: "分析对标账号增长规律", icon: <RadarChartOutlined /> },
+  { key: "schedule", label: "什么时候发布更容易起量", icon: <ReadOutlined /> },
+  { key: "competitor", label: "帮我拆解对标账号标题", icon: <EditOutlined /> },
 ];
 
 export function ChatArea({ conversationId, journey, initialMessages, kocCount }: Props) {
@@ -242,10 +242,10 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
             </div>
             <Space size={8}>
               <Tag bordered={false} style={headerTagStyle}>
-                {journey.knowledge_initialized ? "知识库已同步" : "初始化中"}
+                {journey.knowledge_initialized ? "对标内容库已就绪" : "对标内容库初始化中"}
               </Tag>
               <Tag bordered={false} style={headerTagStyle}>
-                {kocCount} KOC
+                {kocCount} 个对标账号
               </Tag>
             </Space>
           </div>
@@ -260,10 +260,10 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                   icon={<AppstoreOutlined style={{ color: "var(--accent)" }} />}
                   title={
                     <span>
-                      今天想先解决什么问题？
+                      从0到1最缺的不是努力，是一个真正懂增长的内容教练。
                     </span>
                   }
-                  description={`${journey.niche_level2} 赛道的知识库、热点和选题能力都已就绪。你可以直接发问，也可以从下面的快捷入口开始。`}
+                  description={"Niche 面向冷启动 KOC，用 AI 帮你找方向、拆对标、补差距，并直接产出可发布内容。社媒通用，公众号先落地。"}
                   styles={{
                     root: { padding: 0, background: "transparent" },
                     title: { color: "var(--text-primary)", fontFamily: "var(--font-display)", fontSize: 36, lineHeight: 1.08, maxWidth: 680 },
@@ -271,7 +271,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                   }}
                 />
                 <Prompts
-                  title="快速开始"
+                  title="增长起点"
                   items={promptItems}
                   wrap
                   styles={{
@@ -357,8 +357,8 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
             {messages.length > 0 && (
               <Prompts
                 items={[
-                  { key: "analysis", icon: <RadarChartOutlined />, label: "账号分析" },
-                  { key: "hot", icon: <FireOutlined />, label: "今日热点" },
+                  { key: "analysis", icon: <RadarChartOutlined />, label: "增长分析" },
+                  { key: "hot", icon: <FireOutlined />, label: "增长机会搜索" },
                 ]}
                 styles={{
                   list: { gap: 8 },
@@ -374,7 +374,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                   if (data.key === "analysis") {
                     setShowAnalysis(true);
                   } else if (data.key === "hot") {
-                    sendMessage("帮我搜索今日赛道最新热点，列出 3 条");
+                    sendMessage("帮我搜索当前赛道最值得跟进的增长机会，列出 3 条");
                   }
                 }}
               />
@@ -384,7 +384,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
               onChange={(value) => setInput(value)}
               onSubmit={(value) => sendMessage(value)}
               loading={streaming}
-              placeholder="问我任何关于这个赛道的事..."
+              placeholder="告诉我你的方向、对标账号或增长问题..."
               submitType="enter"
               autoSize={{ minRows: 1, maxRows: 6 }}
               footer={() => (

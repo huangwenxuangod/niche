@@ -111,7 +111,7 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
               </div>
               {activeJourney.init_status === "running" && (
                 <div style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--accent)", marginTop: 3 }}>
-                  ⏳ 正在初始化知识库...
+                  ⏳ 正在初始化对标内容库...
                 </div>
               )}
               {activeJourney.init_status === "error" && (
@@ -121,14 +121,14 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
               )}
             </div>
 
-            {/* KOC toggle */}
+            {/* Benchmark accounts toggle */}
             <div style={{ display: "flex", alignItems: "center", padding: "0 8px 0 12px" }}>
               <button
                 onClick={() => setKocOpen(!kocOpen)}
                 style={{ ...navItemStyle, flex: 1, padding: "6px 4px" }}
               >
                 <ChevronIcon open={kocOpen} />
-                📋 KOC 列表
+                📋 对标账号
               </button>
               {activeJourney && (
                 <Link href={`/journey/${activeJourney.id}/koc`} style={{ padding: "4px", color: "var(--text-tertiary)", fontSize: 12, textDecoration: "none", borderRadius: 4 }}>

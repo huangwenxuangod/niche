@@ -27,7 +27,7 @@ export function KOCListPanel({ journeyId }: { journeyId: string }) {
         setKocs(data ?? []);
         setLoading(false);
       });
-  }, [journeyId]);
+  }, [journeyId, supabase]);
 
   async function addKOC() {
     if (!input.trim()) return;
@@ -60,7 +60,7 @@ export function KOCListPanel({ journeyId }: { journeyId: string }) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && addKOC()}
-          placeholder="公众号名称或文章 URL"
+          placeholder="输入对标公众号名称或文章 URL"
           style={{
             flex: 1,
             background: "var(--bg-base)",
@@ -87,7 +87,7 @@ export function KOCListPanel({ journeyId }: { journeyId: string }) {
             fontFamily: "var(--font-body)",
           }}
         >
-          {adding ? "..." : "+ 添加"}
+          {adding ? "..." : "+ 导入"}
         </button>
       </div>
 
@@ -98,7 +98,7 @@ export function KOCListPanel({ journeyId }: { journeyId: string }) {
         </div>
       ) : kocs.length === 0 ? (
         <div style={{ fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", padding: "4px 0" }}>
-          知识库初始化后自动填充
+          导入对标账号后会在这里持续沉淀样本
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -116,9 +116,7 @@ export function KOCListPanel({ journeyId }: { journeyId: string }) {
                 <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)" }}>
                   {k.account_name}
                 </span>
-                {k.is_manually_added && (
-                  <span style={manualTagStyle}>手动</span>
-                )}
+                {k.is_manually_added && <span style={manualTagStyle}>导入</span>}
               </div>
               <div style={{ display: "flex", gap: 10 }}>
                 <Stat label="最高" val={fmtCount(k.max_read_count)} />
