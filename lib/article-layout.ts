@@ -31,7 +31,7 @@ type Block =
 export function extractArticleFromAssistantMessage(content: string): ExtractedArticle | null {
   const title = captureSection(content, "主标题", "公众号摘要");
   const summary = captureSection(content, "公众号摘要", "备选标题");
-  const body = captureBody(content);
+  const body = sanitizeExtractedArticleMarkdown(captureBody(content));
 
   if (!title || !body) return null;
 
@@ -132,8 +132,26 @@ function captureSection(content: string, startLabel: string, endLabel: string) {
 
 function captureBody(content: string) {
   const startLabel = escapeRegExp("**完整初稿**");
-  const match = content.match(new RegExp(`${startLabel}\\s*([\\s\\S]*?)(?:\\n\\n如果你想继续调|$)`));
+  const match = content.match(
+    new RegExp(
+      `${startLabel}\\s*([\\s\\S]*?)(?:\\n\\n\\*\\*合规风控\\*\\*|\\n\\n合规风控|\\n\\n如果你想继续调|\\n\\n如果你愿意，我可以继续帮你[:：]|$)`
+    )
+  );
   return match?.[1] ?? "";
+}
+
+function sanitizeExtractedArticleMarkdown(markdown: string) {
+  return markdown
+    .replace(/\n{2,}\*\*合规风控\*\*[\s\S]*$/m, "")
+    .replace(/\n{2,}合规风控[\s\S]*$/m, "")
+    .replace(/\n{2,}如果你想继续调[\s\S]*$/m, "")
+    .replace(/\n{2,}如果你愿意，我可以继续帮你[:：][\s\S]*$/m, "")
+    .replace(/\n{2,}搜索一下[^\n]*$/gm, "")
+    .replace(/\n{2,}基于第一个选题[^\n]*$/gm, "")
+    .replace(/\n{2,}给我生成一篇内容[^\n]*$/gm, "")
+    .replace(/:::cta\s*\n?\*{0,2}\s*:::?/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function formatDefaultBlock(block: string): string[] {
@@ -560,7 +578,7 @@ const h2Style = [
 ].join(";");
 
 const h3Style = [
-  "margin:22px 0 10px",
+  "margin:32px 0 16px",
   "font-size:17px",
   "line-height:1.55",
   "font-weight:650",

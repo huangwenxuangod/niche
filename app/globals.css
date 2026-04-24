@@ -146,6 +146,8 @@ html, body {
 .msg-prose h3 {
   font-size: 17px;
   line-height: 1.55;
+  margin-bottom: 14px;
+  padding-top: 6px;
 }
 
 .msg-prose h2::before {
@@ -164,6 +166,20 @@ html, body {
   height: 1px;
   background: var(--border);
   margin: 20px 0 0;
+}
+
+.msg-prose p + h3,
+.msg-prose ul + h3,
+.msg-prose ol + h3,
+.msg-prose blockquote + h3 {
+  margin-top: 14px;
+}
+
+.msg-prose h3 + p,
+.msg-prose h3 + ul,
+.msg-prose h3 + ol,
+.msg-prose h3 + blockquote {
+  margin-top: 14px;
 }
 
 .msg-prose ul,

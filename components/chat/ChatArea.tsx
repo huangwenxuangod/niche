@@ -20,7 +20,10 @@ import { Button, Space, Tag } from "antd";
 import type { Message, Journey } from "@/lib/data";
 import { AccountAnalysisModal } from "./AccountAnalysisModal";
 import { ArticleLayoutPanel } from "./ArticleLayoutPanel";
-import { extractArticleFromAssistantMessage } from "@/lib/article-layout";
+import {
+  extractArticleFromAssistantMessage,
+  normalizeLayoutMarkdown,
+} from "@/lib/article-layout";
 import KOCRecommendationModal from "@/components/KOCRecommendationModal";
 import { toast } from "@/lib/toast";
 
@@ -764,7 +767,7 @@ function formatMessage(content: string): string {
 function simplifyDisplayContent(content: string) {
   const article = extractArticleFromAssistantMessage(content);
   if (article) {
-    return `# ${article.title}\n\n${article.bodyMarkdown}`.trim();
+    return `# ${article.title}\n\n${normalizeLayoutMarkdown(article.bodyMarkdown)}`.trim();
   }
 
   return content
