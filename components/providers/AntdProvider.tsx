@@ -2,6 +2,7 @@
 
 import { App, ConfigProvider, theme } from "antd";
 import type { PropsWithChildren } from "react";
+import { Toaster } from "sonner";
 
 export function AntdProvider({ children }: PropsWithChildren) {
   return (
@@ -37,7 +38,19 @@ export function AntdProvider({ children }: PropsWithChildren) {
         },
       }}
     >
-      <App>{children}</App>
+      <App>
+        {children}
+        <Toaster
+          position="top-center"
+          expand={false}
+          closeButton
+          toastOptions={{
+            unstyled: true,
+            className: "niche-toast",
+            duration: 3200,
+          }}
+        />
+      </App>
     </ConfigProvider>
   );
 }

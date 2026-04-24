@@ -3,20 +3,19 @@
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
+import { toast } from "@/lib/toast";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const [message, setMessage] = useState("");
   const router = useRouter();
   const supabase = createClient();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setMessage("");
 
     const { error } =
       mode === "login"
@@ -24,10 +23,11 @@ export default function LoginPage() {
         : await supabase.auth.signUp({ email, password });
 
     if (error) {
-      setMessage(error.message);
+      toast.error(error.message);
     } else if (mode === "signup") {
-      setMessage("注册成功！请查收验证邮件后登录。");
+      toast.success("注册成功！请查收验证邮件后登录。");
     } else {
+      toast.success("登录成功。");
       router.push("/");
       router.refresh();
     }
@@ -131,20 +131,6 @@ export default function LoginPage() {
                 }
               />
             </div>
-
-            {message && (
-              <div
-                style={{
-                  fontSize: 12,
-                  color: message.includes("成功") ? "var(--accent)" : "#e57373",
-                  marginBottom: 14,
-                  textAlign: "center",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                {message}
-              </div>
-            )}
 
             <button
               type="submit"

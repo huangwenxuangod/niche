@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { toast } from "@/lib/toast";
 
 interface HotArticle {
   url: string;
@@ -20,12 +21,11 @@ interface Props {
   onSkip: () => void;
 }
 
-export default function KOCRecommendationModal({ journeyId, keywords, onImportComplete, onSkip }: Props) {
+export default function KOCRecommendationModal({ journeyId, onImportComplete, onSkip }: Props) {
   const [stage, setStage] = useState<"searching" | "selecting" | "importing" | "done">("searching");
   const [articleList, setArticleList] = useState<HotArticle[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [importProgress, setImportProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
-  const [error, setError] = useState<string | null>(null);
 
   // Search for hot articles on load
   useEffect(() => {
@@ -37,7 +37,7 @@ export default function KOCRecommendationModal({ journeyId, keywords, onImportCo
         setArticleList(data.articles || []);
         setStage("selecting");
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Search failed");
+        toast.error(err instanceof Error ? err.message : "搜索失败");
         setStage("selecting");
       }
     }
@@ -80,7 +80,7 @@ export default function KOCRecommendationModal({ journeyId, keywords, onImportCo
 
       // 后台继续执行导入
       await Promise.all(importPromises);
-    } catch (err) {
+    } catch {
       // 即使出错也让用户继续
       setTimeout(() => {
         handleDone();
@@ -163,19 +163,6 @@ export default function KOCRecommendationModal({ journeyId, keywords, onImportCo
 
           {stage === "selecting" && (
             <>
-              {error && (
-                <div style={{
-                  background: "rgba(255,100,100,0.1)",
-                  border: "1px solid rgba(255,100,100,0.3)",
-                  borderRadius: 8,
-                  padding: 12,
-                  marginBottom: 16,
-                  fontSize: 12,
-                  color: "var(--text-secondary)",
-                }}>
-                  {error}
-                </div>
-              )}
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {articleList.length === 0 ? (
                   <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-tertiary)", fontSize: 12 }}>

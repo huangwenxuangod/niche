@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { extractArticleFromAssistantMessage, renderWechatHtml } from "@/lib/article-layout";
+import { toast } from "@/lib/toast";
 
 interface Props {
   open: boolean;
@@ -50,7 +51,6 @@ export function ArticleLayoutPanel({
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [notice, setNotice] = useState("");
   const [wechatConfig, setWechatConfig] = useState<WechatConfig | null>(null);
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
@@ -91,7 +91,6 @@ export function ArticleLayoutPanel({
 
     async function loadOrOptimize() {
       setLoading(true);
-      setNotice("");
       setMode("preview");
 
       try {
@@ -141,13 +140,13 @@ export function ArticleLayoutPanel({
         setDraftId(savedDraft?.id || null);
 
         if (!cancelled) {
-          setNotice("已应用默认长文排版策略。后续你改 Markdown，预览会按这套固定规则继续更新。");
+          toast.success("已应用默认长文排版策略。");
         }
       } catch (err) {
         if (!cancelled) {
           setSourceMarkdown(article.bodyMarkdown);
           setRenderedMarkdown(article.bodyMarkdown);
-          setNotice(err instanceof Error ? err.message : "默认排版生成失败");
+          toast.error(err instanceof Error ? err.message : "默认排版生成失败");
         }
       } finally {
         if (!cancelled) {
@@ -165,7 +164,6 @@ export function ArticleLayoutPanel({
 
   async function handleSave() {
     setSaving(true);
-    setNotice("");
     try {
       const savedDraft = await persistDraft({
         source_markdown: sourceMarkdown,
@@ -173,9 +171,9 @@ export function ArticleLayoutPanel({
         rendered_html: renderedHtml,
       });
       setDraftId(savedDraft?.id || null);
-      setNotice("已保存最新排版草稿。");
+      toast.success("已保存最新排版草稿。");
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : "保存失败");
+      toast.error(err instanceof Error ? err.message : "保存失败");
     } finally {
       setSaving(false);
     }
@@ -184,24 +182,23 @@ export function ArticleLayoutPanel({
   async function handleCopyHtml() {
     try {
       await navigator.clipboard.writeText(renderedHtml);
-      setNotice("公众号 HTML 已复制。");
+      toast.success("公众号 HTML 已复制。");
     } catch {
-      setNotice("复制 HTML 失败，请重试。");
+      toast.error("复制 HTML 失败，请重试。");
     }
   }
 
   async function handleCopyMarkdown() {
     try {
       await navigator.clipboard.writeText(renderedMarkdown);
-      setNotice("排版后的 Markdown 已复制。");
+      toast.success("排版后的 Markdown 已复制。");
     } catch {
-      setNotice("复制 Markdown 失败，请重试。");
+      toast.error("复制 Markdown 失败，请重试。");
     }
   }
 
   async function handlePublishToWechat() {
     setPublishing(true);
-    setNotice("");
     try {
       const savedDraft = await persistDraft({
         source_markdown: sourceMarkdown,
@@ -252,9 +249,9 @@ export function ArticleLayoutPanel({
 
       setDraftId(activeDraftId);
       setPublishOpen(false);
-      setNotice(`已成功保存到公众号草稿箱。media_id：${data.media_id}`);
+      toast.success(`已成功保存到公众号草稿箱。media_id：${data.media_id}`);
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : "发布失败");
+      toast.error(err instanceof Error ? err.message : "发布失败");
     } finally {
       setPublishing(false);
     }
@@ -294,8 +291,6 @@ export function ArticleLayoutPanel({
           </button>
         </div>
 
-        {notice && <div style={noticeStyle}>{notice}</div>}
-
         {loading ? (
           <div style={loadingStyle}>正在应用默认长文排版策略...</div>
         ) : mode === "preview" ? (
@@ -315,7 +310,6 @@ export function ArticleLayoutPanel({
               value={renderedMarkdown}
               onChange={(e) => {
                 setRenderedMarkdown(e.target.value);
-                setNotice("");
               }}
               style={editorStyle}
             />
@@ -564,17 +558,6 @@ const publishActionStyle: React.CSSProperties = {
   color: "var(--bg-void)",
   fontSize: 12,
   cursor: "pointer",
-};
-
-const noticeStyle: React.CSSProperties = {
-  margin: "12px 18px 0",
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "var(--bg-surface)",
-  border: "1px solid var(--border)",
-  color: "var(--text-secondary)",
-  lineHeight: 1.6,
-  fontSize: 12,
 };
 
 const loadingStyle: React.CSSProperties = {

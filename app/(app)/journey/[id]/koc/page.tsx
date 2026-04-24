@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { KOCSource } from "@/lib/data";
+import { toast } from "@/lib/toast";
 
 function fmtCount(n: number): string {
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
@@ -19,14 +20,9 @@ export default function KocPage() {
   const [syncing, setSyncing] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [input, setInput] = useState("");
-  const [error, setError] = useState("");
   const supabase = createClient();
 
-  useEffect(() => {
-    fetchKocs();
-  }, [journeyId]);
-
-  async function fetchKocs() {
+  const fetchKocs = useCallback(async () => {
     const { data } = await supabase
       .from("koc_sources")
       .select("*")
@@ -34,7 +30,13 @@ export default function KocPage() {
       .order("created_at", { ascending: false });
     setKocs(data ?? []);
     setLoading(false);
-  }
+  }, [journeyId, supabase]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void fetchKocs();
+    });
+  }, [fetchKocs]);
 
   async function syncArticles(kocId: string) {
     setSyncing(kocId);
@@ -43,10 +45,15 @@ export default function KocPage() {
         method: "POST",
       });
       if (res.ok) {
+        const data = await res.json();
         await fetchKocs();
+        toast.success(`同步完成，更新 ${data.articleCount ?? 0} 篇文章。`);
+      } else {
+        const data = await res.json();
+        throw new Error(data.error || "同步失败");
       }
     } catch (err) {
-      console.error("Sync failed:", err);
+      toast.error(err instanceof Error ? err.message : "同步失败");
     }
     setSyncing(null);
   }
@@ -59,7 +66,6 @@ export default function KocPage() {
   async function importKOC() {
     if (!input.trim()) return;
     setImporting(true);
-    setError("");
     try {
       const res = await fetch("/api/koc/import", {
         method: "POST",
@@ -70,18 +76,19 @@ export default function KocPage() {
         }),
       });
       if (res.ok) {
+        const data = await res.json();
         setInput("");
         // 后台导入，立即刷新列表，不等待完成
         fetchKocs();
         // 稍后再刷新一次以获取更新后的数据
         setTimeout(fetchKocs, 2000);
+        toast.success(`导入成功，已加入 ${data.account?.name || "公众号"}。`);
       } else {
         const data = await res.json();
-        setError(data.error || "导入失败");
+        toast.error(data.error || "导入失败");
       }
-    } catch (err) {
-      console.error("Import failed:", err);
-      setError("导入失败");
+    } catch {
+      toast.error("导入失败");
     }
     setImporting(false);
   }
@@ -135,9 +142,6 @@ export default function KocPage() {
             {importing ? "导入中..." : "添加 KOC"}
           </button>
         </div>
-        {error && (
-          <div style={{ color: "#f44336", fontSize: 12, marginTop: 8 }}>{error}</div>
-        )}
         <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 8 }}>
           支持输入：公众号名称（如「产品思维」）、ghid（如 gh_xxxxxx）、或任意文章链接
         </div>
