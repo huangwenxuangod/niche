@@ -83,11 +83,15 @@ function captureBody(content: string) {
   return match?.[1] ?? "";
 }
 
-function formatDefaultBlock(block: string) {
+function formatDefaultBlock(block: string): string[] {
   if (!block) return [];
   if (block.startsWith(":::")) {
     const normalizedCustom = normalizeCustomBlock(block);
     return normalizedCustom ? [normalizedCustom] : [];
+  }
+  const structuredParts = splitStructuredBlock(block);
+  if (structuredParts) {
+    return structuredParts.flatMap((part) => formatDefaultBlock(part));
   }
   if (/^#{1,3}\s/.test(block) || /^>\s/.test(block) || /^-\s/.test(block) || /^\d+\.\s/.test(block)) {
     return [block];
@@ -99,6 +103,108 @@ function formatDefaultBlock(block: string) {
   }
 
   return splitLongParagraph(block);
+}
+
+function splitStructuredBlock(block: string): string[] | null {
+  const lines = block
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim());
+
+  if (lines.length <= 1) {
+    return null;
+  }
+
+  const hasInternalStructure = lines.some((line, index) => {
+    if (index === 0) return false;
+    const trimmed = line.trim();
+    return (
+      /^#{1,3}\s/.test(trimmed) ||
+      /^>\s/.test(trimmed) ||
+      /^-\s/.test(trimmed) ||
+      /^\d+\.\s/.test(trimmed)
+    );
+  });
+
+  if (!hasInternalStructure) {
+    return null;
+  }
+
+  const parts: string[] = [];
+  let paragraphBuffer: string[] = [];
+  let listBuffer: string[] = [];
+  let listMode: "ordered" | "unordered" | null = null;
+  let quoteBuffer: string[] = [];
+
+  const flushParagraph = () => {
+    if (!paragraphBuffer.length) return;
+    parts.push(paragraphBuffer.join("\n").trim());
+    paragraphBuffer = [];
+  };
+
+  const flushList = () => {
+    if (!listBuffer.length) return;
+    parts.push(listBuffer.join("\n").trim());
+    listBuffer = [];
+    listMode = null;
+  };
+
+  const flushQuote = () => {
+    if (!quoteBuffer.length) return;
+    parts.push(quoteBuffer.join("\n").trim());
+    quoteBuffer = [];
+  };
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+
+    if (/^#{1,3}\s/.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      flushQuote();
+      parts.push(trimmed);
+      continue;
+    }
+
+    if (/^>\s/.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      quoteBuffer.push(trimmed);
+      continue;
+    }
+
+    if (/^\d+\.\s/.test(trimmed)) {
+      flushParagraph();
+      flushQuote();
+      if (listMode === "unordered") {
+        flushList();
+      }
+      listMode = "ordered";
+      listBuffer.push(trimmed);
+      continue;
+    }
+
+    if (/^-\s/.test(trimmed)) {
+      flushParagraph();
+      flushQuote();
+      if (listMode === "ordered") {
+        flushList();
+      }
+      listMode = "unordered";
+      listBuffer.push(trimmed);
+      continue;
+    }
+
+    flushList();
+    flushQuote();
+    paragraphBuffer.push(trimmed);
+  }
+
+  flushParagraph();
+  flushList();
+  flushQuote();
+
+  return parts.filter(Boolean);
 }
 
 function normalizeCustomBlock(block: string) {
