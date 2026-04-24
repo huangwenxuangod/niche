@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 type KnowledgeArticleRow = {
   id: string;
+  koc_source_id: string | null;
   title: string;
   digest: string | null;
   content: string | null;
@@ -15,19 +16,73 @@ export async function searchJourneyKnowledge(
   supabase: SupabaseClient,
   journeyId: string,
   query: string,
-  limit = 6
+  limit = 6,
+  options?: {
+    accountNames?: string[];
+  }
 ) {
   const keyword = query.trim();
+  const accountNames = Array.from(
+    new Set((options?.accountNames ?? []).map((name) => name.trim()).filter(Boolean))
+  );
 
-  const { data } = await supabase
-    .from("knowledge_articles")
-    .select("id, title, digest, content, read_count, publish_time, url, koc_sources(account_name)")
-    .eq("journey_id", journeyId)
-    .or(`title.ilike.%${escapeLike(keyword)}%,digest.ilike.%${escapeLike(keyword)}%,content.ilike.%${escapeLike(keyword)}%`)
-    .order("read_count", { ascending: false })
-    .limit(limit);
+  let matchedKocIds: string[] = [];
 
-  const articles = ((data ?? []) as KnowledgeArticleRow[]).map((article) => {
+  if (accountNames.length > 0) {
+    const accountOrFilter = accountNames
+      .map((name) => `account_name.ilike.%${escapeLike(name)}%`)
+      .join(",");
+
+    const { data: matchedKocs } = await supabase
+      .from("koc_sources")
+      .select("id")
+      .eq("journey_id", journeyId)
+      .or(accountOrFilter);
+
+    matchedKocIds = (matchedKocs ?? []).map((item) => item.id as string);
+  }
+
+  const queries: PromiseLike<{ data: KnowledgeArticleRow[] | null }>[] = [];
+
+  if (matchedKocIds.length > 0) {
+    queries.push(
+      supabase
+        .from("knowledge_articles")
+        .select("id, koc_source_id, title, digest, content, read_count, publish_time, url, koc_sources(account_name)")
+        .eq("journey_id", journeyId)
+        .in("koc_source_id", matchedKocIds)
+        .order("read_count", { ascending: false })
+        .limit(limit)
+    );
+  }
+
+  if (keyword) {
+    queries.push(
+      supabase
+        .from("knowledge_articles")
+        .select("id, koc_source_id, title, digest, content, read_count, publish_time, url, koc_sources(account_name)")
+        .eq("journey_id", journeyId)
+        .or(`title.ilike.%${escapeLike(keyword)}%,digest.ilike.%${escapeLike(keyword)}%,content.ilike.%${escapeLike(keyword)}%`)
+        .order("read_count", { ascending: false })
+        .limit(limit)
+    );
+  }
+
+  const resultSets = await Promise.all(queries);
+  const merged = new Map<string, KnowledgeArticleRow>();
+
+  for (const result of resultSets) {
+    for (const article of (result.data ?? []) as KnowledgeArticleRow[]) {
+      if (!merged.has(article.id)) {
+        merged.set(article.id, article);
+      }
+    }
+  }
+
+  const articles = Array.from(merged.values())
+    .sort((a, b) => (b.read_count ?? 0) - (a.read_count ?? 0))
+    .slice(0, limit)
+    .map((article) => {
     const kocSource = Array.isArray(article.koc_sources)
       ? article.koc_sources[0]
       : article.koc_sources;
@@ -40,7 +95,7 @@ export async function searchJourneyKnowledge(
       publish_time: article.publish_time,
       url: article.url,
       account_name: kocSource?.account_name ?? "未知",
-      excerpt: buildExcerpt(article.content, keyword),
+      excerpt: buildExcerpt(article.content || article.digest, keyword),
     };
   });
 

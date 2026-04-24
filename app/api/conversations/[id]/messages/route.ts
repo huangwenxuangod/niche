@@ -276,6 +276,8 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
           content: m.content,
         }));
 
+        const trackedAccounts = await getTrackedAccountNames(supabase, conv.journey_id);
+
         await emitEvent(controller, encoder, {
           type: "assistant_status",
           label: "整理上下文中",
@@ -300,6 +302,190 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
           return;
+        }
+
+        const requestedAccountName = extractRequestedAccountName(content);
+        const knowledgeCompareIntent = detectKnowledgeCompareIntent(content, trackedAccounts, requestedAccountName);
+        const knowledgeIntent = detectKnowledgeLookupIntent(content, trackedAccounts, requestedAccountName);
+
+        if (knowledgeCompareIntent) {
+          await emitEvent(controller, encoder, {
+            type: "tool_start",
+            toolName: "search_knowledge_base",
+            label: toolLabel("search_knowledge_base"),
+          });
+
+          const comparisonResults = await Promise.all(
+            knowledgeCompareIntent.accountNames.map((accountName) =>
+              searchJourneyKnowledge(supabase, conv.journey_id, knowledgeCompareIntent.query || accountName, 4, {
+                accountNames: [accountName],
+              }).then((result) => ({ accountName, result }))
+            )
+          );
+
+          const availableResults = comparisonResults.filter((item) => item.result.articles.length > 0);
+
+          await emitEvent(controller, encoder, {
+            type: "tool_result",
+            toolName: "search_knowledge_base",
+            label: toolLabel("search_knowledge_base"),
+            payload: {
+              compare_accounts: knowledgeCompareIntent.accountNames,
+              matches: comparisonResults.map((item) => ({
+                account_name: item.accountName,
+                total: item.result.articles.length,
+              })),
+            },
+          });
+
+          if (availableResults.length >= 2) {
+            const comparisonContext = availableResults
+              .map(
+                ({ accountName, result }) =>
+                  `【${accountName}】\n${result.articles
+                    .map((item) => `- ${item.title} | 阅读 ${item.read_count} | 摘要：${item.excerpt || item.digest || "无"}`)
+                    .join("\n")}`
+              )
+              .join("\n\n");
+
+            fullContent = await streamModelResponse({
+              controller,
+              encoder,
+              systemPrompt: `${systemPrompt}
+
+【本轮回答要求】
+用户明确要做账号内容对比。优先根据下方知识库文章比较两边的选题、标题、表达、更新频率感和爆款结构，不要转去泛泛讲热点。
+
+【对比账号】
+${knowledgeCompareIntent.accountNames.map((name) => `- ${name}`).join("\n")}
+
+【知识库对比材料】
+${comparisonContext}`,
+              messages,
+              fallback: "我已经先把这两个账号的知识库文章翻出来了，下面直接给你做内容对比。",
+            });
+
+            await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+            return;
+          }
+
+          const missingAccounts = comparisonResults
+            .filter((item) => item.result.articles.length === 0)
+            .map((item) => item.accountName);
+
+          fullContent = `我先尝试按知识库帮你做账号对比了，但目前只命中了 ${availableResults
+            .map((item) => item.accountName)
+            .join("、") || "一部分账号"} 的文章，${
+            missingAccounts.length > 0
+              ? `还没命中 ${missingAccounts.join("、")} 的内容。`
+              : ""
+          }
+
+如果你要做 **“我的号 vs 别人的号”** 或 **两个竞品号的内容对比**，最稳的方式是：
+1. 先把双方账号都导入当前旅程的知识库
+2. 然后直接问：**对比 A 和 B 的选题、标题和爆款结构差别**
+3. 或者问：**分析我的号和 A 的内容差距，给我 3 条可执行建议**`;
+          await emitEvent(controller, encoder, {
+            type: "assistant_status",
+            label: "输出答案中",
+          });
+          await emitText(controller, encoder, fullContent);
+          await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+          return;
+        }
+
+        if (knowledgeIntent && !isLatestTrendRequest(content)) {
+          await emitEvent(controller, encoder, {
+            type: "tool_start",
+            toolName: "search_knowledge_base",
+            label: toolLabel("search_knowledge_base"),
+          });
+
+          const toolLogId = await createToolCallLog(supabase, {
+            conversationId,
+            journeyId: conv.journey_id,
+            messageId: userMessage?.id ?? null,
+            toolName: "search_knowledge_base",
+            status: "running",
+            arguments: {
+              query: knowledgeIntent.query,
+              account_names: knowledgeIntent.accountNames,
+            },
+            requiresConfirmation: false,
+          });
+
+          const knowledge = await searchJourneyKnowledge(
+            supabase,
+            conv.journey_id,
+            knowledgeIntent.query,
+            6,
+            { accountNames: knowledgeIntent.accountNames }
+          );
+
+          await emitEvent(controller, encoder, {
+            type: "tool_result",
+            toolName: "search_knowledge_base",
+            label: toolLabel("search_knowledge_base"),
+            payload: knowledge,
+          });
+
+          await finalizeToolCallLog(supabase, toolLogId, {
+            status: "success",
+            result: knowledge,
+          });
+
+          if (knowledge.articles.length > 0) {
+            const knowledgeContext = knowledge.articles
+              .map((item) => `- ${item.title} | ${item.account_name} | 阅读 ${item.read_count} | 摘要：${item.excerpt || item.digest || "无"}`)
+              .join("\n");
+
+            const accountContext = knowledgeIntent.accountNames.length
+              ? `【本轮重点账号】\n${knowledgeIntent.accountNames.map((name) => `- ${name}`).join("\n")}\n\n`
+              : "";
+
+            fullContent = await streamModelResponse({
+              controller,
+              encoder,
+              systemPrompt: `${systemPrompt}
+
+【本轮回答要求】
+用户这次点名了具体账号/作者，优先根据下方知识库结果回答，不要先转去讲泛热点，除非用户明确问“最近热点”“最新趋势”。
+
+${accountContext}【本轮预检知识库结果】
+${knowledgeContext}`,
+              messages,
+              fallback: "我已经先帮你查了知识库，下面把这个账号为什么能火拆给你。",
+            });
+
+            await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+            return;
+          }
+
+          if (knowledgeIntent.accountNames.length > 0 || knowledgeIntent.articleTitle) {
+            fullContent = `我先按知识库查了${knowledgeIntent.accountNames.length > 0 ? `账号「${knowledgeIntent.accountNames.join("、")}」` : "这篇内容"}，但当前还没命中可用文章，所以这次我不会直接拿热点代替回答。
+
+你可以这样继续问我：
+- **拆一下这个号最近 3 篇文章的共同写法**
+- **分析《${knowledgeIntent.articleTitle || "这篇文章"}》为什么能火**
+- **对比我的号和这个号的标题差距**
+
+如果你是要做账号/文章级分析，最稳的是先确认对应文章已经同步进当前旅程知识库。`;
+            await emitEvent(controller, encoder, {
+              type: "assistant_status",
+              label: "输出答案中",
+            });
+            await emitText(controller, encoder, fullContent);
+            await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+            return;
+          }
         }
 
         for (let step = 0; step < 3; step++) {
@@ -566,7 +752,12 @@ async function executeTool({
       supabase,
       journeyId,
       query,
-      Math.min(normalizeNumber(args.limit, 6), 10)
+      Math.min(normalizeNumber(args.limit, 6), 10),
+      {
+        accountNames: Array.isArray(args.account_names)
+          ? args.account_names.map((item) => String(item)).filter(Boolean)
+          : undefined,
+      }
     );
   }
 
@@ -1358,6 +1549,109 @@ function isRevisionRequest(content: string) {
 
 function isComplianceCheckRequest(content: string) {
   return /(检查合规|合规检查|会不会违规|平台风险|限流风险|改得更安全|风险提示)/i.test(content.trim());
+}
+
+function isLatestTrendRequest(content: string) {
+  return /(最新|最近|这周|今天|热点|趋势|风向|发生了什么)/i.test(content.trim());
+}
+
+function detectKnowledgeLookupIntent(
+  content: string,
+  trackedAccounts: string[],
+  requestedAccountName?: string | null
+) {
+  const text = content.trim();
+  const normalized = normalizeComparisonText(text);
+  const accountMatches = uniqueStrings([
+    ...trackedAccounts.filter((name) => normalized.includes(normalizeComparisonText(name))),
+    ...(requestedAccountName ? [requestedAccountName] : []),
+  ]);
+  const articleTitle = extractArticleTitleHint(text);
+
+  const hasKnowledgeSignal =
+    (accountMatches.length > 0 || !!articleTitle) &&
+    /(文章|写法|风格|为什么|能火|火|拆解|参考|账号|这个号|他的内容|对比|差别|标题|选题|这篇|哪篇|结构)/i.test(text);
+
+  if (!hasKnowledgeSignal) {
+    return null;
+  }
+
+  return {
+    query: articleTitle || accountMatches[0] || text,
+    accountNames: accountMatches,
+    articleTitle,
+  };
+}
+
+function normalizeComparisonText(value: string) {
+  return value.toLowerCase().replace(/\s+/g, "");
+}
+
+function detectKnowledgeCompareIntent(
+  content: string,
+  trackedAccounts: string[],
+  requestedAccountName?: string | null
+) {
+  const text = content.trim();
+  if (!/(对比|比较|差别|差距|不同|vs|PK|和.*对比|和.*比较)/i.test(text)) {
+    return null;
+  }
+
+  const normalized = normalizeComparisonText(text);
+  const accountNames = uniqueStrings([
+    ...trackedAccounts.filter((name) => normalized.includes(normalizeComparisonText(name))),
+    ...(requestedAccountName ? [requestedAccountName] : []),
+  ]);
+
+  if (accountNames.length < 2) {
+    return null;
+  }
+
+  return {
+    accountNames: accountNames.slice(0, 2),
+    query: extractArticleTitleHint(text) || accountNames[0],
+  };
+}
+
+function extractRequestedAccountName(content: string) {
+  const prefixed = content.match(/^\[账号分析请求\]\s*(.+)$/);
+  if (prefixed?.[1]) {
+    return prefixed[1].trim();
+  }
+
+  const explicit = content.match(/(?:分析|拆解|对比|研究)\s*我的号[：: ]?\s*([^\n，。,；;]+)/);
+  if (explicit?.[1]) {
+    return explicit[1].trim();
+  }
+
+  return null;
+}
+
+function extractArticleTitleHint(content: string) {
+  const match =
+    content.match(/《([^》]{2,80})》/) ||
+    content.match(/[“"]([^”"\n]{4,80})[”"]/);
+
+  return match?.[1]?.trim() || null;
+}
+
+function uniqueStrings(items: string[]) {
+  return Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
+}
+
+async function getTrackedAccountNames(
+  supabase: ReturnType<typeof createClient>,
+  journeyId: string
+) {
+  const { data } = await supabase
+    .from("koc_sources")
+    .select("account_name")
+    .eq("journey_id", journeyId)
+    .limit(50);
+
+  return (data ?? [])
+    .map((item) => item.account_name)
+    .filter((name): name is string => typeof name === "string" && name.trim().length > 0);
 }
 
 function formatFullArticleResponse(
