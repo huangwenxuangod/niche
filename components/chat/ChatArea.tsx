@@ -84,6 +84,8 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   >([]);
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [layoutTarget, setLayoutTarget] = useState<{ id: string; content: string } | null>(null);
+  const assistantBufferRef = useRef("");
+  const assistantFlushTimerRef = useRef<number | null>(null);
   const recommendationToastShown = useRef(false);
   const loadingSnapshot = buildLoadingSnapshot(toolEvents, assistantStatus);
 
@@ -183,6 +185,11 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
     const assistantId: string = crypto.randomUUID();
     let currentAssistantId: string = assistantId;
     let assistantContent = "";
+    assistantBufferRef.current = "";
+    if (assistantFlushTimerRef.current !== null) {
+      window.clearTimeout(assistantFlushTimerRef.current);
+      assistantFlushTimerRef.current = null;
+    }
 
     setMessages((prev) => [
       ...prev,
@@ -236,14 +243,22 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
               if (!assistantContent) {
                 setAssistantStatus("输出答案中");
               }
-              assistantContent += parsed.text;
-              setMessages((prev) =>
-                prev.map((message) =>
-                  message.id === currentAssistantId
-                    ? { ...message, content: assistantContent }
-                    : message
-                )
-              );
+              assistantBufferRef.current += parsed.text;
+              if (assistantFlushTimerRef.current === null) {
+                assistantFlushTimerRef.current = window.setTimeout(() => {
+                  assistantFlushTimerRef.current = null;
+                  if (!assistantBufferRef.current) return;
+                  assistantContent += assistantBufferRef.current;
+                  assistantBufferRef.current = "";
+                  setMessages((prev) =>
+                    prev.map((message) =>
+                      message.id === currentAssistantId
+                        ? { ...message, content: assistantContent }
+                        : message
+                    )
+                  );
+                }, 28);
+              }
             } else if (parsed.type === "assistant_status" && parsed.label) {
               setAssistantStatus(String(parsed.label));
             } else if (parsed.type === "assistant_message" && parsed.messageId) {
@@ -272,7 +287,24 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
           }
         }
 
-        if (done) break;
+        if (done) {
+          if (assistantFlushTimerRef.current !== null) {
+            window.clearTimeout(assistantFlushTimerRef.current);
+            assistantFlushTimerRef.current = null;
+          }
+          if (assistantBufferRef.current) {
+            assistantContent += assistantBufferRef.current;
+            assistantBufferRef.current = "";
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === currentAssistantId
+                  ? { ...message, content: assistantContent }
+                  : message
+              )
+            );
+          }
+          break;
+        }
       }
     } catch (error) {
       console.error(error);

@@ -1837,7 +1837,7 @@ async function emitEvent(controller: ReadableStreamDefaultController, encoder: T
 }
 
 async function emitText(controller: ReadableStreamDefaultController, encoder: TextEncoder, text: string) {
-  const chunks = text.match(/.{1,24}/g) ?? [text];
+  const chunks = chunkTextForStreaming(text);
   for (const chunk of chunks) {
     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "text", text: chunk })}\n\n`));
   }
@@ -1852,6 +1852,7 @@ async function streamModelResponse(params: {
   forceNoTools?: boolean;
 }) {
   let fullContent = "";
+  const textEmitter = createSmoothTextEmitter(params.controller, params.encoder);
 
   await emitEvent(params.controller, params.encoder, {
     type: "assistant_status",
@@ -1867,11 +1868,10 @@ async function streamModelResponse(params: {
       messages: params.messages,
       onChunk: (text) => {
         fullContent += text;
-        params.controller.enqueue(
-          params.encoder.encode(`data: ${JSON.stringify({ type: "text", text })}\n\n`)
-        );
+        textEmitter.push(text);
       },
     });
+    await textEmitter.flush();
   } catch {
     // Fall back to deterministic streaming if provider-side streaming fails.
   }
@@ -1882,6 +1882,107 @@ async function streamModelResponse(params: {
   }
 
   return fullContent;
+}
+
+function createSmoothTextEmitter(
+  controller: ReadableStreamDefaultController,
+  encoder: TextEncoder
+) {
+  let buffer = "";
+
+  return {
+    push(text: string) {
+      buffer += text;
+      const { chunks, remaining } = extractReadyChunks(buffer);
+      buffer = remaining;
+
+      for (const chunk of chunks) {
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ type: "text", text: chunk })}\n\n`)
+        );
+      }
+    },
+    async flush() {
+      if (!buffer) return;
+      const chunks = chunkTextForStreaming(buffer);
+      buffer = "";
+      for (const chunk of chunks) {
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ type: "text", text: chunk })}\n\n`)
+        );
+      }
+    },
+  };
+}
+
+function extractReadyChunks(text: string) {
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= 16) {
+      break;
+    }
+
+    const hardLimit = Math.min(remaining.length, 84);
+    const slice = remaining.slice(0, hardLimit);
+    const paragraphBreak = slice.lastIndexOf("\n\n");
+    if (paragraphBreak >= 12) {
+      const end = paragraphBreak + 2;
+      chunks.push(remaining.slice(0, end));
+      remaining = remaining.slice(end);
+      continue;
+    }
+
+    const boundaryIndex = findLastSemanticBoundary(slice);
+    if (boundaryIndex >= 18) {
+      const end = boundaryIndex + 1;
+      chunks.push(remaining.slice(0, end));
+      remaining = remaining.slice(end);
+      continue;
+    }
+
+    if (remaining.length > 96) {
+      const softSplit = findLastSoftBoundary(slice);
+      const end = softSplit >= 28 ? softSplit + 1 : hardLimit;
+      chunks.push(remaining.slice(0, end));
+      remaining = remaining.slice(end);
+      continue;
+    }
+
+    break;
+  }
+
+  return { chunks, remaining };
+}
+
+function chunkTextForStreaming(text: string) {
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    const { chunks: readyChunks, remaining: nextRemaining } = extractReadyChunks(remaining);
+    if (readyChunks.length === 0) {
+      chunks.push(remaining);
+      break;
+    }
+    chunks.push(...readyChunks);
+    remaining = nextRemaining;
+  }
+
+  return chunks.filter((chunk) => chunk.length > 0);
+}
+
+function findLastSemanticBoundary(text: string) {
+  const matches = [...text.matchAll(/[。！？!?；;：:\n]/g)];
+  const last = matches.at(-1);
+  return typeof last?.index === "number" ? last.index : -1;
+}
+
+function findLastSoftBoundary(text: string) {
+  const matches = [...text.matchAll(/[，,、）)】]/g)];
+  const last = matches.at(-1);
+  return typeof last?.index === "number" ? last.index : -1;
 }
 
 async function persistAssistantMessageAndEmitId(

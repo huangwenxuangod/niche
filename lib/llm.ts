@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
+import { invokeText, invokeWithTools, streamText } from "@/lib/agent/runtime";
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -36,48 +37,32 @@ interface CompleteWithToolsOptions {
 
 export const llm = {
   async streamChat({ systemPrompt, messages, onChunk }: StreamChatOptions) {
-    const stream = await client.chat.completions.create({
-      model: MODEL,
-      stream: true,
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...messages,
-      ],
+    await streamText({
+      systemPrompt,
+      messages,
+      onChunk,
+      runName: "legacy-stream-chat",
+      tags: ["legacy-llm", "stream-chat"],
     });
-
-    for await (const chunk of stream) {
-      const text = chunk.choices[0]?.delta?.content;
-      if (text) onChunk(text);
-    }
   },
 
   async completeWithTools({ systemPrompt, messages, tools }: CompleteWithToolsOptions) {
-    const res = await client.chat.completions.create({
-      model: MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...messages,
-      ],
+    return invokeWithTools({
+      systemPrompt,
+      messages,
       tools,
-      tool_choice: "auto",
+      runName: "legacy-complete-with-tools",
+      tags: ["legacy-llm", "tool-call"],
     });
-
-    const message = res.choices[0]?.message;
-    return {
-      content: message?.content ?? "",
-      toolCalls: (message?.tool_calls as LlmToolCall[] | undefined) ?? [],
-    };
   },
 
   async chat(systemPrompt: string, userContent: string): Promise<string> {
-    const res = await client.chat.completions.create({
-      model: MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userContent },
-      ],
+    return invokeText({
+      systemPrompt,
+      userContent,
+      runName: "legacy-chat",
+      tags: ["legacy-llm", "chat"],
     });
-    return res.choices[0]?.message?.content ?? "";
   },
 };
 
