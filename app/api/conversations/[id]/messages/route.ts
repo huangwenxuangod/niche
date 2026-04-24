@@ -308,15 +308,11 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
         const knowledgeCompareIntent = detectKnowledgeCompareIntent(content, trackedAccounts, requestedAccountName);
         const knowledgeIntent = detectKnowledgeLookupIntent(content, trackedAccounts, requestedAccountName);
 
-        // Pre-routing: execute knowledge base searches early and inject results
-        // into the agent loop context, instead of short-circuiting with early returns.
-        let preRoutingContext = “”;
-
         if (knowledgeCompareIntent) {
           await emitEvent(controller, encoder, {
-            type: “tool_start”,
-            toolName: “search_knowledge_base”,
-            label: toolLabel(“search_knowledge_base”),
+            type: "tool_start",
+            toolName: "search_knowledge_base",
+            label: toolLabel("search_knowledge_base"),
           });
 
           const comparisonResults = await Promise.all(
@@ -330,9 +326,9 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
           const availableResults = comparisonResults.filter((item) => item.result.articles.length > 0);
 
           await emitEvent(controller, encoder, {
-            type: “tool_result”,
-            toolName: “search_knowledge_base”,
-            label: toolLabel(“search_knowledge_base”),
+            type: "tool_result",
+            toolName: "search_knowledge_base",
+            label: toolLabel("search_knowledge_base"),
             payload: {
               compare_accounts: knowledgeCompareIntent.accountNames,
               matches: comparisonResults.map((item) => ({
@@ -342,79 +338,79 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
             },
           });
 
-          if (availableResults.length > 0) {
+          if (availableResults.length >= 2) {
             const comparisonContext = availableResults
               .map(
                 ({ accountName, result }) =>
                   `【${accountName}】\n${result.articles
-                    .map((item) => `- ${item.title} | 阅读 ${item.read_count} | 摘要：${item.excerpt || item.digest || “无”}`)
-                    .join(“\n”)}`
+                    .map((item) => `- ${item.title} | 阅读 ${item.read_count} | 摘要：${item.excerpt || item.digest || "无"}`)
+                    .join("\n")}`
               )
-              .join(“\n\n”);
+              .join("\n\n");
 
-            preRoutingContext += `【本轮回答要求】
+            fullContent = await streamModelResponse({
+              controller,
+              encoder,
+              systemPrompt: `${systemPrompt}
+
+【本轮回答要求】
 用户明确要做账号内容对比。优先根据下方知识库文章比较两边的选题、标题、表达、更新频率感和爆款结构，不要转去泛泛讲热点。
 
 【对比账号】
-${knowledgeCompareIntent.accountNames.map((name) => `- ${name}`).join(“\n”)}
+${knowledgeCompareIntent.accountNames.map((name) => `- ${name}`).join("\n")}
 
 【知识库对比材料】
-${comparisonContext}`;
-
-            // Inject synthetic tool messages so LLM sees search_knowledge_base was already called
-            const pseudoToolId = `pre_kb_compare_${Date.now()}`;
-            messages.push({
-              role: “assistant”,
-              content: “”,
-              tool_calls: [{
-                id: pseudoToolId,
-                type: “function”,
-                function: {
-                  name: “search_knowledge_base”,
-                  arguments: JSON.stringify({
-                    query: knowledgeCompareIntent.query || knowledgeCompareIntent.accountNames[0],
-                    account_names: knowledgeCompareIntent.accountNames,
-                  }),
-                },
-              }],
+${comparisonContext}`,
+              messages,
+              fallback: "我已经先把这两个账号的知识库文章翻出来了，下面直接给你做内容对比。",
             });
-            messages.push({
-              role: “tool”,
-              tool_call_id: pseudoToolId,
-              content: JSON.stringify({
-                query: knowledgeCompareIntent.query,
-                compare_accounts: knowledgeCompareIntent.accountNames,
-                total: availableResults.reduce((sum, item) => sum + item.result.articles.length, 0),
-                articles: availableResults.flatMap(({ accountName, result }) =>
-                  result.articles.map(a => ({ ...a, compared_account: accountName }))
-                ),
-                _next_step_hint: “知识库对比数据已获取。如果还需要热点补充，建议调用 search_hot_topics；如果需要分析爆款规律，建议调用 analyze_journey_data。”,
-              }),
-            });
-          } else {
-            const missingAccounts = comparisonResults
-              .filter((item) => item.result.articles.length === 0)
-              .map((item) => item.accountName);
 
-            preRoutingContext += `【本轮回答要求】
-用户要做账号对比，但知识库未命中任何文章。请告知用户需要先导入账号文章到知识库，同时如果用户还问了热点趋势，可以调用 search_hot_topics 补充。
-
-【未命中的账号】
-${missingAccounts.map((name) => `- ${name}`).join(“\n”)}`;
+            await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+            return;
           }
-        } else if (knowledgeIntent && !isLatestTrendRequest(content)) {
+
+          const missingAccounts = comparisonResults
+            .filter((item) => item.result.articles.length === 0)
+            .map((item) => item.accountName);
+
+          fullContent = `我先尝试按知识库帮你做账号对比了，但目前只命中了 ${availableResults
+            .map((item) => item.accountName)
+            .join("、") || "一部分账号"} 的文章，${
+            missingAccounts.length > 0
+              ? `还没命中 ${missingAccounts.join("、")} 的内容。`
+              : ""
+          }
+
+如果你要做 **“我的号 vs 别人的号”** 或 **两个竞品号的内容对比**，最稳的方式是：
+1. 先把双方账号都导入当前旅程的知识库
+2. 然后直接问：**对比 A 和 B 的选题、标题和爆款结构差别**
+3. 或者问：**分析我的号和 A 的内容差距，给我 3 条可执行建议**`;
           await emitEvent(controller, encoder, {
-            type: “tool_start”,
-            toolName: “search_knowledge_base”,
-            label: toolLabel(“search_knowledge_base”),
+            type: "assistant_status",
+            label: "输出答案中",
+          });
+          await emitText(controller, encoder, fullContent);
+          await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+          return;
+        }
+
+        if (knowledgeIntent && !isLatestTrendRequest(content)) {
+          await emitEvent(controller, encoder, {
+            type: "tool_start",
+            toolName: "search_knowledge_base",
+            label: toolLabel("search_knowledge_base"),
           });
 
           const toolLogId = await createToolCallLog(supabase, {
             conversationId,
             journeyId: conv.journey_id,
             messageId: userMessage?.id ?? null,
-            toolName: “search_knowledge_base”,
-            status: “running”,
+            toolName: "search_knowledge_base",
+            status: "running",
             arguments: {
               query: knowledgeIntent.query,
               account_names: knowledgeIntent.accountNames,
@@ -431,78 +427,75 @@ ${missingAccounts.map((name) => `- ${name}`).join(“\n”)}`;
           );
 
           await emitEvent(controller, encoder, {
-            type: “tool_result”,
-            toolName: “search_knowledge_base”,
-            label: toolLabel(“search_knowledge_base”),
+            type: "tool_result",
+            toolName: "search_knowledge_base",
+            label: toolLabel("search_knowledge_base"),
             payload: knowledge,
           });
 
           await finalizeToolCallLog(supabase, toolLogId, {
-            status: “success”,
+            status: "success",
             result: knowledge,
           });
 
           if (knowledge.articles.length > 0) {
             const knowledgeContext = knowledge.articles
-              .map((item) => `- ${item.title} | ${item.account_name} | 阅读 ${item.read_count} | 摘要：${item.excerpt || item.digest || “无”}`)
-              .join(“\n”);
+              .map((item) => `- ${item.title} | ${item.account_name} | 阅读 ${item.read_count} | 摘要：${item.excerpt || item.digest || "无"}`)
+              .join("\n");
 
             const accountContext = knowledgeIntent.accountNames.length
-              ? `【本轮重点账号】\n${knowledgeIntent.accountNames.map((name) => `- ${name}`).join(“\n”)}\n\n`
-              : “”;
+              ? `【本轮重点账号】\n${knowledgeIntent.accountNames.map((name) => `- ${name}`).join("\n")}\n\n`
+              : "";
 
-            preRoutingContext += `【本轮回答要求】
-用户这次点名了具体账号/作者，优先根据下方知识库结果回答，不要先转去讲泛热点，除非用户明确问”最近热点””最新趋势”。
+            fullContent = await streamModelResponse({
+              controller,
+              encoder,
+              systemPrompt: `${systemPrompt}
+
+【本轮回答要求】
+用户这次点名了具体账号/作者，优先根据下方知识库结果回答，不要先转去讲泛热点，除非用户明确问“最近热点”“最新趋势”。
 
 ${accountContext}【本轮预检知识库结果】
-${knowledgeContext}`;
-
-            // Inject synthetic tool messages so LLM sees search_knowledge_base was already called
-            const pseudoToolId = `pre_kb_lookup_${Date.now()}`;
-            messages.push({
-              role: “assistant”,
-              content: “”,
-              tool_calls: [{
-                id: pseudoToolId,
-                type: “function”,
-                function: {
-                  name: “search_knowledge_base”,
-                  arguments: JSON.stringify({
-                    query: knowledgeIntent.query,
-                    account_names: knowledgeIntent.accountNames,
-                  }),
-                },
-              }],
+${knowledgeContext}`,
+              messages,
+              fallback: "我已经先帮你查了知识库，下面把这个账号为什么能火拆给你。",
             });
-            messages.push({
-              role: “tool”,
-              tool_call_id: pseudoToolId,
-              content: JSON.stringify(addToolHint(“search_knowledge_base”, knowledge as unknown as Record<string, unknown>)),
-            });
-          } else if (knowledgeIntent.accountNames.length > 0 || knowledgeIntent.articleTitle) {
-            // Knowledge base returned nothing but user asked about specific account/article
-            // Still fall through to agent loop — LLM might want to call search_hot_topics as fallback
-            preRoutingContext += `【本轮回答要求】
-用户点名了具体账号/文章，但知识库未命中。可以告知用户需要先导入文章到知识库；如果用户同时也问了热点趋势，可以调用 search_hot_topics 补充。
 
-【未命中内容】
-${knowledgeIntent.accountNames.length > 0 ? `账号：${knowledgeIntent.accountNames.join(“、”)}` : `文章：《${knowledgeIntent.articleTitle || “未知”}》`}`;
+            await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+            return;
+          }
+
+          if (knowledgeIntent.accountNames.length > 0 || knowledgeIntent.articleTitle) {
+            fullContent = `我先按知识库查了${knowledgeIntent.accountNames.length > 0 ? `账号「${knowledgeIntent.accountNames.join("、")}」` : "这篇内容"}，但当前还没命中可用文章，所以这次我不会直接拿热点代替回答。
+
+你可以这样继续问我：
+- **拆一下这个号最近 3 篇文章的共同写法**
+- **分析《${knowledgeIntent.articleTitle || "这篇文章"}》为什么能火**
+- **对比我的号和这个号的标题差距**
+
+如果你是要做账号/文章级分析，最稳的是先确认对应文章已经同步进当前旅程知识库。`;
+            await emitEvent(controller, encoder, {
+              type: "assistant_status",
+              label: "输出答案中",
+            });
+            await emitText(controller, encoder, fullContent);
+            await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+            return;
           }
         }
-
-        // Agent loop with enriched context
-        const effectiveSystemPrompt = preRoutingContext
-          ? `${systemPrompt}\n\n${preRoutingContext}`
-          : systemPrompt;
 
         for (let step = 0; step < 5; step++) {
           let shouldStopAfterTool = false;
           await emitEvent(controller, encoder, {
-            type: “assistant_status”,
-            label: “组织回答中”,
+            type: "assistant_status",
+            label: "组织回答中",
           });
           const completion = await llm.completeWithTools({
-            systemPrompt: effectiveSystemPrompt,
+            systemPrompt,
             messages,
             tools: AGENT_TOOLS,
           });
