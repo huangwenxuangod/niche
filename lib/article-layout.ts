@@ -49,7 +49,60 @@ export function renderWechatHtml(markdown: string) {
 }
 
 export function normalizeLayoutMarkdown(markdown: string) {
-  return markdown.replace(/\r\n/g, "\n").trim();
+  let text = markdown.replace(/\r\n/g, "\n").trim();
+  text = splitInlineHeadings(text);
+  text = splitInlineOrderedLists(text);
+  return text.trim();
+}
+
+function splitInlineHeadings(markdown: string) {
+  const withHeadingBreaks = markdown.replace(/([^\n])\s+(#{1,3}\s)/g, "$1\n\n$2");
+  const lines = withHeadingBreaks.split("\n");
+
+  return lines
+    .map((line) => {
+      const trimmed = line.trim();
+      const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
+      if (!headingMatch) {
+        return line;
+      }
+
+      const marker = headingMatch[1];
+      const content = headingMatch[2].trim();
+      const splitIndex = findSafeHeadingSplitIndex(content);
+      if (splitIndex < 0) {
+        return `${marker} ${content}`;
+      }
+
+      const headingText = content.slice(0, splitIndex).trim();
+      const restText = content.slice(splitIndex).trim();
+      if (!headingText || !restText) {
+        return `${marker} ${content}`;
+      }
+
+      return `${marker} ${headingText}\n\n${restText}`;
+    })
+    .join("\n");
+}
+
+function findSafeHeadingSplitIndex(content: string) {
+  const candidates = [...content.matchAll(/[。！？?!]/g)]
+    .map((match) => (typeof match.index === "number" ? match.index + match[0].length : -1))
+    .filter((index) => index > 0);
+
+  for (const index of candidates) {
+    const headingText = content.slice(0, index).trim();
+    const restText = content.slice(index).trim();
+    if (headingText.length >= 8 && headingText.length <= 36 && restText.length >= 10) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function splitInlineOrderedLists(markdown: string) {
+  return markdown.replace(/([。！？?!；;])\s+((?:\d+\.\s)|(?:-\s))/g, "$1\n$2");
 }
 
 export function applyDefaultWechatLayout(markdown: string) {
