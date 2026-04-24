@@ -1,4 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { ImageResponse } from "next/og";
+import { createElement } from "react";
 
 const TOKEN_URL = "https://api.weixin.qq.com/cgi-bin/token";
 const DRAFT_URL = "https://api.weixin.qq.com/cgi-bin/draft/add";
@@ -113,6 +115,9 @@ export async function uploadWechatImageFromUrl(imageUrl: string, accessToken: st
   }
 
   const contentType = imageRes.headers.get("content-type") || "image/jpeg";
+  if (contentType.includes("svg")) {
+    throw new Error("当前微信素材接口不支持 SVG 封面，请改用 PNG 或 JPG。");
+  }
   const extension = contentType.includes("png")
     ? "png"
     : contentType.includes("gif")
@@ -139,31 +144,137 @@ export async function uploadWechatImageFromUrl(imageUrl: string, accessToken: st
   return uploadData.media_id;
 }
 
-export function buildWechatCoverDataUrl(title: string) {
-  const safeTitle = title
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-  const svg = `
-    <svg width="900" height="383" viewBox="0 0 900 383" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect width="900" height="383" rx="32" fill="#F4EBDD"/>
-      <rect x="34" y="34" width="832" height="315" rx="24" fill="#FFFDF8"/>
-      <rect x="72" y="74" width="96" height="10" rx="5" fill="#D2B17C"/>
-      <rect x="72" y="98" width="210" height="10" rx="5" fill="#E6D2AE"/>
-      <text x="72" y="172" fill="#17202A" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="42" font-weight="700">
-        ${safeTitle.slice(0, 18)}
-      </text>
-      <text x="72" y="230" fill="#5B6570" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24">
-        微信公众号草稿封面
-      </text>
-      <circle cx="794" cy="112" r="38" fill="#F0DFC2"/>
-      <circle cx="756" cy="258" r="20" fill="#E6D2AE"/>
-      <circle cx="815" cy="282" r="12" fill="#D2B17C"/>
-    </svg>
-  `.trim();
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+export async function buildWechatCoverDataUrl(title: string) {
+  const normalizedTitle = title.trim() || "Niche 内容草稿";
+  const maxCharsPerLine = 11;
+  const maxLines = 2;
+  const titleLines: string[] = [];
+
+  for (let index = 0; index < normalizedTitle.length && titleLines.length < maxLines; index += maxCharsPerLine) {
+    titleLines.push(normalizedTitle.slice(index, index + maxCharsPerLine));
+  }
+
+  const image = new ImageResponse(
+    createElement(
+      "div",
+      {
+        style: {
+          width: "900px",
+          height: "383px",
+          display: "flex",
+          background: "#F4EBDD",
+          padding: "34px",
+          boxSizing: "border-box",
+          fontFamily: "PingFang SC, Microsoft YaHei, sans-serif",
+        },
+      },
+      createElement(
+        "div",
+        {
+          style: {
+            width: "100%",
+            height: "100%",
+            borderRadius: "24px",
+            background: "#FFFDF8",
+            padding: "40px 38px",
+            boxSizing: "border-box",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            position: "relative",
+            overflow: "hidden",
+          },
+        },
+        createElement("div", {
+          style: {
+            width: "96px",
+            height: "10px",
+            borderRadius: "999px",
+            background: "#D2B17C",
+          },
+        }),
+        createElement(
+          "div",
+          {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: "10px",
+              maxWidth: "620px",
+            },
+          },
+          ...titleLines.map((line) =>
+            createElement(
+              "div",
+              {
+                key: line,
+                style: {
+                  display: "flex",
+                  fontSize: "44px",
+                  lineHeight: 1.2,
+                  fontWeight: 700,
+                  color: "#17202A",
+                  letterSpacing: "-0.02em",
+                },
+              },
+              line
+            )
+          )
+        ),
+        createElement(
+          "div",
+          {
+            style: {
+              display: "flex",
+              fontSize: "24px",
+              color: "#5B6570",
+            },
+          },
+          "微信公众号草稿封面"
+        ),
+        createElement("div", {
+          style: {
+            position: "absolute",
+            right: "72px",
+            top: "56px",
+            width: "76px",
+            height: "76px",
+            borderRadius: "999px",
+            background: "#F0DFC2",
+          },
+        }),
+        createElement("div", {
+          style: {
+            position: "absolute",
+            right: "116px",
+            bottom: "54px",
+            width: "38px",
+            height: "38px",
+            borderRadius: "999px",
+            background: "#E6D2AE",
+          },
+        }),
+        createElement("div", {
+          style: {
+            position: "absolute",
+            right: "54px",
+            bottom: "42px",
+            width: "18px",
+            height: "18px",
+            borderRadius: "999px",
+            background: "#D2B17C",
+          },
+        })
+      )
+    ),
+    {
+      width: 900,
+      height: 383,
+    }
+  );
+
+  const bytes = await image.arrayBuffer();
+  return `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`;
 }
 
 export async function saveWechatDraft(params: {

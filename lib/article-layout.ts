@@ -476,9 +476,9 @@ const ctaStyle = [
 
 const ctaParagraphStyle = "margin:0 0 8px;color:var(--niche-text);font-weight:520;line-height:1.8;";
 
-const sectionHeadingWrapStyle = "margin:40px 0 24px;";
-const sectionHeadingLineStyle = "width:100%;height:1px;background:var(--niche-divider);margin:0 0 18px;";
-const sectionHeadingBottomLineStyle = "width:100%;height:1px;background:var(--niche-divider);margin:18px 0 0;";
+const sectionHeadingWrapStyle = "margin:46px 0 30px;display:flex;flex-direction:column;justify-content:center;";
+const sectionHeadingLineStyle = "width:100%;height:1px;background:var(--niche-divider);margin:0 0 20px;";
+const sectionHeadingBottomLineStyle = "width:100%;height:1px;background:var(--niche-divider);margin:20px 0 0;";
 const dividerWrapStyle = "display:flex;align-items:center;gap:12px;margin:26px 0;";
 const dividerLineStyle = "flex:1;height:1px;background:var(--niche-divider);";
 const dividerLabelStyle = "font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--niche-text-muted);";

@@ -181,6 +181,9 @@ async function uploadWechatImageFromUrl(imageUrl, accessToken, requestId) {
   }
 
   const contentType = imageRes.headers.get("content-type") || "image/jpeg";
+  if (contentType.includes("svg")) {
+    throw new Error("当前微信素材接口不支持 SVG 封面，请改用 PNG 或 JPG。");
+  }
   const extension = contentType.includes("png")
     ? "png"
     : contentType.includes("gif")

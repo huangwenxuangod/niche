@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
   try {
     const appSecret = decryptWechatSecret(config.app_secret_encrypted);
     const accessToken = await fetchWechatAccessToken(config.app_id, appSecret);
-    const coverImageUrl = buildWechatCoverDataUrl(title);
+    const coverImageUrl = await buildWechatCoverDataUrl(title);
     const thumbMediaId = await uploadWechatImageFromUrl(coverImageUrl, accessToken);
     const mediaId = await saveWechatDraft({
       accessToken,
@@ -93,13 +93,14 @@ export async function POST(req: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "发布失败";
+    const fallbackCover = title ? await buildWechatCoverDataUrl(title).catch(() => null) : null;
     await supabase.from("wechat_publish_jobs").insert({
       user_id: user.id,
       article_layout_draft_id: draftId,
       message_id: messageId,
       title,
       summary: summary || null,
-      cover_image_url: buildWechatCoverDataUrl(title),
+      cover_image_url: fallbackCover,
       status: "error",
       error_message: message,
       updated_at: new Date().toISOString(),

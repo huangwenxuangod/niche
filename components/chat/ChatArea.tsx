@@ -681,7 +681,8 @@ function getToolMeta(toolName?: string, assistantStatus?: string | null) {
 }
 
 function formatMessage(content: string): string {
-  const escaped = escapeHtml(content).replace(/\r\n/g, "\n");
+  const displayContent = simplifyDisplayContent(content);
+  const escaped = escapeHtml(displayContent).replace(/\r\n/g, "\n");
   const lines = escaped.split("\n");
   const blocks: string[] = [];
   let paragraphBuffer: string[] = [];
@@ -757,6 +758,18 @@ function formatMessage(content: string): string {
   flushList();
 
   return blocks.join("");
+}
+
+function simplifyDisplayContent(content: string) {
+  const article = extractArticleFromAssistantMessage(content);
+  if (article) {
+    return `# ${article.title}\n\n${article.bodyMarkdown}`.trim();
+  }
+
+  return content
+    .replace(/\n{2,}如果你愿意，我可以继续帮你：[\s\S]*$/m, "")
+    .replace(/\n{2,}如果你想继续调，我可以按你的要求做：[\s\S]*$/m, "")
+    .trim();
 }
 
 function escapeHtml(value: string) {

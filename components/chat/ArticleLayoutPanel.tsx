@@ -393,7 +393,7 @@ export function ArticleLayoutPanel({
               <button onClick={() => setPublishOpen(false)} style={closeButtonStyle}>×</button>
             </div>
             <div style={modalHintStyle}>
-              只需要填写公众号的 <strong>AppID</strong> 和 <strong>AppSecret</strong>。其余信息将使用当前文章默认值自动处理。
+              只需要填写公众号的 <strong>AppID</strong> 和 <strong>AppSecret</strong>。当前封面会根据文章标题自动生成默认封面，其余信息也会使用当前文章默认值自动处理。
             </div>
             <div style={modalFormStyle}>
               <input
