@@ -17,6 +17,16 @@ export type LayoutDraftRecord = {
   updated_at: string;
 };
 
+const ARTICLE_TAIL_PATTERNS = [
+  /\n{2,}\*\*合规风控\*\*[\s\S]*$/m,
+  /\n{2,}合规风控[\s\S]*$/m,
+  /\n{2,}如果你想继续调[\s\S]*$/m,
+  /\n{2,}如果你愿意，我可以继续帮你[:：][\s\S]*$/m,
+  /\n{2,}搜索一下[^\n]*$/gm,
+  /\n{2,}基于第一个选题[^\n]*$/gm,
+  /\n{2,}给我生成一篇内容[^\n]*$/gm,
+];
+
 type Block =
   | { type: "heading"; level: 1 | 2 | 3; text: string }
   | { type: "paragraph"; text: string }
@@ -31,7 +41,7 @@ type Block =
 export function extractArticleFromAssistantMessage(content: string): ExtractedArticle | null {
   const title = captureSection(content, "主标题", "公众号摘要");
   const summary = captureSection(content, "公众号摘要", "备选标题");
-  const body = sanitizeExtractedArticleMarkdown(captureBody(content));
+  const body = sanitizeArticlePreviewMarkdown(captureBody(content));
 
   if (!title || !body) return null;
 
@@ -46,6 +56,20 @@ export function renderWechatHtml(markdown: string) {
   const blocks = parseMarkdown(markdown);
   const html = blocks.map(renderBlock).join("");
   return `<section style="${containerStyle}">${html}</section>`;
+}
+
+export function sanitizeArticlePreviewMarkdown(markdown: string) {
+  let next = markdown;
+
+  for (const pattern of ARTICLE_TAIL_PATTERNS) {
+    next = next.replace(pattern, "");
+  }
+
+  return next
+    .replace(/:::cta\s*\n?\*{0,2}\s*:::?/g, "")
+    .replace(/^\s*---+\s*$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function normalizeLayoutMarkdown(markdown: string) {
@@ -138,20 +162,6 @@ function captureBody(content: string) {
     )
   );
   return match?.[1] ?? "";
-}
-
-function sanitizeExtractedArticleMarkdown(markdown: string) {
-  return markdown
-    .replace(/\n{2,}\*\*合规风控\*\*[\s\S]*$/m, "")
-    .replace(/\n{2,}合规风控[\s\S]*$/m, "")
-    .replace(/\n{2,}如果你想继续调[\s\S]*$/m, "")
-    .replace(/\n{2,}如果你愿意，我可以继续帮你[:：][\s\S]*$/m, "")
-    .replace(/\n{2,}搜索一下[^\n]*$/gm, "")
-    .replace(/\n{2,}基于第一个选题[^\n]*$/gm, "")
-    .replace(/\n{2,}给我生成一篇内容[^\n]*$/gm, "")
-    .replace(/:::cta\s*\n?\*{0,2}\s*:::?/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 function formatDefaultBlock(block: string): string[] {

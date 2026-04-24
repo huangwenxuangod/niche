@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { applyDefaultWechatLayout, normalizeLayoutMarkdown, renderWechatHtml } from "@/lib/article-layout";
+import {
+  applyDefaultWechatLayout,
+  normalizeLayoutMarkdown,
+  renderWechatHtml,
+  sanitizeArticlePreviewMarkdown,
+} from "@/lib/article-layout";
 
 type LayoutStatus = "draft" | "published";
 
@@ -40,7 +45,9 @@ export async function POST(req: NextRequest) {
   const mode = String(body.mode || "save");
 
   if (mode === "optimize") {
-    const sourceMarkdown = normalizeLayoutMarkdown(String(body.source_markdown || ""));
+    const sourceMarkdown = normalizeLayoutMarkdown(
+      sanitizeArticlePreviewMarkdown(String(body.source_markdown || ""))
+    );
     if (!sourceMarkdown) {
       return NextResponse.json({ error: "source_markdown is required" }, { status: 400 });
     }
@@ -57,8 +64,12 @@ export async function POST(req: NextRequest) {
   const conversationId = String(body.conversation_id || "");
   const journeyId = String(body.journey_id || "");
   const messageId = String(body.message_id || "");
-  const sourceMarkdown = normalizeLayoutMarkdown(String(body.source_markdown || ""));
-  const renderedMarkdown = normalizeLayoutMarkdown(String(body.rendered_markdown || ""));
+  const sourceMarkdown = normalizeLayoutMarkdown(
+    sanitizeArticlePreviewMarkdown(String(body.source_markdown || ""))
+  );
+  const renderedMarkdown = normalizeLayoutMarkdown(
+    sanitizeArticlePreviewMarkdown(String(body.rendered_markdown || ""))
+  );
   const renderedHtml = String(body.rendered_html || "");
   const status = (body.status === "published" ? "published" : "draft") as LayoutStatus;
 

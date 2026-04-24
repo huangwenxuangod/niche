@@ -23,6 +23,7 @@ import { ArticleLayoutPanel } from "./ArticleLayoutPanel";
 import {
   extractArticleFromAssistantMessage,
   normalizeLayoutMarkdown,
+  sanitizeArticlePreviewMarkdown,
 } from "@/lib/article-layout";
 import KOCRecommendationModal from "@/components/KOCRecommendationModal";
 import { toast } from "@/lib/toast";
@@ -767,12 +768,15 @@ function formatMessage(content: string): string {
 function simplifyDisplayContent(content: string) {
   const article = extractArticleFromAssistantMessage(content);
   if (article) {
-    return `# ${article.title}\n\n${normalizeLayoutMarkdown(article.bodyMarkdown)}`.trim();
+    return `# ${article.title}\n\n${normalizeLayoutMarkdown(
+      sanitizeArticlePreviewMarkdown(article.bodyMarkdown)
+    )}`.trim();
   }
 
   return content
     .replace(/\n{2,}如果你愿意，我可以继续帮你：[\s\S]*$/m, "")
     .replace(/\n{2,}如果你想继续调，我可以按你的要求做：[\s\S]*$/m, "")
+    .replace(/^\s*---+\s*$/gm, "")
     .trim();
 }
 

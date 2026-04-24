@@ -8,7 +8,11 @@ import {
   SaveOutlined,
   SendOutlined,
 } from "@ant-design/icons";
-import { extractArticleFromAssistantMessage, renderWechatHtml } from "@/lib/article-layout";
+import {
+  extractArticleFromAssistantMessage,
+  renderWechatHtml,
+  sanitizeArticlePreviewMarkdown,
+} from "@/lib/article-layout";
 import { toast } from "@/lib/toast";
 
 interface Props {
@@ -127,8 +131,14 @@ export function ArticleLayoutPanel({
         const existingRes = await fetch(`/api/article-layout?message_id=${encodeURIComponent(currentMessageId)}`);
         const existingData = await existingRes.json();
         if (!cancelled && existingRes.ok && existingData.draft) {
-          setSourceMarkdown(existingData.draft.source_markdown || article.bodyMarkdown);
-          setRenderedMarkdown(existingData.draft.rendered_markdown || article.bodyMarkdown);
+          const cleanedSource = sanitizeArticlePreviewMarkdown(
+            existingData.draft.source_markdown || article.bodyMarkdown
+          );
+          const cleanedRendered = sanitizeArticlePreviewMarkdown(
+            existingData.draft.rendered_markdown || article.bodyMarkdown
+          );
+          setSourceMarkdown(cleanedSource);
+          setRenderedMarkdown(cleanedRendered);
           setDraftId(existingData.draft.id || null);
           setLoading(false);
           return;
@@ -151,7 +161,7 @@ export function ArticleLayoutPanel({
         if (cancelled) return;
 
         const nextRendered = optimizeData.rendered_markdown || article.bodyMarkdown;
-        const nextSource = article.bodyMarkdown;
+        const nextSource = sanitizeArticlePreviewMarkdown(article.bodyMarkdown);
         setSourceMarkdown(nextSource);
         setRenderedMarkdown(nextRendered);
 
