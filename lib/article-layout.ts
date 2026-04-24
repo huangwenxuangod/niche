@@ -325,7 +325,7 @@ function renderHeading(level: 1 | 2 | 3, text: string) {
     return `<h1 style="${h1Style}">${formatInline(text)}</h1>`;
   }
   if (level === 2) {
-    return `<section style="${sectionHeadingWrapStyle}"><div style="${sectionHeadingLineStyle}"></div><h2 style="${h2Style}">${formatInline(text)}</h2></section>`;
+    return `<section style="${sectionHeadingWrapStyle}"><div style="${sectionHeadingLineStyle}"></div><h2 style="${h2Style}">${formatInline(text)}</h2><div style="${sectionHeadingBottomLineStyle}"></div></section>`;
   }
   return `<h3 style="${h3Style}">${formatInline(text)}</h3>`;
 }
@@ -391,13 +391,13 @@ const h1Style = [
 
 const h2Style = [
   "margin:0 0 14px",
-  "padding:2px 0 2px 12px",
-  "border-left:3px solid var(--niche-primary)",
+  "padding:0",
   "font-size:19px",
   "line-height:1.5",
   "font-weight:700",
   "color:var(--niche-text)",
   "letter-spacing:-0.01em",
+  "text-align:center",
 ].join(";");
 
 const h3Style = [
@@ -476,8 +476,9 @@ const ctaStyle = [
 
 const ctaParagraphStyle = "margin:0 0 8px;color:var(--niche-text);font-weight:520;line-height:1.8;";
 
-const sectionHeadingWrapStyle = "margin:36px 0 18px;";
-const sectionHeadingLineStyle = "width:100%;height:1px;background:var(--niche-divider);margin:0 0 15px;";
+const sectionHeadingWrapStyle = "margin:40px 0 24px;";
+const sectionHeadingLineStyle = "width:100%;height:1px;background:var(--niche-divider);margin:0 0 18px;";
+const sectionHeadingBottomLineStyle = "width:100%;height:1px;background:var(--niche-divider);margin:18px 0 0;";
 const dividerWrapStyle = "display:flex;align-items:center;gap:12px;margin:26px 0;";
 const dividerLineStyle = "flex:1;height:1px;background:var(--niche-divider);";
 const dividerLabelStyle = "font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--niche-text-muted);";
