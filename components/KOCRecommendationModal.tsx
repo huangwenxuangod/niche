@@ -16,19 +16,35 @@ interface HotArticle {
 
 interface Props {
   journeyId: string;
-  keywords: string[];
+  conversationId?: string;
+  initialArticles?: HotArticle[];
+  initialKeywords?: string[];
+  autoSearch?: boolean;
   onImportComplete: (conversationId: string) => void;
   onSkip: () => void;
 }
 
-export default function KOCRecommendationModal({ journeyId, onImportComplete, onSkip }: Props) {
-  const [stage, setStage] = useState<"searching" | "selecting" | "importing" | "done">("searching");
-  const [articleList, setArticleList] = useState<HotArticle[]>([]);
+export default function KOCRecommendationModal({
+  journeyId,
+  conversationId,
+  initialArticles,
+  autoSearch = true,
+  onImportComplete,
+  onSkip,
+}: Props) {
+  const [stage, setStage] = useState<"searching" | "selecting" | "importing" | "done">(
+    initialArticles?.length ? "selecting" : "searching"
+  );
+  const [articleList, setArticleList] = useState<HotArticle[]>(initialArticles ?? []);
   const [selected, setSelected] = useState<string[]>([]);
   const [importProgress, setImportProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
 
   // Search for hot articles on load
   useEffect(() => {
+    if (!autoSearch || initialArticles?.length) {
+      return;
+    }
+
     async function search() {
       try {
         const res = await fetch(`/api/journeys/${journeyId}/hot-articles`);
@@ -42,7 +58,7 @@ export default function KOCRecommendationModal({ journeyId, onImportComplete, on
       }
     }
     search();
-  }, [journeyId]);
+  }, [autoSearch, initialArticles, journeyId]);
 
   const toggleSelect = (wxid: string) => {
     setSelected(prev =>
@@ -89,12 +105,20 @@ export default function KOCRecommendationModal({ journeyId, onImportComplete, on
   };
 
   const handleSkipImport = async () => {
+    if (conversationId) {
+      onImportComplete(conversationId);
+      return;
+    }
     const res = await fetch(`/api/journeys/${journeyId}/create-conversation`, { method: "POST" });
     const data = await res.json();
     onImportComplete(data.conversation_id);
   };
 
   const handleDone = async () => {
+    if (conversationId) {
+      onImportComplete(conversationId);
+      return;
+    }
     const res = await fetch(`/api/journeys/${journeyId}/create-conversation`, { method: "POST" });
     const data = await res.json();
     onImportComplete(data.conversation_id);
@@ -132,7 +156,7 @@ export default function KOCRecommendationModal({ journeyId, onImportComplete, on
             color: "var(--accent)",
             marginBottom: 8,
           }}>
-            步骤 3/3：添加对标 KOC
+            推荐补充：导入对标账号
           </div>
           <h2 style={{
             fontFamily: "var(--font-display)",
@@ -141,14 +165,14 @@ export default function KOCRecommendationModal({ journeyId, onImportComplete, on
             color: "var(--text-primary)",
             marginBottom: 4,
           }}>
-            选择想要追踪的账号
+            选择想先追踪的账号
           </h2>
           <p style={{
             fontSize: 12,
             color: "var(--text-secondary)",
             marginBottom: 0,
           }}>
-            基于最近7天的赛道爆文，Niche 会持续监控这些账号的内容
+            基于最近 7 天的赛道爆文推荐，你可以先补充对标内容库，之后也能随时再添加
           </p>
         </div>
 
@@ -166,7 +190,7 @@ export default function KOCRecommendationModal({ journeyId, onImportComplete, on
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {articleList.length === 0 ? (
                   <div style={{ textAlign: "center", padding: "40px 0", color: "var(--text-tertiary)", fontSize: 12 }}>
-                    暂未找到相关爆文，可稍后在 KOC 管理页手动添加
+                    暂未找到合适推荐，可稍后在对标账号页手动添加
                   </div>
                 ) : (
                   articleList.map((article) => (

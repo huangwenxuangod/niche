@@ -38,7 +38,15 @@ export async function GET(_req: NextRequest, { params }: Params) {
       maxResults: 6,
       days: 7,
     });
-    const keywords = hotSearch.queries.slice(0, 3);
+    const keywords = buildHotArticleKeywords(
+      {
+        niche_level1: journey.niche_level1,
+        niche_level2: journey.niche_level2,
+        niche_level3: journey.niche_level3,
+        keywords: journey.keywords ?? [],
+      },
+      hotSearch.topics
+    );
 
     // Step 3: Calculate date range (last 7 days)
     const endDate = new Date();
@@ -50,18 +58,17 @@ export async function GET(_req: NextRequest, { params }: Params) {
     const endTime = formatDate(endDate);
 
     // Step 2: Search hot articles with each keyword
-    let allArticles: DajialaHotArticle[] = [];
-
-    for (const keyword of keywords.slice(0, 3)) {
-      try {
-        const result = await dajiala.searchHotArticles(keyword, startTime, endTime, "0", "1");
-        if (result.data && result.data.length > 0) {
-          allArticles = allArticles.concat(result.data);
+    const articleGroups = await Promise.all(
+      keywords.map(async (keyword) => {
+        try {
+          const result = await dajiala.searchHotArticles(keyword, startTime, endTime, "0", "1");
+          return result.data ?? [];
+        } catch {
+          return [];
         }
-      } catch {
-        // Continue with next keyword
-      }
-    }
+      })
+    );
+    const allArticles = articleGroups.flat();
 
     // Step 3: Deduplicate by wxid (keep the one with highest read_num)
     const uniqueByWxid = new Map<string, DajialaHotArticle>();
@@ -106,4 +113,93 @@ export async function GET(_req: NextRequest, { params }: Params) {
     console.error("Hot articles search failed:", err);
     return NextResponse.json({ error: "Search failed" }, { status: 500 });
   }
+}
+
+function buildHotArticleKeywords(
+  journey: {
+    niche_level1?: string | null;
+    niche_level2?: string | null;
+    niche_level3?: string | null;
+    keywords?: string[] | null;
+  },
+  topics: Array<{ title: string; excerpt?: string }>
+) {
+  const baseNiche =
+    normalizeKeywordSeed(journey.niche_level2) ||
+    normalizeKeywordSeed(journey.niche_level1) ||
+    "公众号";
+  const contentType = String(journey.niche_level3 || "").trim();
+  const customSeed = (journey.keywords ?? [])
+    .map((item) => normalizeKeywordSeed(item))
+    .find(Boolean);
+  const signalTerm = extractSignalTerm(topics);
+  const focusTerms = getHotArticleFocusTerms(contentType);
+
+  const primarySeed = customSeed || baseNiche;
+  const firstKeyword = `${primarySeed} ${focusTerms[0]}`.trim();
+  const secondKeyword = signalTerm
+    ? `${baseNiche} ${signalTerm}`.trim()
+    : `${baseNiche} ${focusTerms[1]}`.trim();
+
+  return Array.from(
+    new Set([firstKeyword, secondKeyword].map((item) => item.replace(/\s+/g, " ").trim()))
+  )
+    .filter((item) => item.length >= 4)
+    .slice(0, 2);
+}
+
+function normalizeKeywordSeed(value?: string | null) {
+  return String(value || "")
+    .replace(/[“”"'《》【】（）()]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getHotArticleFocusTerms(contentType?: string) {
+  switch (contentType) {
+    case "评测型":
+      return ["实测评测", "工具对比"];
+    case "教程型":
+      return ["实操教程", "变现案例"];
+    case "观点型":
+      return ["趋势观点", "行业变化"];
+    case "记录型":
+      return ["案例复盘", "成长记录"];
+    default:
+      return ["爆文案例", "热门趋势"];
+  }
+}
+
+function extractSignalTerm(topics: Array<{ title: string; excerpt?: string }>) {
+  const stopwords = new Set([
+    "AI",
+    "AIGC",
+    "KOC",
+    "SEO",
+    "PDF",
+    "APP",
+    "API",
+    "URL",
+    "SaaS",
+    "CSDN",
+  ]);
+
+  const counts = new Map<string, number>();
+  for (const topic of topics.slice(0, 5)) {
+    const matches =
+      `${topic.title} ${topic.excerpt || ""}`.match(
+        /\b[A-Za-z][A-Za-z0-9-]{2,}(?:\s+[A-Za-z][A-Za-z0-9-]{2,})?\b/g
+      ) ?? [];
+
+    for (const rawMatch of matches) {
+      const match = rawMatch.trim();
+      if (!match || stopwords.has(match)) continue;
+      counts.set(match, (counts.get(match) ?? 0) + 1);
+    }
+  }
+
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1] || a[0].length - b[0].length)
+    .map(([term]) => term)
+    .find(Boolean);
 }

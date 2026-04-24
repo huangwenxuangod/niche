@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { NICHE_TREE, CONTENT_TYPES, PLATFORMS } from "@/lib/data";
-import KOCRecommendationModal from "@/components/KOCRecommendationModal";
+import { toast } from "@/lib/toast";
 
-type Step = 1 | 2 | 3 | 4 | "identity" | "recommendation";
+type Step = 1 | 2 | 3 | 4 | "identity";
 
 export default function NewJourneyPage() {
   const router = useRouter();
@@ -15,191 +15,172 @@ export default function NewJourneyPage() {
   const [level2, setLevel2] = useState("");
   const [level3, setLevel3] = useState("");
   const [identity, setIdentity] = useState("");
-  const [journeyId, setJourneyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
 
   async function finish(skipIdentity = false) {
     setLoading(true);
-    const res = await fetch("/api/journeys", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        platform,
-        niche_level1: level1,
-        niche_level2: level2,
-        niche_level3: level3,
-        identity_memo: skipIdentity ? undefined : identity,
-      }),
-    });
-    const data = await res.json();
-    setLoading(false);
+    try {
+      const createJourneyRes = await fetch("/api/journeys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform,
+          niche_level1: level1,
+          niche_level2: level2,
+          niche_level3: level3,
+          identity_memo: skipIdentity ? undefined : identity,
+        }),
+      });
+      const journeyData = await createJourneyRes.json();
+      if (!createJourneyRes.ok || !journeyData.journey_id) {
+        throw new Error(journeyData.error || "创建旅程失败");
+      }
 
-    if (skipIdentity) {
-      setJourneyId(data.journey_id);
-      setModalVisible(true);
-    } else {
-      setJourneyId(data.journey_id);
-      setModalVisible(true);
-    }
-  }
+      const createConversationRes = await fetch(
+        `/api/journeys/${journeyData.journey_id}/create-conversation`,
+        { method: "POST" }
+      );
+      const conversationData = await createConversationRes.json();
+      if (!createConversationRes.ok || !conversationData.conversation_id) {
+        throw new Error(conversationData.error || "创建对话失败");
+      }
 
-  async function handleImportComplete(conversationId: string) {
-    setModalVisible(false);
-    router.push(`/chat/${conversationId}`);
-    router.refresh();
-  }
-
-  async function handleSkip() {
-    if (journeyId) {
-      const res = await fetch(`/api/journeys/${journeyId}/create-conversation`, { method: "POST" });
-      const data = await res.json();
-      setModalVisible(false);
-      router.push(`/chat/${data.conversation_id}`);
+      router.push(`/chat/${conversationData.conversation_id}`);
       router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "初始化失败，请稍后重试");
+    } finally {
+      setLoading(false);
     }
   }
 
   return (
-    <>
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "var(--bg-void)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "40px 20px",
-        }}
-      >
-        <div style={{ width: "100%", maxWidth: 560 }}>
-          {/* Step indicator */}
-          {step !== "identity" && step !== "recommendation" && (
-            <StepIndicator current={step as number} total={4} />
-          )}
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "var(--bg-void)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "40px 20px",
+      }}
+    >
+      <div style={{ width: "100%", maxWidth: 560 }}>
+        {/* Step indicator */}
+        {step !== "identity" && <StepIndicator current={step as number} total={4} />}
 
-          {/* Cards */}
-          {step === 1 && (
-            <StepCard
-              stepNum={1}
-              question="从哪个平台开始你的旅程？"
-              hint="目前公众号数据最完整，其他平台正在接入。"
-            >
-              <div style={choiceGridStyle}>
-                {PLATFORMS.map((p) => (
-                  <ChoiceItem
-                    key={p.key}
-                    name={p.label}
-                    selected={platform === p.key}
-                    disabled={!p.available}
-                    badge={p.available ? undefined : "即将支持"}
-                    onClick={() => p.available && setPlatform(p.key)}
-                  />
-                ))}
-              </div>
-              <StepActions
-                onNext={() => platform && setStep(2)}
-                nextDisabled={!platform}
-                showBack={false}
-              />
-            </StepCard>
-          )}
-
-          {step === 2 && (
-            <StepCard
-              stepNum={2}
-              question="你想做哪个大方向的内容？"
-              hint="不用想太久，选最接近你日常兴趣或专业的方向。"
-            >
-              <div style={choiceGridStyle}>
-                {Object.keys(NICHE_TREE).map((l1) => (
-                  <ChoiceItem
-                    key={l1}
-                    name={l1}
-                    selected={level1 === l1}
-                    onClick={() => setLevel1(l1)}
-                  />
-                ))}
-              </div>
-              <StepActions
-                onBack={() => setStep(1)}
-                onNext={() => level1 && setStep(3)}
-                nextDisabled={!level1}
-              />
-            </StepCard>
-          )}
-
-          {step === 3 && (
-            <StepCard
-              stepNum={3}
-              question={`在「${level1}」里，你想聚焦哪个细分领域？`}
-              hint="越细越好。选得越准，AI 给你找的对标 KOC 就越精准。"
-            >
-              <div style={choiceGridStyle}>
-                {(NICHE_TREE[level1] || []).map((l2) => (
-                  <ChoiceItem
-                    key={l2}
-                    name={l2}
-                    selected={level2 === l2}
-                    onClick={() => setLevel2(l2)}
-                  />
-                ))}
-              </div>
-              <StepActions
-                onBack={() => setStep(2)}
-                onNext={() => level2 && setStep(4)}
-                nextDisabled={!level2}
-              />
-            </StepCard>
-          )}
-
-          {step === 4 && (
-            <StepCard
-              stepNum={4}
-              question="你打算用什么方式输出内容？"
-              hint="选一个主要风格，后期随时可以调整方向。"
-            >
-              <div style={choiceGridStyle}>
-                {CONTENT_TYPES.map((ct) => (
-                  <ChoiceItem
-                    key={ct.key}
-                    name={ct.key}
-                    desc={ct.desc}
-                    selected={level3 === ct.key}
-                    onClick={() => setLevel3(ct.key)}
-                  />
-                ))}
-              </div>
-              <StepActions
-                onBack={() => setStep(3)}
-                onNext={() => level3 && setStep("identity")}
-                nextDisabled={!level3}
-                nextLabel="下一步 →"
-              />
-            </StepCard>
-          )}
-
-          {step === "identity" && (
-            <IdentityCard
-              value={identity}
-              onChange={setIdentity}
-              onSkip={() => finish(true)}
-              onConfirm={() => finish(false)}
-              loading={loading}
+        {/* Cards */}
+        {step === 1 && (
+          <StepCard
+            stepNum={1}
+            question="从哪个平台开始你的旅程？"
+            hint="目前公众号数据最完整，其他平台正在接入。"
+          >
+            <div style={choiceGridStyle}>
+              {PLATFORMS.map((p) => (
+                <ChoiceItem
+                  key={p.key}
+                  name={p.label}
+                  selected={platform === p.key}
+                  disabled={!p.available}
+                  badge={p.available ? undefined : "即将支持"}
+                  onClick={() => p.available && setPlatform(p.key)}
+                />
+              ))}
+            </div>
+            <StepActions
+              onNext={() => platform && setStep(2)}
+              nextDisabled={!platform}
+              showBack={false}
             />
-          )}
-        </div>
-      </div>
+          </StepCard>
+        )}
 
-      {modalVisible && journeyId && (
-        <KOCRecommendationModal
-          journeyId={journeyId}
-          keywords={[level1, level2, level3].filter(Boolean)}
-          onImportComplete={handleImportComplete}
-          onSkip={handleSkip}
-        />
-      )}
-    </>
+        {step === 2 && (
+          <StepCard
+            stepNum={2}
+            question="你想做哪个大方向的内容？"
+            hint="不用想太久，选最接近你日常兴趣或专业的方向。"
+          >
+            <div style={choiceGridStyle}>
+              {Object.keys(NICHE_TREE).map((l1) => (
+                <ChoiceItem
+                  key={l1}
+                  name={l1}
+                  selected={level1 === l1}
+                  onClick={() => setLevel1(l1)}
+                />
+              ))}
+            </div>
+            <StepActions
+              onBack={() => setStep(1)}
+              onNext={() => level1 && setStep(3)}
+              nextDisabled={!level1}
+            />
+          </StepCard>
+        )}
+
+        {step === 3 && (
+          <StepCard
+            stepNum={3}
+            question={`在「${level1}」里，你想聚焦哪个细分领域？`}
+            hint="越细越好。选得越准，AI 给你找的对标 KOC 就越精准。"
+          >
+            <div style={choiceGridStyle}>
+              {(NICHE_TREE[level1] || []).map((l2) => (
+                <ChoiceItem
+                  key={l2}
+                  name={l2}
+                  selected={level2 === l2}
+                  onClick={() => setLevel2(l2)}
+                />
+              ))}
+            </div>
+            <StepActions
+              onBack={() => setStep(2)}
+              onNext={() => level2 && setStep(4)}
+              nextDisabled={!level2}
+            />
+          </StepCard>
+        )}
+
+        {step === 4 && (
+          <StepCard
+            stepNum={4}
+            question="你打算用什么方式输出内容？"
+            hint="选一个主要风格，后期随时可以调整方向。"
+          >
+            <div style={choiceGridStyle}>
+              {CONTENT_TYPES.map((ct) => (
+                <ChoiceItem
+                  key={ct.key}
+                  name={ct.key}
+                  desc={ct.desc}
+                  selected={level3 === ct.key}
+                  onClick={() => setLevel3(ct.key)}
+                />
+              ))}
+            </div>
+            <StepActions
+              onBack={() => setStep(3)}
+              onNext={() => level3 && setStep("identity")}
+              nextDisabled={!level3}
+              nextLabel="下一步 →"
+            />
+          </StepCard>
+        )}
+
+        {step === "identity" && (
+          <IdentityCard
+            value={identity}
+            onChange={setIdentity}
+            onSkip={() => finish(true)}
+            onConfirm={() => finish(false)}
+            loading={loading}
+          />
+        )}
+      </div>
+    </div>
   );
 }
 

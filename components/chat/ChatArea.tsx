@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bubble,
   Prompts,
@@ -21,6 +21,8 @@ import type { Message, Journey } from "@/lib/data";
 import { AccountAnalysisModal } from "./AccountAnalysisModal";
 import { ArticleLayoutPanel } from "./ArticleLayoutPanel";
 import { extractArticleFromAssistantMessage } from "@/lib/article-layout";
+import KOCRecommendationModal from "@/components/KOCRecommendationModal";
+import { toast } from "@/lib/toast";
 
 interface Props {
   conversationId: string;
@@ -63,9 +65,60 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const [streaming, setStreaming] = useState(false);
   const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [showRecommendations, setShowRecommendations] = useState(false);
+  const [recommendedArticles, setRecommendedArticles] = useState<
+    Array<{
+      url: string;
+      mp_nickname: string;
+      title: string;
+      pub_time: string;
+      wxid: string;
+      hot: number;
+      read_num: number;
+      fans: number;
+    }>
+  >([]);
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [layoutTarget, setLayoutTarget] = useState<{ id: string; content: string } | null>(null);
+  const recommendationToastShown = useRef(false);
   const loadingSnapshot = buildLoadingSnapshot(toolEvents, assistantStatus);
+
+  useEffect(() => {
+    if (kocCount > 0 || initialMessages.length > 0 || recommendationToastShown.current) {
+      return;
+    }
+
+    let aborted = false;
+    recommendationToastShown.current = true;
+
+    async function preloadRecommendations() {
+      try {
+        const res = await fetch(`/api/journeys/${journey.id}/hot-articles`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (aborted || !Array.isArray(data.articles) || data.articles.length === 0) {
+          return;
+        }
+
+        setRecommendedArticles(data.articles);
+        toast("已为你准备好推荐对标账号", {
+          description: `基于当前赛道找到 ${data.articles.length} 个可参考账号，随时可以补充到对标内容库。`,
+          action: {
+            label: "查看推荐",
+            onClick: () => setShowRecommendations(true),
+          },
+        });
+      } catch {
+        // Keep this silently backgrounded.
+      }
+    }
+
+    preloadRecommendations();
+
+    return () => {
+      aborted = true;
+    };
+  }, [initialMessages.length, journey.id, kocCount]);
 
   const bubbleItems = useMemo<BubbleItemType[]>(() => {
     const items: BubbleItemType[] = [];
@@ -435,6 +488,20 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
         messageContent={layoutTarget?.content ?? ""}
         onClose={() => setLayoutTarget(null)}
       />
+
+      {showRecommendations && (
+        <KOCRecommendationModal
+          journeyId={journey.id}
+          conversationId={conversationId}
+          initialArticles={recommendedArticles}
+          autoSearch={recommendedArticles.length === 0}
+          onImportComplete={() => {
+            setShowRecommendations(false);
+            toast.success("对标账号已开始导入，后台会继续同步内容。");
+          }}
+          onSkip={() => setShowRecommendations(false)}
+        />
+      )}
     </>
   );
 }
