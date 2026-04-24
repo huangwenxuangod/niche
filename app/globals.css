@@ -81,6 +81,19 @@ html, body {
   font-weight: 500;
 }
 
+.msg-prose {
+  font-size: 16px;
+  line-height: 1.82;
+  color: var(--text-primary);
+  letter-spacing: 0.002em;
+}
+
+.msg-prose br + br {
+  content: "";
+  display: block;
+  margin-top: 0.45em;
+}
+
 .msg-prose code {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -94,4 +107,52 @@ html, body {
 :focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: 2px;
+}
+
+.niche-conversations.ant-conversations {
+  gap: 2px;
+  padding: 0;
+  background: transparent;
+}
+
+.niche-conversations .ant-conversations-group-title {
+  padding: 2px 4px 8px;
+  min-height: unset;
+  height: auto;
+}
+
+.niche-conversations .ant-conversations-item {
+  position: relative;
+  border: 1px solid transparent;
+}
+
+.niche-conversations .ant-conversations-item:hover {
+  background: rgba(255, 255, 255, 0.035) !important;
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+.niche-conversations .ant-conversations-item-active {
+  background: linear-gradient(180deg, rgba(200, 150, 90, 0.11), rgba(200, 150, 90, 0.05)) !important;
+  border-color: rgba(200, 150, 90, 0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.niche-conversations .ant-conversations-item-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.niche-conversations .ant-conversations-item-active .ant-conversations-label {
+  color: var(--text-primary);
+}
+
+.niche-conversations .ant-conversations-label {
+  font-size: 14px;
+  line-height: 1.45;
 }

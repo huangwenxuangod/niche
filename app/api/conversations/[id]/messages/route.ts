@@ -348,12 +348,13 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
           });
 
           if (!completion.toolCalls.length) {
-            fullContent = completion.content || "我已经整理好了当前可用信息，但这次没有拿到额外结果。";
-            await emitEvent(controller, encoder, {
-              type: "assistant_status",
-              label: "输出答案中",
+            fullContent = await streamModelResponse({
+              controller,
+              encoder,
+              systemPrompt,
+              messages,
+              fallback: completion.content || "我已经整理好了当前可用信息，但这次没有拿到额外结果。",
             });
-            await emitText(controller, encoder, fullContent);
             break;
           }
 
@@ -508,6 +509,15 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
           if (shouldStopAfterTool) {
             break;
           }
+
+          fullContent = await streamModelResponse({
+            controller,
+            encoder,
+            systemPrompt,
+            messages,
+            fallback: "我已经完成检索和分析，下面把核心结论整理给你。",
+          });
+          break;
         }
 
         if (!fullContent) {
@@ -1770,6 +1780,43 @@ async function emitText(controller: ReadableStreamDefaultController, encoder: Te
   for (const chunk of chunks) {
     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "text", text: chunk })}\n\n`));
   }
+}
+
+async function streamModelResponse(params: {
+  controller: ReadableStreamDefaultController;
+  encoder: TextEncoder;
+  systemPrompt: string;
+  messages: LlmMessage[];
+  fallback: string;
+}) {
+  let fullContent = "";
+
+  await emitEvent(params.controller, params.encoder, {
+    type: "assistant_status",
+    label: "输出答案中",
+  });
+
+  try {
+    await llm.streamChat({
+      systemPrompt: params.systemPrompt,
+      messages: params.messages,
+      onChunk: (text) => {
+        fullContent += text;
+        params.controller.enqueue(
+          params.encoder.encode(`data: ${JSON.stringify({ type: "text", text })}\n\n`)
+        );
+      },
+    });
+  } catch {
+    // Fall back to deterministic streaming if provider-side streaming fails.
+  }
+
+  if (!fullContent.trim()) {
+    fullContent = params.fallback;
+    await emitText(params.controller, params.encoder, fullContent);
+  }
+
+  return fullContent;
 }
 
 async function persistAssistantMessageAndEmitId(

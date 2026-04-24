@@ -149,11 +149,13 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
                   item: {
                     background: "transparent",
                     color: "var(--text-secondary)",
-                    borderRadius: 14,
-                    marginBottom: 4,
+                    borderRadius: 16,
+                    marginBottom: 6,
+                    minHeight: 54,
+                    paddingInline: 14,
                   },
                   group: {
-                    marginBottom: 8,
+                    marginBottom: 14,
                   },
                 }}
                 classNames={{

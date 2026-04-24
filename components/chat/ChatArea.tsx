@@ -15,7 +15,6 @@ import {
   EditOutlined,
   FireOutlined,
   LoadingOutlined,
-  PlusOutlined,
   RadarChartOutlined,
   ReadOutlined,
 } from "@ant-design/icons";
@@ -327,181 +326,185 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
     <>
       <div style={chatPageStyle}>
         <div style={chatHeaderStyle}>
-          <div>
-            <div style={headerEyebrowStyle}>Niche Chat</div>
-            <div style={headerTitleStyle}>
-              {journey.platform === "wechat_mp" ? "公众号" : journey.platform} · {journey.niche_level2}
+          <div style={chatHeaderInnerStyle}>
+            <div>
+              <div style={headerEyebrowStyle}>Niche Chat</div>
+              <div style={headerTitleStyle}>
+                {journey.platform === "wechat_mp" ? "公众号" : journey.platform} · {journey.niche_level2}
+              </div>
             </div>
+            <Space size={8}>
+              <Tag bordered={false} style={headerTagStyle}>
+                {journey.knowledge_initialized ? "知识库已同步" : "初始化中"}
+              </Tag>
+              <Tag bordered={false} style={headerTagStyle}>
+                {kocCount} KOC
+              </Tag>
+            </Space>
           </div>
-          <Space size={8}>
-            <Tag bordered={false} style={headerTagStyle}>
-              {journey.knowledge_initialized ? "知识库已同步" : "初始化中"}
-            </Tag>
-            <Tag bordered={false} style={headerTagStyle}>
-              {kocCount} KOC
-            </Tag>
-          </Space>
         </div>
 
         <div style={chatBodyStyle}>
-          {messages.length === 0 ? (
-            <div style={welcomeWrapStyle}>
-              <Welcome
-                variant="borderless"
-                icon={<AppstoreOutlined style={{ color: "var(--accent)" }} />}
-                title={
-                  <span>
-                    {journey.niche_level2} 赛道情报已就绪
-                  </span>
-                }
-                description="知识库、热点和选题能力都已可用。你可以直接问问题，也可以从下面的快捷入口开始。"
-                styles={{
-                  root: { padding: 0, background: "transparent" },
-                  title: { color: "var(--text-primary)", fontFamily: "var(--font-display)", fontSize: 34, lineHeight: 1.15 },
-                  description: { color: "var(--text-secondary)", fontSize: 14, maxWidth: 720, lineHeight: 1.7 },
-                }}
-              />
-              <Prompts
-                title="快速开始"
-                items={promptItems}
-                wrap
-                styles={{
-                  root: { width: "100%" },
-                  title: { color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 10 },
-                  list: { gap: 12 },
-                  item: {
-                    background: "var(--bg-surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 18,
-                    color: "var(--text-secondary)",
-                    padding: "12px 14px",
-                  },
-                }}
-                onItemClick={({ data }) => {
-                  if (data.label) {
-                    sendMessage(String(data.label));
+          <div style={contentShellStyle}>
+            {messages.length === 0 ? (
+              <div style={welcomeWrapStyle}>
+                <Welcome
+                  variant="borderless"
+                  icon={<AppstoreOutlined style={{ color: "var(--accent)" }} />}
+                  title={
+                    <span>
+                      今天想先解决什么问题？
+                    </span>
                   }
-                }}
-              />
-            </div>
-          ) : (
-            <Bubble.List
-              items={bubbleItems}
-              autoScroll
-              role={{
-                user: {
-                  placement: "end",
-                  variant: "filled",
-                  styles: {
-                    content: {
-                      background: "var(--bg-elevated)",
-                      color: "var(--text-primary)",
-                      border: "1px solid var(--border-strong)",
-                      borderRadius: 18,
-                    },
-                  },
-                },
-                assistant: {
-                  placement: "start",
-                  variant: "borderless",
-                  styles: {
-                    content: {
-                      background: "var(--bg-surface)",
-                      color: "var(--text-primary)",
+                  description={`${journey.niche_level2} 赛道的知识库、热点和选题能力都已就绪。你可以直接发问，也可以从下面的快捷入口开始。`}
+                  styles={{
+                    root: { padding: 0, background: "transparent" },
+                    title: { color: "var(--text-primary)", fontFamily: "var(--font-display)", fontSize: 36, lineHeight: 1.08, maxWidth: 680 },
+                    description: { color: "var(--text-secondary)", fontSize: 14, maxWidth: 640, lineHeight: 1.75 },
+                  }}
+                />
+                <Prompts
+                  title="快速开始"
+                  items={promptItems}
+                  wrap
+                  styles={{
+                    root: { width: "100%" },
+                    title: { color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 12 },
+                    list: { gap: 12 },
+                    item: {
+                      background: "rgba(255,255,255,0.03)",
                       border: "1px solid var(--border)",
                       borderRadius: 18,
+                      color: "var(--text-secondary)",
+                      padding: "12px 14px",
                     },
-                    footer: {
-                      marginTop: 8,
+                  }}
+                  onItemClick={({ data }) => {
+                    if (data.label) {
+                      sendMessage(String(data.label));
+                    }
+                  }}
+                />
+              </div>
+            ) : (
+              <Bubble.List
+                items={bubbleItems}
+                autoScroll
+                role={{
+                  user: {
+                    placement: "end",
+                    variant: "filled",
+                    styles: {
+                      content: {
+                        background: "rgba(255,255,255,0.045)",
+                        color: "var(--text-primary)",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        borderRadius: 20,
+                        padding: "16px 18px",
+                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
+                      },
                     },
                   },
-                },
-                system: {
-                  placement: "start",
-                  variant: "borderless",
-                  styles: {
-                    content: {
-                      background: "transparent",
-                      padding: 0,
-                      border: "none",
+                  assistant: {
+                    placement: "start",
+                    variant: "borderless",
+                    styles: {
+                      content: {
+                        background: "transparent",
+                        color: "var(--text-primary)",
+                        border: "none",
+                        borderRadius: 0,
+                        padding: "0 0 4px",
+                      },
+                      footer: {
+                        marginTop: 10,
+                      },
                     },
                   },
-                },
-              }}
-              styles={{
-                root: { height: "100%" },
-                scroll: { paddingRight: 8 },
-                bubble: { maxWidth: "78%" },
-              }}
-            />
-          )}
+                  system: {
+                    placement: "start",
+                    variant: "borderless",
+                    styles: {
+                      content: {
+                        background: "transparent",
+                        padding: 0,
+                        border: "none",
+                      },
+                    },
+                  },
+                }}
+                styles={{
+                  root: { height: "100%" },
+                  scroll: { paddingRight: 4, paddingBottom: 18 },
+                  bubble: { maxWidth: "100%" },
+                }}
+              />
+            )}
+          </div>
         </div>
 
         <div style={senderWrapStyle}>
-          {messages.length > 0 && (
-            <Prompts
-              items={[
-                { key: "analysis", icon: <RadarChartOutlined />, label: "账号分析" },
-                { key: "hot", icon: <FireOutlined />, label: "今日热点" },
-              ]}
+          <div style={senderInnerStyle}>
+            {messages.length > 0 && (
+              <Prompts
+                items={[
+                  { key: "analysis", icon: <RadarChartOutlined />, label: "账号分析" },
+                  { key: "hot", icon: <FireOutlined />, label: "今日热点" },
+                ]}
+                styles={{
+                  list: { gap: 8 },
+                  item: {
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 999,
+                    color: "var(--text-secondary)",
+                    padding: "8px 12px",
+                  },
+                }}
+                onItemClick={({ data }) => {
+                  if (data.key === "analysis") {
+                    setShowAnalysis(true);
+                  } else if (data.key === "hot") {
+                    sendMessage("帮我搜索今日赛道最新热点，列出 3 条");
+                  }
+                }}
+              />
+            )}
+            <Sender
+              value={input}
+              onChange={(value) => setInput(value)}
+              onSubmit={(value) => sendMessage(value)}
+              loading={streaming}
+              placeholder="问我任何关于这个赛道的事..."
+              submitType="enter"
+              autoSize={{ minRows: 1, maxRows: 6 }}
+              footer={() => (
+                <div style={senderFooterStyle}>
+                  <span style={{ color: "var(--text-tertiary)" }}>Enter 发送，Shift + Enter 换行</span>
+                </div>
+              )}
               styles={{
-                list: { gap: 8 },
-                item: {
-                  background: "var(--bg-surface)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 999,
-                  color: "var(--text-secondary)",
-                  padding: "8px 12px",
+                root: {
+                  background: "rgba(23,23,21,0.94)",
+                  border: "1px solid rgba(255,255,255,0.07)",
+                  borderRadius: 26,
+                  padding: "12px 12px 10px",
+                  boxShadow: "0 18px 40px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.02)",
+                },
+                input: {
+                  color: "var(--text-primary)",
+                  fontSize: 15,
+                  lineHeight: 1.75,
+                },
+                footer: {
+                  paddingTop: 8,
+                },
+                suffix: {
+                  alignSelf: "flex-end",
                 },
               }}
-              onItemClick={({ data }) => {
-                if (data.key === "analysis") {
-                  setShowAnalysis(true);
-                } else if (data.key === "hot") {
-                  sendMessage("帮我搜索今日赛道最新热点，列出 3 条");
-                }
-              }}
             />
-          )}
-          <Sender
-            value={input}
-            onChange={(value) => setInput(value)}
-            onSubmit={(value) => sendMessage(value)}
-            loading={streaming}
-            placeholder="问我任何关于这个赛道的事..."
-            submitType="enter"
-            autoSize={{ minRows: 1, maxRows: 6 }}
-            footer={() => (
-              <div style={senderFooterStyle}>
-                <span style={{ color: "var(--text-tertiary)" }}>Enter 发送，Shift + Enter 换行</span>
-                <Button
-                  type="primary"
-                  icon={<PlusOutlined />}
-                  onClick={() => sendMessage(input)}
-                  disabled={!input.trim() || streaming}
-                  style={senderActionBtnStyle}
-                >
-                  发送
-                </Button>
-              </div>
-            )}
-            styles={{
-              root: {
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border)",
-                borderRadius: 22,
-                padding: 10,
-                boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-              },
-              input: {
-                color: "var(--text-primary)",
-                fontSize: 14,
-              },
-              footer: {
-                paddingTop: 10,
-              },
-            }}
-          />
+          </div>
         </div>
       </div>
 
@@ -544,7 +547,7 @@ function AssistantFooter({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {isStreaming && (
-        <Card size="small" style={miniStateCardStyle}>
+        <div style={miniThoughtWrapStyle}>
           <div style={miniStateTitleStyle}>
             <LoadingOutlined />
             {loadingSnapshot.title}
@@ -553,11 +556,11 @@ function AssistantFooter({
           <ThoughtChain
             items={thoughtItems}
             styles={{
-              root: { marginTop: 8 },
-              item: { paddingBottom: 8 },
+              root: { marginTop: 10 },
+              item: { paddingBottom: 6 },
             }}
           />
-        </Card>
+        </div>
       )}
       {hasLayoutTarget && (
         <Button
@@ -616,6 +619,8 @@ function ToolTracePanel({
   onImport: (ghid: string) => void;
   thoughtItems: ThoughtChainItemType[];
 }) {
+  const isRunning = thoughtItems.some((item) => item.status === "loading");
+  const [expanded, setExpanded] = useState(false);
   const accounts =
     events.flatMap((event) => (event.payload?.accounts as RecommendedAccount[] | undefined) ?? []);
   const articles =
@@ -624,13 +629,38 @@ function ToolTracePanel({
     events.flatMap((event) => (event.payload?.topics as GeneratedTopic[] | undefined) ?? []);
   const pendingImport = events.find((event) => event.type === "tool_requires_confirmation");
   const pendingPayload = (pendingImport?.payload ?? null) as Record<string, unknown> | null;
+  const summary = buildTraceSummary({ accounts, articles, topics, pendingPayload, thoughtItems });
+  const displayExpanded = isRunning || expanded;
 
   return (
-    <Card size="small" style={toolPanelCardStyle}>
-      <div style={toolPanelTitleStyle}>Agent Trace</div>
-      <ThoughtChain items={thoughtItems} styles={{ root: { marginBottom: 10 } }} />
+    <div style={toolPanelCardStyle}>
+      <div style={traceHeaderStyle}>
+        <div>
+          <div style={toolPanelTitleStyle}>Agent Trace</div>
+          {!displayExpanded && <div style={traceSummaryStyle}>{summary}</div>}
+        </div>
+        {!isRunning && (
+          <Button
+            size="small"
+            type="text"
+            onClick={() => setExpanded((value) => !value)}
+            style={traceToggleStyle}
+          >
+            {displayExpanded ? "收起" : "展开"}
+          </Button>
+        )}
+      </div>
+      {displayExpanded && (
+        <ThoughtChain
+          items={thoughtItems}
+          styles={{
+            root: { marginBottom: 8 },
+            item: { paddingBottom: 4 },
+          }}
+        />
+      )}
 
-      {accounts.length > 0 && (
+      {displayExpanded && accounts.length > 0 && (
         <div style={toolSectionStyle}>
           {accounts.map((account) => (
             <Card key={account.ghid} size="small" style={traceItemCardStyle}>
@@ -655,7 +685,7 @@ function ToolTracePanel({
         </div>
       )}
 
-      {articles.length > 0 && (
+      {displayExpanded && articles.length > 0 && (
         <div style={toolSectionStyle}>
           {articles.map((article) => (
             <Card key={article.id} size="small" style={traceItemCardStyle}>
@@ -669,7 +699,7 @@ function ToolTracePanel({
         </div>
       )}
 
-      {topics.length > 0 && (
+      {displayExpanded && topics.length > 0 && (
         <div style={toolSectionStyle}>
           {topics.map((topic) => (
             <Card key={`${topic.index}-${topic.title}`} size="small" style={traceItemCardStyle}>
@@ -682,7 +712,7 @@ function ToolTracePanel({
         </div>
       )}
 
-      {pendingPayload?.ghid ? (
+      {displayExpanded && pendingPayload?.ghid ? (
         <Card size="small" style={pendingCardStyle}>
           <div style={traceItemTitleStyle}>
             推荐导入 {String(pendingPayload.account_name || pendingPayload.ghid)}
@@ -700,8 +730,39 @@ function ToolTracePanel({
           </Button>
         </Card>
       ) : null}
-    </Card>
+    </div>
   );
+}
+
+function buildTraceSummary(params: {
+  accounts: RecommendedAccount[];
+  articles: KnowledgeArticleHit[];
+  topics: GeneratedTopic[];
+  pendingPayload: Record<string, unknown> | null;
+  thoughtItems: ThoughtChainItemType[];
+}) {
+  const finished = params.thoughtItems
+    .filter((item) => item.status === "success")
+    .map((item) => String(item.title));
+  const fragments: string[] = [];
+
+  if (finished.length > 0) {
+    fragments.push(`已完成 ${finished.slice(0, 3).join(" / ")}`);
+  }
+  if (params.articles.length > 0) {
+    fragments.push(`知识库命中 ${params.articles.length} 篇`);
+  }
+  if (params.topics.length > 0) {
+    fragments.push(`生成选题 ${params.topics.length} 个`);
+  }
+  if (params.accounts.length > 0) {
+    fragments.push(`筛出账号 ${params.accounts.length} 个`);
+  }
+  if (params.pendingPayload?.ghid) {
+    fragments.push("有 1 个待确认导入");
+  }
+
+  return fragments.length > 0 ? fragments.join(" · ") : "这轮处理已完成，展开可查看过程明细。";
 }
 
 function buildThoughtChainItems(
@@ -824,12 +885,18 @@ const chatPageStyle: React.CSSProperties = {
 };
 
 const chatHeaderStyle: React.CSSProperties = {
-  padding: "22px 28px 16px",
+  padding: "24px 36px 12px",
   borderBottom: "1px solid var(--border)",
+};
+
+const chatHeaderInnerStyle: React.CSSProperties = {
+  width: "100%",
+  maxWidth: 1100,
+  margin: "0 auto",
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  gap: 16,
+  gap: 20,
 };
 
 const headerEyebrowStyle: React.CSSProperties = {
@@ -861,7 +928,13 @@ const headerTagStyle: React.CSSProperties = {
 const chatBodyStyle: React.CSSProperties = {
   minHeight: 0,
   overflow: "hidden",
-  padding: "24px 28px 12px",
+  padding: "28px 36px 12px",
+};
+
+const contentShellStyle: React.CSSProperties = {
+  height: "100%",
+  maxWidth: 920,
+  margin: "0 auto",
 };
 
 const welcomeWrapStyle: React.CSSProperties = {
@@ -869,38 +942,36 @@ const welcomeWrapStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
   justifyContent: "center",
-  gap: 24,
-  maxWidth: 860,
+  gap: 26,
+  maxWidth: 720,
 };
 
 const senderWrapStyle: React.CSSProperties = {
-  padding: "12px 28px 24px",
+  padding: "8px 36px 28px",
   borderTop: "1px solid var(--border)",
+};
+
+const senderInnerStyle: React.CSSProperties = {
+  width: "100%",
+  maxWidth: 920,
+  margin: "0 auto",
   display: "flex",
   flexDirection: "column",
-  gap: 10,
+  gap: 12,
 };
 
 const senderFooterStyle: React.CSSProperties = {
   display: "flex",
-  justifyContent: "space-between",
   alignItems: "center",
-  gap: 12,
   fontSize: 11,
-};
-
-const senderActionBtnStyle: React.CSSProperties = {
-  borderRadius: 12,
-  background: "var(--accent)",
-  color: "#0C0C0B",
-  borderColor: "transparent",
 };
 
 const waitingCardStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: 12,
-  minWidth: 280,
+  gap: 14,
+  minWidth: 320,
+  padding: "4px 0 12px",
 };
 
 const waitingTopStyle: React.CSSProperties = {
@@ -930,10 +1001,13 @@ const skeletonLineStyle: React.CSSProperties = {
   background: "linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.12), rgba(255,255,255,0.06))",
 };
 
-const miniStateCardStyle: React.CSSProperties = {
-  background: "rgba(200,150,90,0.06)",
-  borderColor: "rgba(200,150,90,0.16)",
-  borderRadius: 14,
+const miniThoughtWrapStyle: React.CSSProperties = {
+  maxWidth: 560,
+  padding: "12px 14px 10px",
+  borderRadius: 18,
+  background: "linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012))",
+  border: "1px solid rgba(255,255,255,0.06)",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
 };
 
 const miniStateTitleStyle: React.CSSProperties = {
@@ -949,9 +1023,9 @@ const miniStateTitleStyle: React.CSSProperties = {
 
 const miniStateHintStyle: React.CSSProperties = {
   marginTop: 6,
-  fontSize: 11,
+  fontSize: 12,
   color: "var(--text-secondary)",
-  lineHeight: 1.6,
+  lineHeight: 1.7,
 };
 
 const layoutActionButtonStyle: React.CSSProperties = {
@@ -963,9 +1037,20 @@ const layoutActionButtonStyle: React.CSSProperties = {
 };
 
 const toolPanelCardStyle: React.CSSProperties = {
-  background: "var(--bg-base)",
-  borderColor: "var(--border)",
-  borderRadius: 18,
+  maxWidth: 620,
+  padding: "14px 16px",
+  background: "linear-gradient(180deg, rgba(255,255,255,0.028), rgba(255,255,255,0.01))",
+  border: "1px solid rgba(255,255,255,0.06)",
+  borderRadius: 20,
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
+};
+
+const traceHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  justifyContent: "space-between",
+  gap: 12,
+  marginBottom: 4,
 };
 
 const toolPanelTitleStyle: React.CSSProperties = {
@@ -977,6 +1062,19 @@ const toolPanelTitleStyle: React.CSSProperties = {
   marginBottom: 10,
 };
 
+const traceSummaryStyle: React.CSSProperties = {
+  marginTop: -2,
+  color: "var(--text-secondary)",
+  fontSize: 12,
+  lineHeight: 1.7,
+};
+
+const traceToggleStyle: React.CSSProperties = {
+  color: "var(--text-secondary)",
+  paddingInline: 8,
+  borderRadius: 999,
+};
+
 const toolSectionStyle: React.CSSProperties = {
   display: "flex",
   flexDirection: "column",
@@ -985,9 +1083,10 @@ const toolSectionStyle: React.CSSProperties = {
 };
 
 const traceItemCardStyle: React.CSSProperties = {
-  background: "var(--bg-surface)",
-  borderColor: "var(--border)",
+  background: "rgba(255,255,255,0.025)",
+  borderColor: "rgba(255,255,255,0.06)",
   borderRadius: 14,
+  boxShadow: "none",
 };
 
 const traceCardHeaderStyle: React.CSSProperties = {
