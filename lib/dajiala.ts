@@ -94,11 +94,33 @@ type DajialaPostHistoryRaw = {
 };
 
 export interface DajialaArticleDetail {
+  code?: number;
+  msg?: string;
+  cost_money?: number;
+  remain_money?: number;
   title: string;
   content: string;
   content_multi_text?: string;
   digest?: string;
+  desc?: string;
+  url?: string;
+  author?: string;
 }
+
+type DajialaArticleDetailRaw = {
+  code?: number;
+  msg?: string;
+  data?: DajialaArticleDetail;
+  title?: string;
+  content?: string;
+  content_multi_text?: string;
+  digest?: string;
+  desc?: string;
+  url?: string;
+  author?: string;
+  cost_money?: number;
+  remain_money?: number;
+};
 
 export interface DajialaArticleStats {
   read: number;
@@ -195,12 +217,25 @@ export const dajiala = {
   },
 
   getArticleDetail: async (url: string) => {
-    const res = await get<{
-      code: number;
-      msg: string;
-      data: DajialaArticleDetail;
-    }>("/article_detail", { url });
-    return res.data;
+    const res = await get<DajialaArticleDetailRaw>("/article_detail", { url, mode: 2 });
+
+    const detail: DajialaArticleDetailRaw = res.data && typeof res.data === "object"
+      ? res.data
+      : res;
+
+    return {
+      code: Number(detail.code ?? res.code ?? 0),
+      msg: detail.msg ?? res.msg,
+      cost_money: detail.cost_money ?? res.cost_money,
+      remain_money: detail.remain_money ?? res.remain_money,
+      title: detail.title ?? "",
+      content: detail.content ?? "",
+      content_multi_text: detail.content_multi_text ?? "",
+      digest: detail.digest ?? detail.desc ?? "",
+      desc: detail.desc ?? detail.digest ?? "",
+      url: detail.url ?? url,
+      author: detail.author ?? "",
+    } satisfies DajialaArticleDetail;
   },
 
   getArticleStats: async (url: string) => {

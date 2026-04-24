@@ -24,6 +24,7 @@ type ArticlePayload = {
   url: string | null;
   source_url?: string;
   content: string;
+  content_html?: string;
   digest?: string;
   author?: string;
   read_count: number;
@@ -207,6 +208,7 @@ async function saveArticlesToKnowledgeBase({
     let collectCount = 0;
     let commentCount = 0;
     let content = "";
+    let contentHtml = "";
 
     if (article.url) {
       try {
@@ -223,7 +225,15 @@ async function saveArticlesToKnowledgeBase({
 
       try {
         const detail = await dajiala.getArticleDetail(article.url);
-        content = detail.content || "";
+        if (detail.code && detail.code !== 0) {
+          console.warn("[koc-import] Article detail returned non-zero code:", {
+            url: article.url,
+            code: detail.code,
+            msg: detail.msg,
+          });
+        }
+        content = detail.content || stripHtml(detail.content_multi_text || "");
+        contentHtml = detail.content_multi_text || "";
       } catch (err) {
         console.warn("[koc-import] Failed to fetch article detail:", article.url, err);
       }
@@ -236,6 +246,7 @@ async function saveArticlesToKnowledgeBase({
       url: article.url || null,
       source_url: article.source_url,
       content,
+      content_html: contentHtml,
       digest: article.digest,
       author: article.author,
       read_count: readCount,
@@ -359,4 +370,17 @@ function assertPostHistorySuccess(postHistory: DajialaPostHistoryResult) {
 function normalizeImageUrl(url: unknown) {
   if (typeof url !== "string" || !url.trim()) return undefined;
   return url.trim().replace(/^http:\/\//, "https://");
+}
+
+function stripHtml(html: string) {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
 }
