@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Fraunces, DM_Mono, DM_Sans } from "next/font/google";
+import Script from "next/script";
 import { AntdRegistry } from "@ant-design/nextjs-registry";
 import { AntdProvider } from "@/components/providers/AntdProvider";
 import "./globals.css";
@@ -35,9 +36,20 @@ export default function RootLayout({
   return (
     <html
       lang="zh-CN"
+      data-theme="dark"
+      suppressHydrationWarning
       className={`${fraunces.variable} ${dmMono.variable} ${dmSans.variable}`}
     >
       <body>
+        <Script id="niche-theme-init" strategy="beforeInteractive">{`
+          try {
+            var stored = localStorage.getItem("niche-theme");
+            var theme = stored === "light" || stored === "dark" ? stored : "dark";
+            document.documentElement.dataset.theme = theme;
+          } catch (e) {
+            document.documentElement.dataset.theme = "dark";
+          }
+        `}</Script>
         <AntdRegistry>
           <AntdProvider>{children}</AntdProvider>
         </AntdRegistry>

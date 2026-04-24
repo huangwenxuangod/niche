@@ -3,11 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
+import { Button, Tooltip } from "antd";
 import { Conversations } from "@ant-design/x";
 import type { ConversationItemType } from "@ant-design/x";
 import { type Journey, type Conversation } from "@/lib/data";
 import { KOCListPanel } from "./KOCListPanel";
 import { createClient } from "@/lib/supabase/client";
+import { useThemeMode } from "@/components/providers/AntdProvider";
 
 interface SidebarProps {
   journeys: Journey[];
@@ -41,6 +43,7 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
   const currentConvId = params?.conversationId as string | undefined;
   const [kocOpen, setKocOpen] = useState(false);
   const supabase = createClient();
+  const { themeMode, toggleTheme } = useThemeMode();
 
   const inactiveJourneys = journeys.filter((j) => !j.is_active);
   const groups = groupByDate(conversations);
@@ -73,9 +76,21 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
     <aside style={sidebarStyle}>
       {/* Header */}
       <div style={headerStyle}>
-        <span style={logoStyle}>
-          N<em style={{ color: "var(--accent)", fontStyle: "italic" }}>i</em>che
-        </span>
+        <div style={headerTopStyle}>
+          <span style={logoStyle}>
+            N<em style={{ color: "var(--accent)", fontStyle: "italic" }}>i</em>che
+          </span>
+          <Tooltip title={themeMode === "dark" ? "切换到亮色" : "切换到深色"}>
+            <Button
+              type="text"
+              shape="circle"
+              aria-label={themeMode === "dark" ? "切换到亮色主题" : "切换到深色主题"}
+              onClick={toggleTheme}
+              style={themeToggleButtonStyle}
+              icon={themeMode === "dark" ? <SunIcon /> : <MoonIcon />}
+            />
+          </Tooltip>
+        </div>
         <Link href="/journey/new" style={{ textDecoration: "none" }}>
           <button style={newJourneyBtnStyle} onMouseEnter={hoverAccentDim} onMouseLeave={hoverAccentDimReset}>
             <span style={{ fontSize: 14, lineHeight: 1 }}>＋</span>
@@ -218,6 +233,14 @@ const headerStyle: React.CSSProperties = {
   borderBottom: "1px solid var(--border)",
 };
 
+const headerTopStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 10,
+  marginBottom: 10,
+};
+
 const logoStyle: React.CSSProperties = {
   fontFamily: "var(--font-display)",
   fontSize: 20,
@@ -225,7 +248,19 @@ const logoStyle: React.CSSProperties = {
   letterSpacing: "-0.02em",
   color: "var(--text-primary)",
   display: "block",
-  marginBottom: 10,
+};
+
+const themeToggleButtonStyle: React.CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: 999,
+  border: "1px solid var(--border)",
+  background: "color-mix(in srgb, var(--bg-surface) 92%, white 8%)",
+  color: "var(--accent)",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)",
 };
 
 const newJourneyBtnStyle: React.CSSProperties = {
@@ -339,6 +374,23 @@ function SignOutIcon() {
     <svg width="13" height="13" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
       <path d="M9 2H12a1 1 0 011 1v8a1 1 0 01-1 1H9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
       <path d="M6 10l3-3-3-3M9 7H1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function SunIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+      <circle cx="8" cy="8" r="2.8" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M8 1.6v1.6M8 12.8v1.6M3.47 3.47l1.13 1.13M11.4 11.4l1.13 1.13M1.6 8h1.6M12.8 8h1.6M3.47 12.53l1.13-1.13M11.4 4.6l1.13-1.13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M10.96 1.97a5.84 5.84 0 103.07 10.62A6.39 6.39 0 0110.96 1.97z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
