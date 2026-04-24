@@ -457,10 +457,11 @@ const overlayStyle: React.CSSProperties = {
   bottom: 0,
   width: 500,
   maxWidth: "100vw",
-  background: "rgba(8,8,7,0.96)",
+  background: "color-mix(in srgb, var(--bg-base) 94%, transparent)",
   borderLeft: "1px solid var(--border)",
   zIndex: 60,
   display: "flex",
+  boxShadow: "-16px 0 48px rgba(0,0,0,0.10)",
 };
 
 const panelStyle: React.CSSProperties = {
@@ -476,6 +477,7 @@ const headerStyle: React.CSSProperties = {
   alignItems: "center",
   padding: "18px 18px 14px",
   borderBottom: "1px solid var(--border)",
+  background: "color-mix(in srgb, var(--bg-surface) 88%, transparent)",
 };
 
 const eyebrowStyle: React.CSSProperties = {
@@ -510,6 +512,7 @@ const toolbarStyle: React.CSSProperties = {
   alignItems: "center",
   padding: "14px 18px 10px",
   borderBottom: "1px solid var(--border)",
+  background: "color-mix(in srgb, var(--bg-surface) 82%, transparent)",
 };
 
 const toolButtonStyle: React.CSSProperties = {
@@ -517,14 +520,15 @@ const toolButtonStyle: React.CSSProperties = {
   height: 34,
   borderRadius: 10,
   border: "1px solid var(--border)",
-  background: "var(--bg-surface)",
+  background: "var(--bg-elevated)",
   color: "var(--text-secondary)",
   fontSize: 14,
   cursor: "pointer",
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  transition: "border-color 0.18s ease, color 0.18s ease, background 0.18s ease",
+  boxShadow: "0 6px 14px rgba(0,0,0,0.04)",
+  transition: "border-color 0.18s ease, color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease",
 };
 
 const activeToolButtonStyle: React.CSSProperties = {
@@ -552,8 +556,8 @@ const copyMenuStyle: React.CSSProperties = {
   padding: 6,
   borderRadius: 12,
   border: "1px solid var(--border)",
-  background: "rgba(18,18,17,0.98)",
-  boxShadow: "0 14px 36px rgba(0,0,0,0.26)",
+  background: "var(--bg-elevated)",
+  boxShadow: "0 16px 36px rgba(0,0,0,0.10)",
   display: "flex",
   flexDirection: "column",
   gap: 4,
@@ -577,7 +581,7 @@ const inputStyle: React.CSSProperties = {
   width: "100%",
   borderRadius: 10,
   border: "1px solid var(--border)",
-  background: "var(--bg-base)",
+  background: "var(--bg-elevated)",
   color: "var(--text-primary)",
   padding: "10px 12px",
   fontSize: 12,
@@ -597,7 +601,7 @@ const secondaryActionStyle: React.CSSProperties = {
 const modalOverlayStyle: React.CSSProperties = {
   position: "fixed",
   inset: 0,
-  background: "rgba(6,6,5,0.58)",
+  background: "color-mix(in srgb, var(--bg-void) 34%, transparent)",
   backdropFilter: "blur(8px)",
   display: "flex",
   alignItems: "center",
@@ -609,9 +613,9 @@ const modalOverlayStyle: React.CSSProperties = {
 const modalCardStyle: React.CSSProperties = {
   width: "min(520px, 100%)",
   borderRadius: 24,
-  border: "1px solid rgba(200,150,90,0.22)",
-  background: "linear-gradient(180deg, rgba(21,21,19,0.98) 0%, rgba(15,15,14,0.98) 100%)",
-  boxShadow: "0 28px 90px rgba(0,0,0,0.38)",
+  border: "1px solid color-mix(in srgb, var(--accent) 18%, var(--border))",
+  background: "var(--bg-elevated)",
+  boxShadow: "0 28px 72px rgba(0,0,0,0.14)",
   padding: 22,
   display: "flex",
   flexDirection: "column",
@@ -635,8 +639,8 @@ const modalTitleStyle: React.CSSProperties = {
 const modalHintStyle: React.CSSProperties = {
   padding: "12px 14px",
   borderRadius: 14,
-  background: "rgba(200,150,90,0.08)",
-  border: "1px solid rgba(200,150,90,0.14)",
+  background: "var(--accent-dim)",
+  border: "1px solid color-mix(in srgb, var(--accent) 16%, var(--border))",
   color: "var(--text-secondary)",
   fontSize: 12,
   lineHeight: 1.7,
@@ -739,7 +743,7 @@ const editorStyle: React.CSSProperties = {
   width: "100%",
   borderRadius: 14,
   border: "1px solid var(--border)",
-  background: "var(--bg-base)",
+  background: "var(--bg-elevated)",
   color: "var(--text-primary)",
   padding: "16px",
   fontFamily: "var(--font-mono)",

@@ -341,7 +341,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                     title: { color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", marginBottom: 12 },
                     list: { gap: 12 },
                     item: {
-                      background: "rgba(255,255,255,0.03)",
+                      background: "var(--bg-surface)",
                       border: "1px solid var(--border)",
                       borderRadius: 18,
                       color: "var(--text-secondary)",
@@ -365,12 +365,12 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                     variant: "filled",
                     styles: {
                       content: {
-                        background: "rgba(255,255,255,0.038)",
+                        background: "var(--bg-surface)",
                         color: "var(--text-primary)",
-                        border: "1px solid rgba(255,255,255,0.07)",
+                        border: "1px solid var(--border)",
                         borderRadius: 18,
                         padding: "12px 15px",
-                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
+                        boxShadow: "0 8px 18px rgba(0,0,0,0.04)",
                         fontSize: 15,
                         lineHeight: 1.7,
                       },
@@ -425,7 +425,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                 styles={{
                   list: { gap: 8 },
                   item: {
-                    background: "rgba(255,255,255,0.03)",
+                    background: "var(--bg-surface)",
                     border: "1px solid var(--border)",
                     borderRadius: 999,
                     color: "var(--text-secondary)",
@@ -456,11 +456,12 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
               )}
               styles={{
                 root: {
-                  background: "rgba(23,23,21,0.94)",
-                  border: "1px solid rgba(255,255,255,0.07)",
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border)",
                   borderRadius: 26,
                   padding: "12px 12px 10px",
-                  boxShadow: "0 18px 40px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.02)",
+                  boxShadow:
+                    "0 18px 40px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.18)",
                 },
                 input: {
                   color: "var(--text-primary)",
@@ -885,8 +886,8 @@ const miniProcessCollapsedStyle: React.CSSProperties = {
   maxWidth: 420,
   padding: "6px 10px",
   borderRadius: 999,
-  background: "rgba(255,255,255,0.035)",
-  border: "1px solid rgba(255,255,255,0.05)",
+  background: "var(--bg-surface)",
+  border: "1px solid var(--border)",
 };
 
 const miniStateTitleStyle: React.CSSProperties = {
