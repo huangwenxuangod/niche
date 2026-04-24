@@ -303,12 +303,14 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                     variant: "filled",
                     styles: {
                       content: {
-                        background: "rgba(255,255,255,0.045)",
+                        background: "rgba(255,255,255,0.038)",
                         color: "var(--text-primary)",
-                        border: "1px solid rgba(255,255,255,0.08)",
-                        borderRadius: 20,
-                        padding: "16px 18px",
+                        border: "1px solid rgba(255,255,255,0.07)",
+                        borderRadius: 18,
+                        padding: "12px 15px",
                         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
+                        fontSize: 15,
+                        lineHeight: 1.7,
                       },
                     },
                   },
