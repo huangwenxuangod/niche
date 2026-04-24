@@ -419,8 +419,6 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
 
       {showAnalysis && (
         <AccountAnalysisModal
-          journeyId={journey.id}
-          conversationId={conversationId}
           onClose={() => setShowAnalysis(false)}
           onResult={(text) => {
             setShowAnalysis(false);

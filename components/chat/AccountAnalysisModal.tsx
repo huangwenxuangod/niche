@@ -4,50 +4,18 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "@/lib/toast";
 
 interface Props {
-  journeyId: string;
-  conversationId: string;
   onClose: () => void;
   onResult: (message: string) => void;
 }
 
-type ConfigState = "checking" | "needs_config" | "ready" | "running" | "done";
+type ConfigState = "checking" | "configured" | "not_configured";
 
-type AnalysisReport = {
-  summary: {
-    account_name: string;
-    article_count_30d: number;
-    avg_read: number;
-    best_article_title: string | null;
-  };
-  content_overview: {
-    posting_pattern: string;
-    title_pattern: string;
-    best_topics: string[];
-  };
-  top_articles: Array<{
-    title: string;
-    read_num: number;
-    publish_time: string | null;
-    reason: string;
-  }>;
-  competitor_gap: {
-    overview: string;
-    topic_gap: string[];
-    title_gap: string[];
-    structure_gap: string[];
-  };
-  next_actions: string[];
-  message_for_chat: string;
-};
-
-export function AccountAnalysisModal({ journeyId, onClose, onResult }: Props) {
-  const [state, setState] = useState<ConfigState>("checking");
+export function AccountAnalysisModal({ onClose, onResult }: Props) {
+  const [configState, setConfigState] = useState<ConfigState>("checking");
   const [appId, setAppId] = useState("");
-  const [appSecret, setAppSecret] = useState("");
-  const [runningStep, setRunningStep] = useState("正在连接公众号...");
-  const [report, setReport] = useState<AnalysisReport | null>(null);
+  const [accountName, setAccountName] = useState("");
 
-  const canSubmitConfig = appId.trim() && appSecret.trim();
+  const canAnalyze = accountName.trim().length > 0;
 
   useEffect(() => {
     let cancelled = false;
@@ -60,14 +28,14 @@ export function AccountAnalysisModal({ journeyId, onClose, onResult }: Props) {
 
         if (res.ok && data.config?.app_id) {
           setAppId(data.config.app_id);
-          setState("ready");
+          setConfigState("configured");
           return;
         }
 
-        setState("needs_config");
+        setConfigState("not_configured");
       } catch {
         if (!cancelled) {
-          setState("needs_config");
+          setConfigState("not_configured");
         }
       }
     }
@@ -79,76 +47,34 @@ export function AccountAnalysisModal({ journeyId, onClose, onResult }: Props) {
     };
   }, []);
 
-  useEffect(() => {
-    if (state !== "running") return;
-
-    const steps = [
-      "正在连接公众号...",
-      "正在拉取已发布文章...",
-      "正在同步近期表现数据...",
-      "正在生成复盘分析...",
-    ];
-
-    let index = 0;
-    const timer = window.setInterval(() => {
-      index = Math.min(index + 1, steps.length - 1);
-      setRunningStep(steps[index]);
-    }, 1400);
-
-    return () => window.clearInterval(timer);
-  }, [state]);
-
-  const headerTitle = useMemo(() => {
-    if (state === "needs_config") return "绑定你的公众号";
-    if (state === "done") return "公众号复盘结果";
-    return "分析已绑定公众号";
-  }, [state]);
-
-  async function handleRunAnalysis() {
-    setRunningStep("正在连接公众号...");
-    setState("running");
-    try {
-      const res = await fetch("/api/wechat/owned-analysis", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ journey_id: journeyId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "公众号分析失败");
-      }
-
-      setReport(data.report);
-      setState("done");
-      toast.success(`已完成公众号复盘，已同步 ${data.article_count ?? 0} 篇文章。`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "公众号分析失败");
-      setState(appId.trim() ? "ready" : "needs_config");
+  const headerDescription = useMemo(() => {
+    if (configState === "configured") {
+      return "输入公众号名称分析内容结构；已绑定的官方账号配置会继续保留，用于后续自动发布到公众号草稿箱。";
     }
-  }
-
-  async function handleSaveAndAnalyze() {
-    try {
-      const res = await fetch("/api/wechat/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          app_id: appId.trim(),
-          app_secret: appSecret.trim(),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "公众号配置保存失败");
-      }
-
-      setAppSecret("");
-      toast.success("公众号配置已保存。");
-      await handleRunAnalysis();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "公众号配置保存失败");
-      setState("needs_config");
+    if (configState === "not_configured") {
+      return "先用公众号名称导入和分析内容，后续如果要自动发布，再去排版发布流程里配置 AppID 和 AppSecret 即可。";
     }
+    return "正在检查你的公众号发布配置...";
+  }, [configState]);
+
+  function handleAnalyze() {
+    const normalizedName = accountName.trim();
+    if (!normalizedName) {
+      toast.error("请先填写要分析的公众号名称。");
+      return;
+    }
+
+    const prompt = [
+      `请分析公众号“${normalizedName}”的内容。`,
+      "如果当前旅程知识库里已经有这个号的文章，优先基于知识库内容做分析。",
+      "请重点输出：",
+      "1. 最近内容为什么容易传播",
+      "2. 标题、选题和结构上的规律",
+      "3. 它和当前赛道竞品相比的差异",
+      "4. 我可以直接借鉴的 3 条改进建议",
+    ].join("\n");
+
+    onResult(prompt);
   }
 
   return (
@@ -169,7 +95,7 @@ export function AccountAnalysisModal({ journeyId, onClose, onResult }: Props) {
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "100%",
-          maxWidth: 440,
+          maxWidth: 460,
           background: "var(--bg-overlay)",
           border: "1px solid var(--border-strong)",
           borderRadius: 12,
@@ -177,132 +103,90 @@ export function AccountAnalysisModal({ journeyId, onClose, onResult }: Props) {
           margin: "0 20px",
         }}
       >
-        {/* Header */}
         <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 400, letterSpacing: "-0.02em", color: "var(--text-primary)" }}>
-            {headerTitle}
+          <div
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 18,
+              fontWeight: 400,
+              letterSpacing: "-0.02em",
+              color: "var(--text-primary)",
+            }}
+          >
+            分析你的公众号
           </div>
           <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 4 }}>
-            {state === "needs_config"
-              ? "先绑定 AppID 和 AppSecret，后面就能直接自动同步和分析。"
-              : "AI 会同步最近已发布文章和近期表现数据，并和当前赛道 KOC 进行横向对比。"}
+            {headerDescription}
           </div>
         </div>
 
-        {/* Body */}
         <div style={{ padding: "20px 24px 24px" }}>
-          {state === "checking" && (
+          {configState === "checking" ? (
             <div style={placeholderWrapStyle}>正在检查公众号配置...</div>
-          )}
-
-          {state === "needs_config" && (
+          ) : (
             <>
-              <div style={labelStyle}>AppID</div>
+              <PublishStatusCard configured={configState === "configured"} appId={appId} />
+
+              <div style={labelStyle}>公众号名称</div>
               <input
-                value={appId}
-                onChange={(e) => setAppId(e.target.value)}
-                placeholder="输入公众号 AppID"
+                value={accountName}
+                onChange={(e) => setAccountName(e.target.value)}
+                placeholder="输入你的公众号名称..."
                 autoFocus
-                style={inputStyle}
+                style={{ ...inputStyle, marginBottom: 18 }}
               />
-              <div style={labelStyle}>AppSecret</div>
-              <input
-                value={appSecret}
-                onChange={(e) => setAppSecret(e.target.value)}
-                placeholder="输入公众号 AppSecret"
-                style={{ ...inputStyle, marginBottom: 20 }}
-              />
+
               <AnalysisCapabilityList />
+
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
                 <button onClick={onClose} style={ghostBtnStyle}>取消</button>
                 <button
-                  onClick={handleSaveAndAnalyze}
-                  disabled={!canSubmitConfig}
-                  style={{ ...primaryBtnStyle, opacity: canSubmitConfig ? 1 : 0.4, cursor: canSubmitConfig ? "pointer" : "not-allowed" }}
+                  onClick={handleAnalyze}
+                  disabled={!canAnalyze}
+                  style={{
+                    ...primaryBtnStyle,
+                    opacity: canAnalyze ? 1 : 0.45,
+                    cursor: canAnalyze ? "pointer" : "not-allowed",
+                  }}
                 >
-                  保存并开始分析 →
-                </button>
-              </div>
-            </>
-          )}
-
-          {state === "ready" && (
-            <>
-              <div style={statusCardStyle}>
-                <div style={statusTitleStyle}>已检测到公众号配置</div>
-                <div style={statusValueStyle}>{appId}</div>
-              </div>
-              <AnalysisCapabilityList />
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                <button onClick={onClose} style={ghostBtnStyle}>取消</button>
-                <button onClick={handleRunAnalysis} style={primaryBtnStyle}>
-                  开始同步并分析 →
-                </button>
-              </div>
-            </>
-          )}
-
-          {state === "running" && (
-            <div style={runningWrapStyle}>
-              <div style={runningStepStyle}>{runningStep}</div>
-              <div style={runningHintStyle}>这一步会自动拉取你最近的已发布文章，并结合当前赛道竞品一起生成复盘结果。</div>
-            </div>
-          )}
-
-          {state === "done" && report && (
-            <>
-              <div style={reportSectionStyle}>
-                <div style={reportTitleStyle}>整体概况</div>
-                <div style={reportTextStyle}>
-                  近 30 篇文章 <strong>{report.summary.article_count_30d}</strong> 篇，平均阅读 <strong>{report.summary.avg_read}</strong>，当前最强文章是 <strong>{report.summary.best_article_title || "暂无"}</strong>。
-                </div>
-              </div>
-
-              <div style={reportSectionStyle}>
-                <div style={reportTitleStyle}>内容概况</div>
-                <div style={reportTextStyle}>{report.content_overview.posting_pattern}</div>
-                <div style={reportTextStyle}>{report.content_overview.title_pattern}</div>
-                {report.content_overview.best_topics.length > 0 && (
-                  <div style={reportTextStyle}>高表现主题：{report.content_overview.best_topics.join("、")}</div>
-                )}
-              </div>
-
-              <div style={reportSectionStyle}>
-                <div style={reportTitleStyle}>表现最好的文章</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {report.top_articles.map((article) => (
-                    <div key={article.title} style={reportCardStyle}>
-                      <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.5 }}>{article.title}</div>
-                      <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4 }}>
-                        阅读 {article.read_num} · {article.reason}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div style={reportSectionStyle}>
-                <div style={reportTitleStyle}>我和竞品的差距</div>
-                <div style={reportTextStyle}>{report.competitor_gap.overview}</div>
-                <ReportList title="选题差距" items={report.competitor_gap.topic_gap} />
-                <ReportList title="标题差距" items={report.competitor_gap.title_gap} />
-                <ReportList title="结构差距" items={report.competitor_gap.structure_gap} />
-              </div>
-
-              <div style={reportSectionStyle}>
-                <div style={reportTitleStyle}>下一步建议</div>
-                <ReportList title="" items={report.next_actions} />
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
-                <button onClick={onClose} style={ghostBtnStyle}>关闭</button>
-                <button onClick={() => onResult(report.message_for_chat)} style={primaryBtnStyle}>
-                  发送到对话 →
+                  开始分析 →
                 </button>
               </div>
             </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function PublishStatusCard({
+  configured,
+  appId,
+}: {
+  configured: boolean;
+  appId: string;
+}) {
+  return (
+    <div
+      style={{
+        ...statusCardStyle,
+        background: configured ? "var(--accent-glow)" : "var(--bg-base)",
+        border: configured
+          ? "1px solid rgba(200,150,90,0.18)"
+          : "1px solid var(--border)",
+      }}
+    >
+      <div style={statusTitleStyle}>
+        {configured ? "自动发布状态" : "自动发布状态"}
+      </div>
+      <div style={statusValueStyle}>
+        {configured ? "已配置官方发布能力" : "暂未配置官方发布能力"}
+      </div>
+      <div style={statusHintStyle}>
+        {configured
+          ? `当前已绑定 AppID：${appId}，后续排版完成后可以继续走官方 API 保存草稿。`
+          : "这不影响内容分析；后续如果要自动发布，再在排版发布流程里配置 AppID 和 AppSecret。"}
       </div>
     </div>
   );
@@ -314,36 +198,35 @@ function AnalysisCapabilityList() {
       <div style={labelStyle}>将为你分析</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 24 }}>
         {[
-          "自动同步最近已发布文章与近期表现数据",
-          "找出表现最好的内容和高表现主题",
-          "与当前赛道 KOC 做横向对比",
-          "输出 3 条具体可执行的改进建议",
+          "公众号近期内容为什么更容易传播",
+          "标题、选题和结构上的稳定规律",
+          "和当前赛道竞品相比的差异与机会",
+          "3 条可直接执行的优化建议",
         ].map((item) => (
-          <div key={item} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--text-secondary)" }}>
-            <span style={{ width: 3, height: 3, borderRadius: "50%", background: "var(--accent)", flexShrink: 0 }} />
+          <div
+            key={item}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 12,
+              color: "var(--text-secondary)",
+            }}
+          >
+            <span
+              style={{
+                width: 3,
+                height: 3,
+                borderRadius: "50%",
+                background: "var(--accent)",
+                flexShrink: 0,
+              }}
+            />
             {item}
           </div>
         ))}
       </div>
     </>
-  );
-}
-
-function ReportList({ title, items }: { title: string; items: string[] }) {
-  if (!items.length) return null;
-
-  return (
-    <div style={{ marginTop: 10 }}>
-      {title ? <div style={miniLabelStyle}>{title}</div> : null}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {items.map((item) => (
-          <div key={item} style={reportBulletStyle}>
-            <span style={bulletDotStyle} />
-            <span>{item}</span>
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -366,7 +249,6 @@ const inputStyle: React.CSSProperties = {
   fontFamily: "var(--font-body)",
   fontSize: 13,
   outline: "none",
-  marginBottom: 20,
 };
 
 const placeholderWrapStyle: React.CSSProperties = {
@@ -381,8 +263,6 @@ const placeholderWrapStyle: React.CSSProperties = {
 const statusCardStyle: React.CSSProperties = {
   padding: "14px 16px",
   borderRadius: 10,
-  border: "1px solid rgba(200,150,90,0.18)",
-  background: "var(--accent-glow)",
   marginBottom: 20,
 };
 
@@ -393,83 +273,16 @@ const statusTitleStyle: React.CSSProperties = {
 };
 
 const statusValueStyle: React.CSSProperties = {
-  fontFamily: "var(--font-mono)",
-  fontSize: 12,
-  color: "var(--accent)",
-};
-
-const runningWrapStyle: React.CSSProperties = {
-  minHeight: 260,
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  textAlign: "center",
-  gap: 12,
-};
-
-const runningStepStyle: React.CSSProperties = {
-  fontFamily: "var(--font-display)",
-  fontSize: 20,
+  fontSize: 13,
   color: "var(--text-primary)",
-};
-
-const runningHintStyle: React.CSSProperties = {
-  maxWidth: 320,
-  fontSize: 12,
-  color: "var(--text-secondary)",
-  lineHeight: 1.7,
-};
-
-const reportSectionStyle: React.CSSProperties = {
-  marginBottom: 16,
-};
-
-const reportTitleStyle: React.CSSProperties = {
-  fontFamily: "var(--font-mono)",
-  fontSize: 10,
-  letterSpacing: "0.14em",
-  textTransform: "uppercase",
-  color: "var(--accent)",
-  marginBottom: 8,
-};
-
-const reportTextStyle: React.CSSProperties = {
-  fontSize: 12,
-  lineHeight: 1.7,
-  color: "var(--text-secondary)",
+  fontWeight: 600,
   marginBottom: 6,
 };
 
-const reportCardStyle: React.CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "var(--bg-base)",
-  border: "1px solid var(--border)",
-};
-
-const miniLabelStyle: React.CSSProperties = {
-  fontSize: 10,
-  color: "var(--text-tertiary)",
-  marginBottom: 6,
-};
-
-const reportBulletStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  gap: 8,
+const statusHintStyle: React.CSSProperties = {
   fontSize: 12,
+  lineHeight: 1.65,
   color: "var(--text-secondary)",
-  lineHeight: 1.6,
-};
-
-const bulletDotStyle: React.CSSProperties = {
-  width: 4,
-  height: 4,
-  borderRadius: "50%",
-  background: "var(--accent)",
-  flexShrink: 0,
-  marginTop: 7,
 };
 
 const ghostBtnStyle: React.CSSProperties = {
