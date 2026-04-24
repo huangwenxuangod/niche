@@ -181,38 +181,87 @@ html, body {
 }
 
 .niche-toast {
-  min-width: min(560px, calc(100vw - 32px));
-  max-width: min(560px, calc(100vw - 32px));
+  min-width: min(460px, calc(100vw - 28px));
+  max-width: min(460px, calc(100vw - 28px));
   margin-top: 10px;
-  border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg-surface) 94%, white 6%), var(--bg-base));
   box-shadow: 0 20px 56px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.22);
   color: var(--text-primary);
-  padding: 14px 16px;
+  padding: 12px 12px 12px 14px;
   backdrop-filter: blur(14px);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 12px;
+  row-gap: 0;
+}
+
+.niche-toast[data-type="error"] {
+  border-color: rgba(229, 115, 115, 0.28);
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.16),
+    inset 3px 0 0 rgba(229, 115, 115, 0.88);
+}
+
+.niche-toast[data-type="success"] {
+  border-color: rgba(200, 150, 90, 0.26);
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.16),
+    inset 3px 0 0 rgba(200, 150, 90, 0.9);
+}
+
+.niche-toast [data-icon] {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.niche-toast [data-content] {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .niche-toast [data-title] {
   font-size: 13px;
-  line-height: 1.55;
-  font-weight: 500;
+  line-height: 1.5;
+  font-weight: 520;
+  color: var(--text-primary);
+  word-break: break-word;
 }
 
 .niche-toast [data-description] {
-  margin-top: 4px;
+  margin-top: 3px;
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.55;
+  word-break: break-word;
 }
 
 .niche-toast [data-close-button] {
+  position: static;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border-radius: 999px;
   background: color-mix(in srgb, var(--bg-elevated) 92%, white 8%);
   border: 1px solid var(--border);
   color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: start;
 }
 
 .niche-toast [data-close-button]:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--bg-elevated) 88%, white 12%);
   color: var(--text-primary);
 }
