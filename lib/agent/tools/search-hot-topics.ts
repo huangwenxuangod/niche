@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { searchHotTopicCandidates } from "@/lib/hot-topic-search";
+import { retrieveHotTopics } from "@/lib/agent/retrievers/hot-topics";
 import type { AgentToolDefinition } from "./helpers";
 import type { ToolExecutionContext } from "./types";
 
@@ -31,7 +31,7 @@ export async function runSearchHotTopics(
   const maxResults = normalizeNumber(args.max_results, 5);
   const days = normalizeNumber(args.days, 3);
 
-  return searchHotTopicCandidates({
+  return retrieveHotTopics({
     baseQuery: query,
     journey: context.journey,
     maxResults,

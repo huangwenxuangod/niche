@@ -9,7 +9,7 @@ import { runGenerateFullArticle } from "@/lib/agent/tools/generate-full-article"
 import { searchJourneyKnowledge } from "@/lib/knowledge-base";
 import {
   appendJourneyMemory,
-  appendRoundSummary,
+  appendStructuredRoundSummary,
   captureMessageMemory,
   captureProjectMemoryFromMessage,
   ensureJourneyMemory,
@@ -498,7 +498,7 @@ ${knowledgeContext}`,
                     next_best_action: "检查完整稿后进入排版与发布",
                   },
                 });
-                await appendRoundSummary(supabase, {
+                await appendStructuredRoundSummary(supabase, {
                   journeyId: conv.journey_id,
                   userId: user.id,
                   summary: {
@@ -557,7 +557,7 @@ ${knowledgeContext}`,
                     next_best_action: "根据合规结果修正文案后进入排版",
                   },
                 });
-                await appendRoundSummary(supabase, {
+                await appendStructuredRoundSummary(supabase, {
                   journeyId: conv.journey_id,
                   userId: user.id,
                   summary: {
@@ -631,7 +631,7 @@ ${knowledgeContext}`,
         }
 
         await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
-        await appendRoundSummary(supabase, {
+        await appendStructuredRoundSummary(supabase, {
           journeyId: conv.journey_id,
           userId: user.id,
           summary: {
@@ -1062,7 +1062,7 @@ async function handleNaturalLanguageFollowUp(params: {
           next_best_action: "确认这版完整稿是否进入排版与发布",
         } as Partial<JourneyStrategyState>,
       });
-      await appendRoundSummary(params.supabase, {
+      await appendStructuredRoundSummary(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         summary: {
@@ -1178,7 +1178,7 @@ async function handleNaturalLanguageFollowUp(params: {
           next_best_action: "检查完整稿是否需要润色，随后进入排版",
         } as Partial<JourneyStrategyState>,
       });
-      await appendRoundSummary(params.supabase, {
+      await appendStructuredRoundSummary(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         summary: {
@@ -1284,7 +1284,7 @@ async function handleNaturalLanguageFollowUp(params: {
           next_best_action: "检查修改后的完整稿是否可以进入排版",
         } as Partial<JourneyStrategyState>,
       });
-      await appendRoundSummary(params.supabase, {
+      await appendStructuredRoundSummary(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         summary: {
@@ -1361,7 +1361,7 @@ async function handleNaturalLanguageFollowUp(params: {
           next_best_action: "根据合规结果修正文案后进入排版",
         } as Partial<JourneyStrategyState>,
       });
-      await appendRoundSummary(params.supabase, {
+      await appendStructuredRoundSummary(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         summary: {

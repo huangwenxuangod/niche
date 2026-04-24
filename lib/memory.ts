@@ -1,4 +1,6 @@
 import { type SupabaseClient } from "@supabase/supabase-js";
+import { runProjectMemoryCaptureChain } from "@/lib/agent/chains/project-memory-capture";
+import { runRoundSummaryChain } from "@/lib/agent/chains/round-summary";
 
 export type IdentityProfile = {
   about: string;
@@ -296,6 +298,37 @@ export async function appendRoundSummary(
   return next;
 }
 
+export async function appendStructuredRoundSummary(
+  supabase: SupabaseClient,
+  params: {
+    journeyId: string;
+    userId: string;
+    summary: Omit<RoundSummary, "created_at"> & { created_at?: string };
+  }
+) {
+  try {
+    const structured = await runRoundSummaryChain({
+      journeyId: params.journeyId,
+      userId: params.userId,
+      userIntent: params.summary.user_intent,
+      confirmedDecisions: params.summary.confirmed_decisions,
+      producedOutputs: params.summary.produced_outputs,
+      openQuestions: params.summary.open_questions,
+      nextAction: params.summary.next_action,
+    });
+
+    return appendRoundSummary(supabase, {
+      ...params,
+      summary: {
+        ...structured,
+        created_at: params.summary.created_at,
+      },
+    });
+  } catch {
+    return appendRoundSummary(supabase, params);
+  }
+}
+
 export async function captureProjectMemoryFromMessage(
   supabase: SupabaseClient,
   params: {
@@ -306,6 +339,39 @@ export async function captureProjectMemoryFromMessage(
 ) {
   const text = params.content.replace(/\s+/g, " ").trim();
   if (!text) return;
+
+  try {
+    const structured = await runProjectMemoryCaptureChain({
+      journeyId: params.journeyId,
+      userId: params.userId,
+      content: text,
+    });
+
+    const projectPatch = removeEmptyFields(structured.project_card_patch);
+    const strategyPatch = removeEmptyFields(structured.strategy_patch);
+
+    if (Object.keys(projectPatch).length) {
+      await updateProjectCard(supabase, {
+        journeyId: params.journeyId,
+        userId: params.userId,
+        patch: projectPatch,
+      });
+    }
+
+    if (Object.keys(strategyPatch).length) {
+      await updateJourneyStrategyState(supabase, {
+        journeyId: params.journeyId,
+        userId: params.userId,
+        patch: strategyPatch,
+      });
+    }
+
+    if (Object.keys(projectPatch).length || Object.keys(strategyPatch).length) {
+      return;
+    }
+  } catch {
+    // Fall back to rule-based extraction below.
+  }
 
   const projectPatch: Partial<ProjectCard> = {};
   const strategyPatch: Partial<JourneyStrategyState> = {};
@@ -705,6 +771,15 @@ function stringValue(value: unknown, fallback: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function removeEmptyFields<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, fieldValue]) => {
+      if (Array.isArray(fieldValue)) return fieldValue.length > 0;
+      return String(fieldValue ?? "").trim().length > 0;
+    })
+  ) as Partial<T>;
 }
 
 function readIdentityField(text: string, label: string) {

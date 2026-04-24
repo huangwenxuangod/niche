@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { searchJourneyKnowledge } from "@/lib/knowledge-base";
+import { retrieveCompetitorContent } from "@/lib/agent/retrievers/competitor-content";
 import type { AgentToolDefinition } from "./helpers";
 import type { ToolExecutionContext } from "./types";
 
@@ -29,7 +29,10 @@ export async function runSearchKnowledgeBase(
 
   const limit = Math.min(Number(args.limit || 6), 10);
 
-  return searchJourneyKnowledge(context.supabase, context.journeyId, query, limit, {
+  return retrieveCompetitorContent(context.supabase, {
+    journeyId: context.journeyId,
+    query,
+    limit,
     accountNames: Array.isArray(args.account_names)
       ? args.account_names.map((item) => String(item)).filter(Boolean)
       : undefined,
