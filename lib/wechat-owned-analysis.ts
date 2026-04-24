@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { runGrowthAnalysisChain } from "@/lib/agent/chains/growth-analysis";
 import { dajiala } from "@/lib/dajiala";
-import { llm } from "@/lib/llm";
 import {
   decryptWechatSecret,
   fetchWechatAccessToken,
@@ -515,61 +515,50 @@ async function buildOwnedWechatAnalysisReport(
   }>).map((item) => item.title);
   const competitorTitlePattern = summarizeTitlePatterns(competitorTitles);
 
-  const rawSummary = await llm.chat(
-    "你是内容复盘助手，只输出 JSON，不要解释，不要 Markdown 代码块。",
-    `请根据下面的数据，输出一个结构化复盘报告。
+  let parsed:
+    | {
+        content_overview?: OwnedAnalysisReport["content_overview"];
+        top_articles?: OwnedAnalysisReport["top_articles"];
+        competitor_gap?: OwnedAnalysisReport["competitor_gap"];
+        next_actions?: string[];
+      }
+    | null = null;
 
-公众号：${params.accountName}
-近 30 篇文章数：${articleCount30d}
-平均阅读：${avgRead}
-竞品平均阅读：${competitorAvgRead}
-发文节奏：${postingPattern}
-我的标题风格：${ownTitlePattern}
-竞品标题风格：${competitorTitlePattern}
+  try {
+    const structured = await runGrowthAnalysisChain({
+      journeyId: params.journeyId,
+      accountName: params.accountName,
+      articleCount30d,
+      avgRead,
+      competitorAvgRead,
+      postingPattern,
+      ownTitlePattern,
+      competitorTitlePattern,
+      bestArticles: bestArticles.map((item) => ({
+        title: item.title,
+        read_num: item.read_num,
+        publish_time: item.publish_time,
+      })),
+      competitorArticles: ((competitorArticlesRes.data ?? []) as Array<{
+        title: string;
+        read_count: number | null;
+        koc_sources: { account_name: string } | { account_name: string }[] | null;
+      }>)
+        .slice(0, 6)
+        .map((item) => {
+          const koc = Array.isArray(item.koc_sources) ? item.koc_sources[0] : item.koc_sources;
+          return {
+            title: item.title,
+            read_count: item.read_count ?? 0,
+            account_name: koc?.account_name ?? null,
+          };
+        }),
+    });
 
-【我的高表现文章】
-${bestArticles.map((item) => `- ${item.title} | 阅读 ${item.read_num} | 发布时间 ${item.publish_time || "未知"}`).join("\n")}
-
-【竞品高表现文章】
-${((competitorArticlesRes.data ?? []) as Array<{ title: string; read_count: number | null; koc_sources: { account_name: string } | { account_name: string }[] | null }>)
-  .slice(0, 6)
-  .map((item) => {
-    const koc = Array.isArray(item.koc_sources) ? item.koc_sources[0] : item.koc_sources;
-    return `- ${item.title} | ${koc?.account_name ?? "未知"} | 阅读 ${item.read_count ?? 0}`;
-  })
-  .join("\n")}
-
-请返回 JSON：
-{
-  "content_overview": {
-    "posting_pattern": "一句话描述发文节奏",
-    "title_pattern": "一句话描述标题风格",
-    "best_topics": ["主题1", "主题2", "主题3"]
-  },
-  "top_articles": [
-    {
-      "title": "文章标题",
-      "read_num": 1000,
-      "publish_time": "2026-04-24T00:00:00.000Z",
-      "reason": "为什么这篇表现好"
-    }
-  ],
-  "competitor_gap": {
-    "overview": "一句话总结差距",
-    "topic_gap": ["差距1", "差距2"],
-    "title_gap": ["差距1", "差距2"],
-    "structure_gap": ["差距1", "差距2"]
-  },
-  "next_actions": ["建议1", "建议2", "建议3"]
-}`
-  );
-
-  const parsed = safeParseJson<{
-    content_overview?: OwnedAnalysisReport["content_overview"];
-    top_articles?: OwnedAnalysisReport["top_articles"];
-    competitor_gap?: OwnedAnalysisReport["competitor_gap"];
-    next_actions?: string[];
-  }>(rawSummary);
+    parsed = structured;
+  } catch (error) {
+    console.warn("[owned-analysis] langchain structured report failed, fallback to local defaults:", error);
+  }
 
   const topArticles = parsed?.top_articles?.length
     ? parsed.top_articles.slice(0, 3)
@@ -743,16 +732,6 @@ function pickNumber(source: Record<string, unknown>, keys: string[], fallback = 
 
 function normalizeComparisonText(value: string) {
   return value.toLowerCase().replace(/\s+/g, "");
-}
-
-function safeParseJson<T>(text: string) {
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return null;
-  try {
-    return JSON.parse(match[0]) as T;
-  } catch {
-    return null;
-  }
 }
 
 async function upsertOwnedWechatProfile(
