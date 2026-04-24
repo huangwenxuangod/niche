@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runGrowthAnalysisChain } from "@/lib/agent/chains/growth-analysis";
+import { runOwnedWechatAnalysisGraph } from "@/lib/agent/graphs/owned-wechat-analysis";
 import { dajiala } from "@/lib/dajiala";
 import {
   decryptWechatSecret,
@@ -104,7 +105,6 @@ export async function runOwnedWechatAnalysis(params: {
       ? await getWechatConfigById(params.supabase, params.userId, params.wechatConfigId)
       : await getWechatConfig(params.supabase, params.userId);
 
-  let accessToken = "";
   let metrics: ArticleMetric[] = [];
   let officialMetricsEnabled = false;
 
@@ -115,118 +115,125 @@ export async function runOwnedWechatAnalysis(params: {
   });
 
   try {
-    await updateSyncJob(params.supabase, syncJob.id, {
-      status: "running",
-      step: "fetching_articles",
-    });
+    return await runOwnedWechatAnalysisGraph(
+      {
+        userId: params.userId,
+        journeyId: params.journeyId,
+        accountName,
+        wechatConfigId: config?.id ?? null,
+        syncJobId: syncJob.id,
+      },
+      {
+        loadConfig: async (wechatConfigId) =>
+          wechatConfigId
+            ? getWechatConfigById(params.supabase, params.userId, wechatConfigId)
+            : getWechatConfig(params.supabase, params.userId),
+        markStep: async (syncJobId, patch) => {
+          await updateSyncJob(params.supabase, syncJobId, patch);
+        },
+        ensureProfile: async ({ accountName, wechatConfigId }) =>
+          upsertOwnedWechatProfile(params.supabase, {
+            userId: params.userId,
+            journeyId: params.journeyId,
+            wechatConfigId,
+            accountName,
+          }),
+        importOwnedArticles: async ({ accountName, ownedProfileId, wechatConfigId }) =>
+          importOwnedWechatArticlesByAccountName(params.supabase, {
+            journeyId: params.journeyId,
+            userId: params.userId,
+            accountName,
+            ownedProfileId,
+            wechatConfigId,
+          }),
+        fetchOfficialMetrics: async (config) => {
+          if (!config) {
+            return {
+              metrics: [],
+              officialMetricsEnabled: false,
+            };
+          }
 
-    const ownedProfile = await upsertOwnedWechatProfile(params.supabase, {
-      userId: params.userId,
-      journeyId: params.journeyId,
-      wechatConfigId: config?.id ?? null,
-      accountName,
-    });
+          try {
+            const accessToken = await fetchWechatAccessToken(
+              config.app_id,
+              decryptWechatSecret(config.app_secret_encrypted)
+            );
+            metrics = await fetchWechatArticleMetrics(accessToken, 30);
+            officialMetricsEnabled = metrics.length > 0;
+          } catch (error) {
+            console.warn("[owned-analysis] official metrics unavailable:", error);
+          }
 
-    await updateSyncJob(params.supabase, syncJob.id, {
-      step: "importing_owned_articles",
-    });
+          return {
+            metrics,
+            officialMetricsEnabled,
+          };
+        },
+        saveArticlesAndRefreshProfile: async ({
+          ownedProfileId,
+          wechatConfigId,
+          importedArticles,
+          metrics,
+          officialMetricsEnabled,
+        }) => {
+          const metricMatches = buildMetricsMap(metrics);
+          const syncedArticles = importedArticles.map((article) =>
+            mergeArticleMetrics(article, metricMatches)
+          );
 
-    const importedArticles = await importOwnedWechatArticlesByAccountName(params.supabase, {
-      journeyId: params.journeyId,
-      userId: params.userId,
-      accountName,
-      ownedProfileId: ownedProfile.id,
-      wechatConfigId: config?.id ?? null,
-    });
+          await saveOwnedWechatArticles(params.supabase, {
+            userId: params.userId,
+            journeyId: params.journeyId,
+            ownedProfileId,
+            wechatConfigId,
+            articles: syncedArticles,
+          });
 
-    await updateSyncJob(params.supabase, syncJob.id, {
-      step: "fetching_metrics",
-      articles_synced: importedArticles.length,
-    });
+          await params.supabase
+            .from("owned_wechat_profiles")
+            .update({
+              official_sync_enabled: Boolean(config),
+              official_metrics_enabled: officialMetricsEnabled,
+              import_source: officialMetricsEnabled ? "mixed" : "dajiala",
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", ownedProfileId);
 
-    if (config) {
-      try {
-        accessToken = await fetchWechatAccessToken(
-          config.app_id,
-          decryptWechatSecret(config.app_secret_encrypted)
-        );
-        metrics = await fetchWechatArticleMetrics(accessToken, 30);
-        officialMetricsEnabled = metrics.length > 0;
-      } catch (error) {
-        console.warn("[owned-analysis] official metrics unavailable:", error);
+          return syncedArticles;
+        },
+        buildReport: async ({ accountName, ownedProfileId }) =>
+          buildOwnedWechatAnalysisReport(params.supabase, {
+            journeyId: params.journeyId,
+            userId: params.userId,
+            accountName,
+            ownedProfileId,
+          }),
+        persistReport: async ({ syncJobId, report }) => {
+          const { data: savedReport, error: reportError } = await params.supabase
+            .from("owned_wechat_analysis_reports")
+            .insert({
+              user_id: params.userId,
+              journey_id: params.journeyId,
+              sync_job_id: syncJobId,
+              summary: report.summary,
+              content_overview: report.content_overview,
+              top_articles: report.top_articles,
+              competitor_gap: report.competitor_gap,
+              next_actions: report.next_actions,
+              message_for_chat: report.message_for_chat,
+            })
+            .select("id")
+            .single();
+
+          if (reportError || !savedReport) {
+            throw new Error(reportError?.message || "保存增长分析报告失败");
+          }
+
+          return savedReport.id;
+        },
       }
-    }
-
-    const metricMatches = buildMetricsMap(metrics);
-    const syncedArticles = importedArticles.map((article) => mergeArticleMetrics(article, metricMatches));
-
-    await updateSyncJob(params.supabase, syncJob.id, {
-      step: "saving_articles",
-      metrics_synced: metrics.length,
-    });
-
-    await saveOwnedWechatArticles(params.supabase, {
-      userId: params.userId,
-      journeyId: params.journeyId,
-      ownedProfileId: ownedProfile.id,
-      wechatConfigId: config?.id ?? null,
-      articles: syncedArticles,
-    });
-
-    await params.supabase
-      .from("owned_wechat_profiles")
-      .update({
-        official_sync_enabled: Boolean(config),
-        official_metrics_enabled: officialMetricsEnabled,
-        import_source: officialMetricsEnabled ? "mixed" : "dajiala",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", ownedProfile.id);
-
-    await updateSyncJob(params.supabase, syncJob.id, {
-      step: "building_report",
-    });
-
-    const report = await buildOwnedWechatAnalysisReport(params.supabase, {
-      journeyId: params.journeyId,
-      userId: params.userId,
-      accountName: syncedArticles[0]?.accountName || accountName,
-      ownedProfileId: ownedProfile.id,
-    });
-
-    const { data: savedReport, error: reportError } = await params.supabase
-      .from("owned_wechat_analysis_reports")
-      .insert({
-        user_id: params.userId,
-        journey_id: params.journeyId,
-        sync_job_id: syncJob.id,
-        summary: report.summary,
-        content_overview: report.content_overview,
-        top_articles: report.top_articles,
-        competitor_gap: report.competitor_gap,
-        next_actions: report.next_actions,
-        message_for_chat: report.message_for_chat,
-      })
-      .select("id")
-      .single();
-
-    if (reportError) {
-      throw new Error(reportError.message);
-    }
-
-    await updateSyncJob(params.supabase, syncJob.id, {
-      status: "success",
-      step: "done",
-      finished_at: new Date().toISOString(),
-    });
-
-    return {
-      jobId: syncJob.id,
-      reportId: savedReport.id,
-      articleCount: syncedArticles.length,
-      metricCount: metrics.length,
-      report,
-    };
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "同步公众号数据失败";
     await updateSyncJob(params.supabase, syncJob.id, {
