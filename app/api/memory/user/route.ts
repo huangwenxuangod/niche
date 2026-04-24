@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { getUserMemory, saveUserMemory, syncUserIdentityMemory } from "@/lib/memory";
+import {
+  buildIdentityMemo,
+  getUserMemory,
+  parseIdentityMemo,
+  saveUserMemory,
+  syncUserIdentityMemory,
+  syncUserIdentityProfileMemory,
+  type IdentityProfile,
+} from "@/lib/memory";
 
 export async function GET() {
   const cookieStore = await cookies();
@@ -22,6 +30,7 @@ export async function GET() {
 
   return NextResponse.json({
     identity_memo: profile?.identity_memo ?? "",
+    identity_profile: parseIdentityMemo(profile?.identity_memo ?? ""),
     memory_markdown: markdown,
   });
 }
@@ -36,7 +45,9 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
-  const identityMemo = String(body.identity_memo ?? "");
+  const rawIdentityMemo = String(body.identity_memo ?? "");
+  const identityProfile = normalizeIdentityProfile(body.identity_profile);
+  const identityMemo = identityProfile ? buildIdentityMemo(identityProfile) : rawIdentityMemo;
   const memoryMarkdown = String(body.memory_markdown ?? "");
 
   await supabase.from("user_profiles").upsert(
@@ -50,9 +61,25 @@ export async function POST(req: NextRequest) {
 
   if (memoryMarkdown.trim()) {
     await saveUserMemory(supabase, user.id, memoryMarkdown);
+  } else if (identityProfile) {
+    await syncUserIdentityProfileMemory(supabase, user.id, identityProfile);
   } else {
     await syncUserIdentityMemory(supabase, user.id, identityMemo);
   }
 
   return NextResponse.json({ success: true });
+}
+
+function normalizeIdentityProfile(value: unknown): IdentityProfile | null {
+  if (!value || typeof value !== "object") return null;
+  const source = value as Record<string, unknown>;
+  return {
+    role: String(source.role ?? "").trim(),
+    stage: String(source.stage ?? "").trim(),
+    platform: String(source.platform ?? "").trim(),
+    targetAudience: String(source.targetAudience ?? "").trim(),
+    goal: String(source.goal ?? "").trim(),
+    contentStyle: String(source.contentStyle ?? "").trim(),
+    extra: String(source.extra ?? "").trim(),
+  };
 }

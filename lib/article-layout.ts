@@ -49,7 +49,7 @@ export function renderWechatHtml(markdown: string) {
 }
 
 export function normalizeLayoutMarkdown(markdown: string) {
-  return normalizeInlineMarkdownStructure(markdown.replace(/\r\n/g, "\n")).trim();
+  return markdown.replace(/\r\n/g, "\n").trim();
 }
 
 export function applyDefaultWechatLayout(markdown: string) {
@@ -205,56 +205,6 @@ function splitStructuredBlock(block: string): string[] | null {
   flushQuote();
 
   return parts.filter(Boolean);
-}
-
-function normalizeInlineMarkdownStructure(markdown: string) {
-  let text = markdown;
-
-  text = text.replace(/([^\n])\s*(#{1,3}\s)/g, "$1\n\n$2");
-  text = text.replace(/([。！？?!；;])\s*((?:\d+\.\s)|(?:[-*]\s))/g, "$1\n$2");
-
-  const lines = text.split("\n").map((line) => normalizeInlineHeadingLine(line));
-  return lines.join("\n");
-}
-
-function normalizeInlineHeadingLine(line: string) {
-  const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
-  if (!headingMatch) {
-    return line;
-  }
-
-  const marker = headingMatch[1];
-  const content = headingMatch[2].trim();
-  const splitIndex = findInlineHeadingSplitIndex(content);
-  if (splitIndex < 0) {
-    return `${marker} ${content}`;
-  }
-
-  const headingText = content.slice(0, splitIndex).trim();
-  const restText = content.slice(splitIndex).trim();
-  if (!headingText || !restText) {
-    return `${marker} ${content}`;
-  }
-
-  return `${marker} ${headingText}\n\n${restText}`;
-}
-
-function findInlineHeadingSplitIndex(content: string) {
-  const candidates = [...content.matchAll(/[。！？?!]/g)]
-    .map((match) => (typeof match.index === "number" ? match.index + match[0].length : -1))
-    .filter((index) => index > 0);
-
-  const validCandidates = candidates.filter((index) => {
-    const before = content.slice(0, index).trim();
-    const after = content.slice(index).trim();
-    return before.length >= 10 && before.length <= 42 && after.length >= 12;
-  });
-
-  if (!validCandidates.length) {
-    return -1;
-  }
-
-  return validCandidates[validCandidates.length - 1] ?? -1;
 }
 
 function normalizeCustomBlock(block: string) {
