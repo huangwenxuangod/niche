@@ -11,7 +11,9 @@
       "Bash(bun run *)",
       "Bash(bunx tsc *)",
       "Bash(ls:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx:*)"
     ]
   }
 }

@@ -514,6 +514,7 @@ ${knowledgeContext}`,
           messages.push({
             role: "assistant",
             content: completion.content || "",
+            tool_calls: completion.toolCalls,
           });
 
           for (const toolCall of completion.toolCalls) {
@@ -633,23 +634,21 @@ ${knowledgeContext}`,
             break;
           }
 
+          // 工具执行完毕后，continue 回到循环顶部，让 LLM 基于工具结果
+          // 决定是继续调工具还是直接回答（no toolCalls → streamModelResponse → break）
+          continue;
+        }
+
+        if (!fullContent) {
+          // 循环跑满但 LLM 还在调工具，强制让它基于已有信息回答
           fullContent = await streamModelResponse({
             controller,
             encoder,
             systemPrompt,
             messages,
             fallback: "我已经完成检索和分析，下面把核心结论整理给你。",
+            forceNoTools: true,
           });
-          break;
-        }
-
-        if (!fullContent) {
-          fullContent = "我已经完成这轮查询，但还需要你再问我一次，我会基于这些结果继续给出建议。";
-          await emitEvent(controller, encoder, {
-            type: "assistant_status",
-            label: "输出答案中",
-          });
-          await emitText(controller, encoder, fullContent);
         }
 
         await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
@@ -1993,6 +1992,7 @@ async function streamModelResponse(params: {
   systemPrompt: string;
   messages: LlmMessage[];
   fallback: string;
+  forceNoTools?: boolean;
 }) {
   let fullContent = "";
 
@@ -2002,8 +2002,11 @@ async function streamModelResponse(params: {
   });
 
   try {
+    const effectiveSystemPrompt = params.forceNoTools
+      ? params.systemPrompt + "\n\n[重要] 你已经完成了所有必要的工具调用，现在必须直接基于已有信息输出最终回答，不要再调用任何工具。"
+      : params.systemPrompt;
     await llm.streamChat({
-      systemPrompt: params.systemPrompt,
+      systemPrompt: effectiveSystemPrompt,
       messages: params.messages,
       onChunk: (text) => {
         fullContent += text;
