@@ -680,20 +680,22 @@ const phoneInnerStyle: React.CSSProperties = {
 };
 
 const previewTitleStyle: React.CSSProperties = {
-  fontSize: 28,
-  lineHeight: 1.35,
+  fontSize: 25,
+  lineHeight: 1.34,
   fontWeight: 700,
-  color: "#111827",
+  color: "#222222",
+  letterSpacing: "-0.02em",
   marginBottom: 14,
 };
 
 const previewSummaryStyle: React.CSSProperties = {
   marginBottom: 18,
   padding: "12px 14px",
-  borderRadius: 14,
-  background: "#F8F5EC",
-  color: "#6B7280",
-  lineHeight: 1.7,
+  borderRadius: 12,
+  background: "#F8F4ED",
+  color: "#6B6257",
+  border: "1px solid #E7DACA",
+  lineHeight: 1.8,
   fontSize: 14,
 };
 

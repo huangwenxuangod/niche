@@ -285,36 +285,151 @@ function escapeRegExp(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+const themeVars = [
+  "--niche-text:#222222",
+  "--niche-text-soft:#645B51",
+  "--niche-text-muted:#887D71",
+  "--niche-primary:#B8864B",
+  "--niche-primary-soft:#F7F2E8",
+  "--niche-primary-line:#E7DACA",
+  "--niche-surface:#FAF7F2",
+  "--niche-quote-bg:#F8F4ED",
+  "--niche-code-bg:#F4EFE7",
+  "--niche-code-text:#9B6B34",
+  "--niche-divider:#EAE1D6",
+  "--niche-radius:14px",
+  "--niche-font-size:16px",
+  "--niche-line-height:1.85",
+  "--niche-paragraph-gap:18px",
+  "--niche-list-gap:9px",
+].join(";");
+
 const containerStyle = [
+  themeVars,
   "max-width:100%",
   "padding:0 0 32px",
   "font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif",
-  "font-size:16px",
-  "line-height:1.8",
-  "color:#2B2B2B",
+  "font-size:var(--niche-font-size)",
+  "line-height:var(--niche-line-height)",
+  "color:var(--niche-text)",
   "word-break:break-word",
 ].join(";");
 
-const h1Style = "margin:0 0 18px;font-size:28px;line-height:1.35;font-weight:700;color:#111827;letter-spacing:-0.02em;";
-const h2Style = "margin:32px 0 14px;padding-left:12px;border-left:4px solid #111827;font-size:22px;line-height:1.45;font-weight:700;color:#111827;";
-const h3Style = "margin:24px 0 10px;font-size:18px;line-height:1.5;font-weight:700;color:#202938;";
-const paragraphStyle = "margin:0 0 16px;color:#2B2B2B;";
-const orderedListStyle = "margin:0 0 18px 22px;padding:0;color:#2B2B2B;";
-const unorderedListStyle = "margin:0 0 18px 20px;padding:0;color:#2B2B2B;";
-const listItemStyle = "margin:0 0 8px;";
-const blockquoteStyle = "margin:20px 0;padding:14px 16px;border-left:4px solid #D4AF37;background:#F8F5EC;border-radius:0 12px 12px 0;";
-const blockquoteParagraphStyle = "margin:0 0 8px;color:#4B5563;";
-const highlightStyle = "margin:24px 0;padding:18px 20px;background:linear-gradient(180deg,#FFF8E6 0%,#FFFDF7 100%);border:1px solid #F3E2A1;border-radius:16px;";
-const highlightParagraphStyle = "margin:0 0 10px;color:#6B4E16;font-weight:600;";
-const quoteCardStyle = "margin:24px 0;padding:18px 20px;background:#F3F4F6;border-radius:16px;border:1px solid #E5E7EB;";
-const quoteParagraphStyle = "margin:0 0 10px;color:#374151;font-style:italic;";
-const ctaStyle = "margin:28px 0;padding:18px 20px;background:#111827;border-radius:18px;";
-const ctaParagraphStyle = "margin:0 0 8px;color:#FFFFFF;font-weight:500;";
-const dividerWrapStyle = "display:flex;align-items:center;gap:12px;margin:28px 0;";
-const dividerLineStyle = "flex:1;height:1px;background:linear-gradient(90deg,rgba(17,24,39,0),rgba(17,24,39,0.3),rgba(17,24,39,0));";
-const dividerLabelStyle = "font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#9CA3AF;";
-const imagePlaceholderStyle = "margin:24px 0;padding:20px;border:1px dashed #CBD5E1;border-radius:16px;background:#F8FAFC;";
-const imagePlaceholderLabelStyle = "display:inline-block;margin-bottom:8px;padding:4px 8px;border-radius:999px;background:#E2E8F0;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#475569;";
-const imagePlaceholderTextStyle = "margin:0;color:#64748B;";
-const strongStyle = "color:#111827;font-weight:700;";
-const codeStyle = "padding:2px 6px;border-radius:6px;background:#F3F4F6;font-size:0.9em;font-family:'SFMono-Regular',Consolas,monospace;color:#B45309;";
+const h1Style = [
+  "margin:0 0 18px",
+  "font-size:25px",
+  "line-height:1.34",
+  "font-weight:700",
+  "color:var(--niche-text)",
+  "letter-spacing:-0.02em",
+].join(";");
+
+const h2Style = [
+  "margin:30px 0 14px",
+  "padding:0 0 0 12px",
+  "border-left:3px solid var(--niche-primary)",
+  "font-size:19px",
+  "line-height:1.5",
+  "font-weight:700",
+  "color:var(--niche-text)",
+  "letter-spacing:-0.01em",
+].join(";");
+
+const h3Style = [
+  "margin:22px 0 10px",
+  "font-size:17px",
+  "line-height:1.55",
+  "font-weight:650",
+  "color:var(--niche-text)",
+].join(";");
+
+const paragraphStyle = [
+  "margin:0 0 var(--niche-paragraph-gap)",
+  "color:var(--niche-text)",
+  "text-align:left",
+].join(";");
+
+const orderedListStyle = [
+  "margin:0 0 18px 22px",
+  "padding:0",
+  "color:var(--niche-text)",
+].join(";");
+
+const unorderedListStyle = [
+  "margin:0 0 18px 20px",
+  "padding:0",
+  "color:var(--niche-text)",
+].join(";");
+
+const listItemStyle = [
+  "margin:0 0 var(--niche-list-gap)",
+  "padding-left:2px",
+].join(";");
+
+const blockquoteStyle = [
+  "margin:22px 0",
+  "padding:12px 14px",
+  "border-left:3px solid var(--niche-primary)",
+  "background:var(--niche-quote-bg)",
+  "border-radius:0 12px 12px 0",
+].join(";");
+
+const blockquoteParagraphStyle = "margin:0 0 8px;color:var(--niche-text-soft);";
+
+const highlightStyle = [
+  "margin:24px 0",
+  "padding:16px 18px",
+  "background:var(--niche-primary-soft)",
+  "border:1px solid var(--niche-primary-line)",
+  "border-radius:var(--niche-radius)",
+].join(";");
+
+const highlightParagraphStyle = "margin:0 0 10px;color:var(--niche-text);font-weight:600;";
+
+const quoteCardStyle = [
+  "margin:24px 0",
+  "padding:16px 18px",
+  "background:var(--niche-surface)",
+  "border:1px solid var(--niche-divider)",
+  "border-radius:var(--niche-radius)",
+].join(";");
+
+const quoteParagraphStyle = "margin:0 0 10px;color:var(--niche-text-soft);font-style:italic;";
+
+const ctaStyle = [
+  "margin:28px 0",
+  "padding:16px 18px",
+  "background:var(--niche-surface)",
+  "border:1px solid var(--niche-primary-line)",
+  "border-radius:16px",
+].join(";");
+
+const ctaParagraphStyle = "margin:0 0 8px;color:var(--niche-text);font-weight:520;";
+
+const dividerWrapStyle = "display:flex;align-items:center;gap:12px;margin:26px 0;";
+const dividerLineStyle = "flex:1;height:1px;background:var(--niche-divider);";
+const dividerLabelStyle = "font-size:11px;letter-spacing:0.14em;text-transform:uppercase;color:var(--niche-text-muted);";
+
+const imagePlaceholderStyle = [
+  "margin:24px 0",
+  "padding:18px 18px",
+  "border:1px dashed var(--niche-primary-line)",
+  "border-radius:16px",
+  "background:var(--niche-surface)",
+].join(";");
+
+const imagePlaceholderLabelStyle = [
+  "display:inline-block",
+  "margin-bottom:8px",
+  "padding:4px 8px",
+  "border-radius:999px",
+  "background:var(--niche-primary-soft)",
+  "font-size:11px",
+  "letter-spacing:0.1em",
+  "text-transform:uppercase",
+  "color:var(--niche-text-soft)",
+].join(";");
+
+const imagePlaceholderTextStyle = "margin:0;color:var(--niche-text-muted);";
+const strongStyle = "color:var(--niche-text);font-weight:700;";
+const codeStyle = "padding:2px 6px;border-radius:6px;background:var(--niche-code-bg);font-size:0.9em;font-family:'SFMono-Regular',Consolas,monospace;color:var(--niche-code-text);";
