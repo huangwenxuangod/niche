@@ -1,5 +1,6 @@
 import { toOpenAiTool } from "./helpers";
 import { analyzeJourneyDataToolDefinition, runAnalyzeJourneyData } from "./analyze-journey-data";
+import { analyzeMyAccountToolDefinition, runAnalyzeMyAccount } from "./analyze-my-account";
 import { complianceCheckToolDefinition } from "./compliance-check";
 import { generateFullArticleToolDefinition, runGenerateFullArticle } from "./generate-full-article";
 import { generateTopicsToolDefinition, runGenerateTopics } from "./generate-topics";
@@ -20,6 +21,10 @@ export const AGENT_TOOL_REGISTRY = {
   import_koc_by_name: {
     definition: importKocByNameToolDefinition,
     execute: runImportKocByName,
+  },
+  analyze_my_account: {
+    definition: analyzeMyAccountToolDefinition,
+    execute: runAnalyzeMyAccount,
   },
   analyze_journey_data: {
     definition: analyzeJourneyDataToolDefinition,
