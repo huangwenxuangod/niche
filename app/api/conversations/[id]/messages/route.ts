@@ -5,7 +5,6 @@ import { buildSystemPrompt } from "@/lib/system-prompt";
 import { llm, type LlmMessage } from "@/lib/llm";
 import { AGENT_TOOL_REGISTRY, AGENT_TOOLS } from "@/lib/agent/tools/registry";
 import type { ToolContextJourney } from "@/lib/agent/tools/types";
-import { buildFollowupQuestionChain } from "@/lib/agent/chains/build-followup-question";
 import { recommendKocFromHotArticlesChain } from "@/lib/agent/chains/recommend-koc-from-hot-articles";
 import { resolveSearchFocusChain } from "@/lib/agent/chains/resolve-search-focus";
 import { resolveUserIntentChain } from "@/lib/agent/chains/resolve-user-intent";
@@ -212,17 +211,19 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
           return;
         }
 
-        const resolvedIntent = await resolveUserIntentChain({
-          journeyId: conv.journey_id,
-          content,
-          recentMessages: ((history ?? []) as ConversationHistoryEntry[]),
-        });
-        const resolvedFocus = await resolveSearchFocusChain({
-          journeyId: conv.journey_id,
-          content,
-          recentMessages: ((history ?? []) as ConversationHistoryEntry[]),
-          projectMemory,
-        });
+        const [resolvedIntent, resolvedFocus] = await Promise.all([
+          resolveUserIntentChain({
+            journeyId: conv.journey_id,
+            content,
+            recentMessages: (history ?? []) as ConversationHistoryEntry[],
+          }),
+          resolveSearchFocusChain({
+            journeyId: conv.journey_id,
+            content,
+            recentMessages: (history ?? []) as ConversationHistoryEntry[],
+            projectMemory,
+          }),
+        ]);
 
         if (resolvedFocus.focus_keyword) {
           await updateJourneyStrategyState(supabase, {
@@ -285,17 +286,15 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
 1. 拆它最近几篇内容为什么能火
 2. 对比你的号和它的差距
 3. 基于它的写法给你出 3 个更适合你的选题`;
-          fullContent = await appendConversationalFollowup({
+          fullContent = await appendTemplateFollowup({
             controller,
             encoder,
-            journeyId: conv.journey_id,
             userMessage: content,
-            assistantDraft: fullContent,
             projectMemory: await getJourneyProjectMemory(supabase, conv.journey_id),
             currentContent: fullContent,
           });
           await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
-          await appendStructuredRoundSummary(supabase, {
+          void appendStructuredRoundSummary(supabase, {
             journeyId: conv.journey_id,
             userId: user.id,
             summary: {
@@ -391,17 +390,15 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
 ${recommendationText}
 
 如果你愿意，直接回我其中一个公众号名字，我就把它导入成对标样本；如果你还没想好，我也可以继续帮你缩小角度。`;
-          fullContent = await appendConversationalFollowup({
+          fullContent = await appendTemplateFollowup({
             controller,
             encoder,
-            journeyId: conv.journey_id,
             userMessage: content,
-            assistantDraft: fullContent,
             projectMemory: await getJourneyProjectMemory(supabase, conv.journey_id),
             currentContent: fullContent,
           });
           await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
-          await appendStructuredRoundSummary(supabase, {
+          void appendStructuredRoundSummary(supabase, {
             journeyId: conv.journey_id,
             userId: user.id,
             summary: {
@@ -666,56 +663,34 @@ ${knowledgeContext}`,
               });
 
               if (toolCall.function.name === "generate_full_article") {
-                const compliance = await runComplianceCheck({
-                  supabase,
-                  journeyId: conv.journey_id,
-                  userId: user.id,
-                  journey: (journeyRecord ?? null) as ToolContextJourney | null,
-                  article: result as FullArticleToolResult,
-                });
-
-                await emitEvent(controller, encoder, {
-                  type: "tool_start",
-                  toolName: "compliance_check",
-                  label: toolLabel("compliance_check"),
-                });
-
-                await emitEvent(controller, encoder, {
-                  type: "tool_result",
-                  toolName: "compliance_check",
-                  label: toolLabel("compliance_check"),
-                  payload: compliance as unknown as Record<string, unknown>,
-                });
-
                 fullContent = formatFullArticleResponse(
                   "我按你的要求写了一版可发布级公众号完整初稿。",
-                  result as FullArticleToolResult,
-                  compliance
+                  result as FullArticleToolResult
                 );
-                await updateProjectCard(supabase, {
+                void updateProjectCard(supabase, {
                   journeyId: conv.journey_id,
                   userId: user.id,
                   patch: {
                     current_stage: "内容生成",
                   },
                 });
-                await updateJourneyStrategyState(supabase, {
+                void updateJourneyStrategyState(supabase, {
                   journeyId: conv.journey_id,
                   userId: user.id,
                   patch: {
                     last_generated_asset: "公众号完整稿",
-                    last_publish_state: "已完成合规检查，待排版发布",
-                    current_todos: ["根据合规建议微调标题与摘要", "进入排版并准备发布"],
+                    last_publish_state: "待排版发布",
+                    current_todos: ["确认正文是否需要微调", "进入排版并准备发布"],
                     next_best_action: "检查完整稿后进入排版与发布",
                   },
                 });
-                await appendStructuredRoundSummary(supabase, {
+                void appendStructuredRoundSummary(supabase, {
                   journeyId: conv.journey_id,
                   userId: user.id,
                   summary: {
-                    user_intent: "生成可发布级完整稿",
+                    user_intent: "生成完整稿",
                     confirmed_decisions: [],
-                    produced_outputs: ["公众号完整稿", "合规检查结果"],
+                    produced_outputs: ["公众号完整稿"],
                     open_questions: [],
                     next_action: "检查完整稿细节后进入排版与发布",
                   },
@@ -730,14 +705,14 @@ ${knowledgeContext}`,
 
               if (toolCall.function.name === "generate_topics") {
                 const topics = ((result as TopicToolResult | null)?.topics ?? []).map((item) => item.title);
-                await updateProjectCard(supabase, {
+                void updateProjectCard(supabase, {
                   journeyId: conv.journey_id,
                   userId: user.id,
                   patch: {
                     current_stage: "选题判断",
                   },
                 });
-                await updateJourneyStrategyState(supabase, {
+                void updateJourneyStrategyState(supabase, {
                   journeyId: conv.journey_id,
                   userId: user.id,
                   patch: {
@@ -751,14 +726,14 @@ ${knowledgeContext}`,
 
               if (toolCall.function.name === "compliance_check") {
                 fullContent = formatComplianceResponse(result as ComplianceCheckResult);
-                await updateProjectCard(supabase, {
+                void updateProjectCard(supabase, {
                   journeyId: conv.journey_id,
                   userId: user.id,
                   patch: {
                     current_stage: "发布准备",
                   },
                 });
-                await updateJourneyStrategyState(supabase, {
+                void updateJourneyStrategyState(supabase, {
                   journeyId: conv.journey_id,
                   userId: user.id,
                   patch: {
@@ -768,7 +743,7 @@ ${knowledgeContext}`,
                     next_best_action: "根据合规结果修正文案后进入排版",
                   },
                 });
-                await appendStructuredRoundSummary(supabase, {
+                void appendStructuredRoundSummary(supabase, {
                   journeyId: conv.journey_id,
                   userId: user.id,
                   summary: {
@@ -841,18 +816,16 @@ ${knowledgeContext}`,
           });
         }
 
-        fullContent = await appendConversationalFollowup({
+        fullContent = await appendTemplateFollowup({
           controller,
           encoder,
-          journeyId: conv.journey_id,
           userMessage: content,
-          assistantDraft: fullContent,
           projectMemory: await getJourneyProjectMemory(supabase, conv.journey_id),
           currentContent: fullContent,
         });
 
         await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
-        await appendStructuredRoundSummary(supabase, {
+        void appendStructuredRoundSummary(supabase, {
           journeyId: conv.journey_id,
           userId: user.id,
           summary: {
@@ -868,7 +841,7 @@ ${knowledgeContext}`,
 
         if (!conv.title || conv.title === "新对话" || conv.title === "第一次对话") {
           const title = fullContent.slice(0, 40).replace(/\n/g, " ");
-          await supabase.from("conversations").update({ title }).eq("id", conversationId);
+          void supabase.from("conversations").update({ title }).eq("id", conversationId);
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : "Unknown error";
@@ -937,33 +910,43 @@ function inferNextAction(assistantContent: string) {
   return "继续围绕当前结果推进下一步";
 }
 
-async function appendConversationalFollowup(params: {
+async function appendTemplateFollowup(params: {
   controller: ReadableStreamDefaultController;
   encoder: TextEncoder;
-  journeyId: string;
   userMessage: string;
-  assistantDraft: string;
   projectMemory: Awaited<ReturnType<typeof getJourneyProjectMemory>>;
   currentContent: string;
 }) {
-  try {
-    const followup = await buildFollowupQuestionChain({
-      journeyId: params.journeyId,
-      userMessage: params.userMessage,
-      assistantDraft: params.assistantDraft,
-      projectMemory: params.projectMemory,
-    });
-
-    if (!followup.question) {
-      return params.currentContent;
-    }
-
-    const nextContent = `${params.currentContent.trim()}\n\n${followup.question.trim()}`;
-    await emitText(params.controller, params.encoder, `\n\n${followup.question.trim()}`);
-    return nextContent;
-  } catch {
+  const followup = buildTemplateFollowup(params.userMessage, params.projectMemory);
+  if (!followup) {
     return params.currentContent;
   }
+
+  const nextContent = `${params.currentContent.trim()}\n\n${followup}`;
+  await emitText(params.controller, params.encoder, `\n\n${followup}`);
+  return nextContent;
+}
+
+function buildTemplateFollowup(
+  userMessage: string,
+  projectMemory: Awaited<ReturnType<typeof getJourneyProjectMemory>>
+) {
+  const strategy = projectMemory.strategy_state;
+  const text = userMessage.trim();
+
+  if (strategy.current_benchmark_name) {
+    return "如果你要，我可以继续帮你拆这个号的选题结构，或者直接按它的写法给你出 3 个新选题。";
+  }
+
+  if (strategy.current_focus_keyword) {
+    return `如果你要，我可以继续围绕「${strategy.current_focus_keyword}」帮你找对标、出选题，或者直接写下一篇。`;
+  }
+
+  if (/写|文章|公众号|选题|内容/.test(text)) {
+    return "如果你要，我可以继续帮你收窄主题、找对标账号，或者直接按这个方向写一篇。";
+  }
+
+  return "如果你要，我可以继续帮你改标题、缩短篇幅，或把它调成更安全版本。";
 }
 
 function shouldAutoImportBenchmark(content: string) {
@@ -1273,32 +1256,11 @@ async function handleNaturalLanguageFollowUp(params: {
         }
       );
 
-      const compliance = await runComplianceCheck({
-        supabase: params.supabase,
-        journeyId: params.journeyId,
-        userId: params.userId,
-        journey: params.journey,
-        article,
-      });
-
       await emitEvent(params.controller, params.encoder, {
         type: "tool_result",
         toolName: "generate_full_article",
         label: toolLabel("generate_full_article"),
         payload: article,
-      });
-
-      await emitEvent(params.controller, params.encoder, {
-        type: "tool_start",
-        toolName: "compliance_check",
-        label: toolLabel("compliance_check"),
-      });
-
-      await emitEvent(params.controller, params.encoder, {
-        type: "tool_result",
-        toolName: "compliance_check",
-        label: toolLabel("compliance_check"),
-        payload: compliance as unknown as Record<string, unknown>,
       });
 
       await finalizeToolCallLog(params.supabase, toolLogId, {
@@ -1308,36 +1270,35 @@ async function handleNaturalLanguageFollowUp(params: {
 
       const response = formatFullArticleResponse(
         `你选了 **${topic.title}**，我按这个方向写了一版可发布级公众号完整初稿。`,
-        article,
-        compliance
+        article
       );
-      await updateProjectCard(params.supabase, {
+      void updateProjectCard(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         patch: {
           current_stage: "内容生成",
         },
       });
-      await updateJourneyStrategyState(params.supabase, {
+      void updateJourneyStrategyState(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         patch: {
           confirmed_directions: [topic.title],
           last_generated_asset: "公众号完整稿",
-          last_publish_state: "已完成合规检查，待排版发布",
-          current_todos: ["根据合规建议微调标题与摘要", "进入排版并准备发布"],
+          last_publish_state: "待排版发布",
+          current_todos: ["确认正文是否需要微调", "进入排版并准备发布"],
           next_best_action: "确认这版完整稿是否进入排版与发布",
         } as Partial<JourneyStrategyState>,
       });
-      await appendStructuredRoundSummary(params.supabase, {
+      void appendStructuredRoundSummary(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         summary: {
           user_intent: "确认选题并扩写成完整稿",
           confirmed_decisions: [`已确认选题：${topic.title}`],
-          produced_outputs: ["公众号完整稿", "合规检查结果"],
+          produced_outputs: ["公众号完整稿"],
           open_questions: [],
-          next_action: "进入排版，或根据风控建议先微调标题与摘要",
+          next_action: "进入排版，或按需要继续微调正文",
         },
       });
       await emitText(params.controller, params.encoder, response);
@@ -1389,32 +1350,11 @@ async function handleNaturalLanguageFollowUp(params: {
         }
       );
 
-      const compliance = await runComplianceCheck({
-        supabase: params.supabase,
-        journeyId: params.journeyId,
-        userId: params.userId,
-        journey: params.journey,
-        article,
-      });
-
       await emitEvent(params.controller, params.encoder, {
         type: "tool_result",
         toolName: "generate_full_article",
         label: toolLabel("generate_full_article"),
         payload: article,
-      });
-
-      await emitEvent(params.controller, params.encoder, {
-        type: "tool_start",
-        toolName: "compliance_check",
-        label: toolLabel("compliance_check"),
-      });
-
-      await emitEvent(params.controller, params.encoder, {
-        type: "tool_result",
-        toolName: "compliance_check",
-        label: toolLabel("compliance_check"),
-        payload: compliance as unknown as Record<string, unknown>,
       });
 
       await finalizeToolCallLog(params.supabase, toolLogId, {
@@ -1424,34 +1364,33 @@ async function handleNaturalLanguageFollowUp(params: {
 
       const response = formatFullArticleResponse(
         `收到，我已经把这次偏好记下来了，并基于 **${result.title}** 扩成一版完整公众号初稿。`,
-        article,
-        compliance
+        article
       );
-      await updateProjectCard(params.supabase, {
+      void updateProjectCard(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         patch: {
           current_stage: "内容生成",
         },
       });
-      await updateJourneyStrategyState(params.supabase, {
+      void updateJourneyStrategyState(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         patch: {
           confirmed_directions: [result.title],
           last_generated_asset: "公众号完整稿",
-          last_publish_state: "已完成合规检查，待排版发布",
+          last_publish_state: "待排版发布",
           current_todos: ["确认是否继续修改", "进入排版与发布流程"],
           next_best_action: "检查完整稿是否需要润色，随后进入排版",
         } as Partial<JourneyStrategyState>,
       });
-      await appendStructuredRoundSummary(params.supabase, {
+      void appendStructuredRoundSummary(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         summary: {
           user_intent: "采用骨架稿并扩成完整稿",
           confirmed_decisions: [`采用初稿：${result.title}`],
-          produced_outputs: ["公众号完整稿", "合规检查结果"],
+          produced_outputs: ["公众号完整稿"],
           open_questions: [],
           next_action: "确认这版完整稿是否继续修改或直接排版",
         },
@@ -1493,32 +1432,11 @@ async function handleNaturalLanguageFollowUp(params: {
         instruction: params.content,
       });
 
-      const compliance = await runComplianceCheck({
-        supabase: params.supabase,
-        journeyId: params.journeyId,
-        userId: params.userId,
-        journey: params.journey,
-        article: revised,
-      });
-
       await emitEvent(params.controller, params.encoder, {
         type: "tool_result",
         toolName: "revise_full_article",
         label: toolLabel("revise_full_article"),
         payload: revised,
-      });
-
-      await emitEvent(params.controller, params.encoder, {
-        type: "tool_start",
-        toolName: "compliance_check",
-        label: toolLabel("compliance_check"),
-      });
-
-      await emitEvent(params.controller, params.encoder, {
-        type: "tool_result",
-        toolName: "compliance_check",
-        label: toolLabel("compliance_check"),
-        payload: compliance as unknown as Record<string, unknown>,
       });
 
       await finalizeToolCallLog(params.supabase, toolLogId, {
@@ -1533,31 +1451,31 @@ async function handleNaturalLanguageFollowUp(params: {
         params.content
       );
 
-      const response = formatFullArticleResponse("我按你的修改意见重写了一版：", revised, compliance);
-      await updateProjectCard(params.supabase, {
+      const response = formatFullArticleResponse("我按你的修改意见重写了一版：", revised);
+      void updateProjectCard(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         patch: {
           current_stage: "内容迭代",
         },
       });
-      await updateJourneyStrategyState(params.supabase, {
+      void updateJourneyStrategyState(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         patch: {
           last_generated_asset: "重写后的公众号完整稿",
-          last_publish_state: "已完成合规检查，待确认发布",
+          last_publish_state: "待确认发布",
           current_todos: ["确认这版是否满足预期", "进入排版与发布"],
           next_best_action: "检查修改后的完整稿是否可以进入排版",
         } as Partial<JourneyStrategyState>,
       });
-      await appendStructuredRoundSummary(params.supabase, {
+      void appendStructuredRoundSummary(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         summary: {
           user_intent: "按要求重写上一版完整稿",
           confirmed_decisions: ["已按当前修改意见重写文章"],
-          produced_outputs: ["重写后的完整稿", "最新合规检查结果"],
+          produced_outputs: ["重写后的完整稿"],
           open_questions: [],
           next_action: "确认新版是否进入排版，或继续微调",
         },
@@ -1611,14 +1529,14 @@ async function handleNaturalLanguageFollowUp(params: {
       });
 
       const response = formatComplianceResponse(compliance);
-      await updateProjectCard(params.supabase, {
+      void updateProjectCard(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         patch: {
           current_stage: "发布准备",
         },
       });
-      await updateJourneyStrategyState(params.supabase, {
+      void updateJourneyStrategyState(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         patch: {
@@ -1628,7 +1546,7 @@ async function handleNaturalLanguageFollowUp(params: {
           next_best_action: "根据合规结果修正文案后进入排版",
         } as Partial<JourneyStrategyState>,
       });
-      await appendStructuredRoundSummary(params.supabase, {
+      void appendStructuredRoundSummary(params.supabase, {
         journeyId: params.journeyId,
         userId: params.userId,
         summary: {
@@ -1776,23 +1694,11 @@ async function getTrackedAccountNames(
 
 function formatFullArticleResponse(
   prefix: string,
-  article: FullArticleToolResult,
-  compliance?: ComplianceCheckResult
+  article: FullArticleToolResult
 ) {
   const titleOptions = article.title_options.length
     ? article.title_options.map((title, index) => `${index + 1}. ${title}`).join("\n")
     : "暂无";
-
-  const complianceSection = compliance
-    ? `\n\n**合规风控**
-评分：${compliance.score}/100
-发布建议：${compliance.publish_recommendation}
-总览：${compliance.overview}
-
-${formatComplianceIssues(compliance.issues)}
-
-如果你愿意，我可以继续帮你：**按风控建议直接重写标题、摘要、CTA，或者把高风险段落改得更安全。**`
-    : `\n\n如果你愿意，我可以继续帮你做：**合规检查、风险改写、CTA 优化**。`;
 
   return `${prefix}
 
@@ -1812,7 +1718,7 @@ ${article.reference_note}
 
 ${article.article_markdown}
 
-如果你想继续调，我可以按你的要求做：**更犀利一点、缩短一半、重写开头、换标题风格、改成保姆教程风**。${complianceSection}`;
+如果你要，我可以继续帮你改标题、缩短篇幅，或把它调成更安全版本。`;
 }
 
 function formatComplianceResponse(result: ComplianceCheckResult) {

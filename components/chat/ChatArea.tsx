@@ -663,19 +663,28 @@ function buildLoadingSnapshot(events: ToolEvent[], assistantStatus: string | nul
   const latestToolName = activeToolEvent?.toolName;
   const activeStage = resolveActiveStage(latestToolName, assistantStatus);
   const meta = getToolMeta(latestToolName, assistantStatus);
-  const order = ["understand", "retrieve", "compose", "generate", "review", "stream"];
+  const includeReview = latestToolName === "compliance_check";
+  const order = includeReview
+    ? ["understand", "retrieve", "compose", "generate", "review", "stream"]
+    : ["understand", "retrieve", "compose", "generate", "stream"];
+
+  const steps: LoadingStep[] = [
+    { key: "understand", label: "理解问题", state: stageState("understand", activeStage, order) },
+    { key: "retrieve", label: "检索资料", state: stageState("retrieve", activeStage, order) },
+    { key: "compose", label: "组织答案", state: stageState("compose", activeStage, order) },
+    { key: "generate", label: "生成内容", state: stageState("generate", activeStage, order) },
+  ];
+
+  if (includeReview) {
+    steps.push({ key: "review", label: "风控检查", state: stageState("review", activeStage, order) });
+  }
+
+  steps.push({ key: "stream", label: "输出结果", state: stageState("stream", activeStage, order) });
 
   return {
     title: meta.title,
     hint: meta.hint,
-    steps: [
-      { key: "understand", label: "理解问题", state: stageState("understand", activeStage, order) },
-      { key: "retrieve", label: "检索资料", state: stageState("retrieve", activeStage, order) },
-      { key: "compose", label: "组织答案", state: stageState("compose", activeStage, order) },
-      { key: "generate", label: "生成内容", state: stageState("generate", activeStage, order) },
-      { key: "review", label: "风控检查", state: stageState("review", activeStage, order) },
-      { key: "stream", label: "输出结果", state: stageState("stream", activeStage, order) },
-    ],
+    steps,
   };
 }
 
