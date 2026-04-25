@@ -10,6 +10,39 @@ interface Props {
 }
 
 type ConfigState = "checking" | "configured" | "not_configured";
+type AnalysisReport = {
+  summary: {
+    account_name: string;
+    article_count_30d: number;
+    avg_read: number;
+    best_article_title: string | null;
+  };
+  content_overview: {
+    posting_pattern: string;
+    title_pattern: string;
+    best_topics: string[];
+  };
+  top_articles: Array<{
+    title: string;
+    read_num: number;
+    publish_time: string | null;
+    reason: string;
+  }>;
+  competitor_gap: {
+    overview: string;
+    topic_gap: string[];
+    title_gap: string[];
+    structure_gap: string[];
+  };
+  next_actions: string[];
+  message_for_chat: string;
+};
+type AnalysisMeta = {
+  source_mode: "content_only" | "mixed";
+  official_config_present: boolean;
+  official_metrics_enabled: boolean;
+  warnings: string[];
+};
 
 export function AccountAnalysisModal({ journeyId, onClose, onResult }: Props) {
   const [configState, setConfigState] = useState<ConfigState>("checking");
@@ -17,6 +50,10 @@ export function AccountAnalysisModal({ journeyId, onClose, onResult }: Props) {
   const [appSecret, setAppSecret] = useState("");
   const [accountName, setAccountName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [report, setReport] = useState<AnalysisReport | null>(null);
+  const [analysisMeta, setAnalysisMeta] = useState<AnalysisMeta | null>(null);
+  const [articleCount, setArticleCount] = useState(0);
+  const [metricCount, setMetricCount] = useState(0);
 
   const canAnalyze = accountName.trim().length > 0;
 
@@ -84,7 +121,10 @@ export function AccountAnalysisModal({ journeyId, onClose, onResult }: Props) {
           throw new Error(data.error || "增长分析失败");
         }
         toast.success("增长分析已完成");
-        onResult(data.report?.message_for_chat || `请基于公众号“${normalizedName}”的分析结果，给我下一步建议。`);
+        setReport(data.report ?? null);
+        setAnalysisMeta(data.analysis_meta ?? null);
+        setArticleCount(Number(data.article_count || 0));
+        setMetricCount(Number(data.metric_count || 0));
       })
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : "增长分析失败");
@@ -140,6 +180,21 @@ export function AccountAnalysisModal({ journeyId, onClose, onResult }: Props) {
         <div style={{ padding: "20px 24px 24px" }}>
           {configState === "checking" ? (
             <div style={placeholderWrapStyle}>正在检查公众号配置...</div>
+          ) : report ? (
+            <AnalysisResultView
+              accountName={accountName.trim() || report.summary.account_name}
+              articleCount={articleCount}
+              metricCount={metricCount}
+              analysisMeta={analysisMeta}
+              report={report}
+              onBack={() => setReport(null)}
+              onSend={() => {
+                onResult(
+                  report.message_for_chat ||
+                    `请基于公众号“${accountName.trim() || report.summary.account_name}”的分析结果，给我下一步建议。`
+                );
+              }}
+            />
           ) : (
             <>
               <PublishStatusCard configured={configState === "configured"} appId={appId} />
@@ -189,6 +244,169 @@ export function AccountAnalysisModal({ journeyId, onClose, onResult }: Props) {
             </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AnalysisResultView({
+  accountName,
+  articleCount,
+  metricCount,
+  analysisMeta,
+  report,
+  onBack,
+  onSend,
+}: {
+  accountName: string;
+  articleCount: number;
+  metricCount: number;
+  analysisMeta: AnalysisMeta | null;
+  report: AnalysisReport;
+  onBack: () => void;
+  onSend: () => void;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div
+        style={{
+          padding: "14px 16px",
+          borderRadius: 10,
+          background: "var(--bg-base)",
+          border: "1px solid var(--border)",
+        }}
+      >
+        <div style={statusTitleStyle}>增长分析结果</div>
+        <div style={{ fontSize: 14, color: "var(--text-primary)", fontWeight: 600, marginBottom: 6 }}>
+          {accountName}
+        </div>
+        <div style={{ fontSize: 12, lineHeight: 1.7, color: "var(--text-secondary)" }}>
+          已同步 {articleCount} 篇自己的内容
+          {analysisMeta?.source_mode === "mixed"
+            ? `，补充了 ${metricCount} 条官方数据`
+            : "，当前以内容主体分析为主"}
+        </div>
+        {analysisMeta ? (
+          <div
+            style={{
+              marginTop: 10,
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
+            }}
+          >
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+              数据来源：
+              {analysisMeta.source_mode === "mixed"
+                ? " 公众号内容导入 + 官方数据增强"
+                : " 公众号内容导入"}
+            </div>
+            {analysisMeta.warnings.map((warning) => (
+              <div
+                key={warning}
+                style={{
+                  fontSize: 11,
+                  lineHeight: 1.7,
+                  color: "var(--text-secondary)",
+                }}
+              >
+                {warning}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <ResultSection
+        title="我的号概况"
+        items={[
+          `近 30 篇文章数：${report.summary.article_count_30d}`,
+          `平均阅读：${report.summary.avg_read}`,
+          `当前最强文章：${report.summary.best_article_title || "暂无"}`,
+          `发文节奏：${report.content_overview.posting_pattern}`,
+        ]}
+      />
+
+      <ResultSection
+        title="最近高表现内容"
+        items={report.top_articles.map(
+          (item) => `${item.title}｜阅读 ${item.read_num}${item.reason ? `｜${item.reason}` : ""}`
+        )}
+      />
+
+      <ResultSection
+        title="自己 vs 对标"
+        lead={report.competitor_gap.overview}
+        items={[
+          ...report.competitor_gap.topic_gap.map((item) => `选题差距：${item}`),
+          ...report.competitor_gap.title_gap.map((item) => `标题差距：${item}`),
+          ...report.competitor_gap.structure_gap.map((item) => `结构差距：${item}`),
+        ]}
+      />
+
+      <ResultSection
+        title="下一步建议"
+        items={report.next_actions}
+      />
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <button onClick={onBack} style={ghostBtnStyle}>重新分析</button>
+        <button onClick={onSend} style={primaryBtnStyle}>发送到对话 →</button>
+      </div>
+    </div>
+  );
+}
+
+function ResultSection({
+  title,
+  lead,
+  items,
+}: {
+  title: string;
+  lead?: string;
+  items: string[];
+}) {
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        background: "var(--bg-base)",
+        borderRadius: 10,
+        padding: "14px 16px",
+      }}
+    >
+      <div style={{ ...statusValueStyle, marginBottom: 10 }}>{title}</div>
+      {lead ? (
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.75, marginBottom: 10 }}>
+          {lead}
+        </div>
+      ) : null}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {items.map((item) => (
+          <div
+            key={item}
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "flex-start",
+              fontSize: 12,
+              lineHeight: 1.7,
+              color: "var(--text-secondary)",
+            }}
+          >
+            <span
+              style={{
+                width: 4,
+                height: 4,
+                marginTop: 8,
+                borderRadius: "50%",
+                background: "var(--accent)",
+                flexShrink: 0,
+              }}
+            />
+            <span>{item}</span>
+          </div>
+        ))}
       </div>
     </div>
   );

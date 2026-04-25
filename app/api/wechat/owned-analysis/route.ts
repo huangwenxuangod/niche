@@ -93,6 +93,12 @@ export async function POST(req: NextRequest) {
       report_id: result.reportId,
       article_count: result.articleCount,
       metric_count: result.metricCount,
+      analysis_meta: {
+        source_mode: result.sourceMode,
+        official_config_present: result.officialConfigPresent,
+        official_metrics_enabled: result.officialMetricsEnabled,
+        warnings: result.warnings,
+      },
       report: result.report,
     });
   } catch (error) {

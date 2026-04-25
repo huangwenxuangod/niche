@@ -151,6 +151,7 @@ export async function runOwnedWechatAnalysis(params: {
             return {
               metrics: [],
               officialMetricsEnabled: false,
+              warnings: ["当前未配置公众号官方凭证，结果以内容主体分析为主。"],
             };
           }
 
@@ -163,6 +164,11 @@ export async function runOwnedWechatAnalysis(params: {
             officialMetricsEnabled = metrics.length > 0;
           } catch (error) {
             console.warn("[owned-analysis] official metrics unavailable:", error);
+            return {
+              metrics: [],
+              officialMetricsEnabled: false,
+              warnings: ["公众号官方接口暂时不可用，当前结果以内容主体分析为主。"],
+            };
           }
 
           return {

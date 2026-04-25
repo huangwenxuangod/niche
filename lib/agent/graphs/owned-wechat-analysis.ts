@@ -105,6 +105,7 @@ type OwnedWechatAnalysisGraphDeps = {
   fetchOfficialMetrics: (config: WechatConfigRow | null) => Promise<{
     metrics: ArticleMetric[];
     officialMetricsEnabled: boolean;
+    warnings?: string[];
   }>;
   saveArticlesAndRefreshProfile: (input: {
     ownedProfileId: string;
@@ -140,6 +141,12 @@ const OwnedWechatAnalysisState = Annotation.Root({
     default: () => [],
   }),
   officialMetricsEnabled: Annotation<boolean>(),
+  officialConfigPresent: Annotation<boolean>(),
+  sourceMode: Annotation<"content_only" | "mixed">(),
+  warnings: Annotation<string[]>({
+    reducer: (left, right) => left.concat(right),
+    default: () => [],
+  }),
   syncedArticles: Annotation<OwnedWechatArticleRecord[]>({
     reducer: (_left, right) => right,
     default: () => [],
@@ -164,6 +171,7 @@ export async function runOwnedWechatAnalysisGraph(
 
       return {
         config,
+        officialConfigPresent: Boolean(config),
         wechatConfigId: config?.id ?? state.wechatConfigId ?? null,
       };
     })
@@ -211,6 +219,13 @@ export async function runOwnedWechatAnalysisGraph(
       return {
         metrics,
         officialMetricsEnabled,
+        sourceMode: officialMetricsEnabled ? "mixed" : "content_only",
+        warnings:
+          metrics.length > 0
+            ? []
+            : state.config
+              ? ["本次没有补充到官方表现数据，当前结果以内容主体分析为主。"]
+              : ["当前未配置公众号官方凭证，结果以内容主体分析为主。"],
         metricCount: metrics.length,
       };
     })
@@ -288,6 +303,9 @@ export async function runOwnedWechatAnalysisGraph(
     syncedArticles: [],
     report: null,
     reportId: null,
+    officialConfigPresent: false,
+    sourceMode: "content_only",
+    warnings: [],
     articleCount: 0,
     metricCount: 0,
   }, buildAgentRunConfig({
@@ -308,6 +326,10 @@ export async function runOwnedWechatAnalysisGraph(
     reportId: result.reportId,
     articleCount: result.articleCount ?? result.syncedArticles.length,
     metricCount: result.metricCount ?? result.metrics.length,
+    sourceMode: result.sourceMode ?? "content_only",
+    officialConfigPresent: result.officialConfigPresent ?? false,
+    officialMetricsEnabled: result.officialMetricsEnabled ?? false,
+    warnings: result.warnings ?? [],
     report: result.report,
   };
 }
