@@ -15,12 +15,33 @@ Niche 是一个面向冷启动 KOC 的 AI 内容增长教练。
 - 旅程创建：选择平台、赛道、内容类型，建立一条内容增长旅程
 - 导入对标账号：通过公众号名称、文章链接等方式导入样本账号
 - 对标内容库：将已导入账号的文章和数据沉淀为结构化样本库
-- 增长分析：分析对标账号、高表现文章、标题规律和结构差异
+- 增长分析：输入自己的公众号名称，导入自己的内容主体，并尽量补官方表现数据，输出“我的号概况 + 自己 vs 对标 + 下一步建议”
 - 增长机会搜索：搜索当前赛道值得跟进的话题方向
 - 生成增长内容：基于赛道、对标内容库和用户记忆生成完整稿
 - 发布风险检查：自动识别高风险表达并给出替代建议
 - 发布排版：将内容整理成更适合公众号阅读和发布的版式
 - 发布到公众号：通过官方 API + 固定 IP 网关保存到公众号草稿箱
+
+## 当前工程架构
+
+当前项目已经开始从“自研单体 Agent”迁移到 **LangChain 生态链路**：
+
+- `lib/agent/models.ts`
+  - 统一模型初始化，兼容当前 Ark / OpenAI SDK 风格调用
+- `lib/agent/tools/*`
+  - 核心工具开始从聊天主路由拆出，逐步脱离 `route.ts`
+- `lib/agent/retrievers/*`
+  - 对标内容、自己的公众号内容、热点、项目脑记忆已抽成独立检索层
+- `lib/agent/chains/*`
+  - 增长分析结果卡、项目脑更新、本轮结论已经开始走 LangChain 结构化输出
+- `lib/agent/graphs/owned-wechat-analysis.ts`
+  - `增长分析` 已作为第一条 LangGraph 试点 workflow 落地
+
+当前迁移状态：
+
+- `chat / streamChat / completeWithTools` 已开始走 LangChain 兼容 runtime
+- 主聊天 UI 与现有 API 路由仍保持兼容，不做大爆破重构
+- LangSmith tracing 环境位已接入，配置后可直接追踪主链和增长分析链
 
 ## Agent 工具
 
@@ -55,6 +76,17 @@ Niche 是一个面向冷启动 KOC 的 AI 内容增长教练。
 
 > 这是一个“可被 Agent 调用的 Supabase 对标内容库”，但还不是完整的向量知识库系统。
 
+### 对标导入策略
+
+为了保证初始化速度、降低单次导入成本，当前每个对标账号默认只同步：
+
+- 最近 `3` 篇文章样本
+
+这条策略同时作用于：
+
+- 新导入对标账号
+- 手动同步已有对标账号
+
 ## 记忆层说明
 
 当前记忆层采用“Markdown 文件 + Prompt 注入”的轻量方案。
@@ -78,12 +110,33 @@ Niche 是一个面向冷启动 KOC 的 AI 内容增长教练。
 
 这是一版实现快、可见性强的记忆层。后续如果要升级，可以把 markdown 记忆进一步结构化，或者迁移到数据库与向量检索结合。
 
+### 项目级记忆（新增）
+
+除原有 Markdown 记忆外，当前已经增加一层 **结构化项目脑**：
+
+- `journey_project_memories`
+  - 项目档案卡
+  - 旅程策略状态
+  - 本轮结论
+
+这层记忆会在：
+
+- 用户明确确认定位 / 目标 / 平台策略时更新
+- 生成选题、完整稿、合规检查、增长分析等关键节点后更新
+
+它的作用不是替代聊天记忆，而是让系统更清楚：
+
+- 这个项目是什么
+- 当前做到哪一步
+- 下一步最该做什么
+
 ## 技术栈
 
 - Next.js 16
 - React 19
 - Supabase
 - OpenAI SDK 兼容接口
+- LangChain / LangGraph / LangSmith
 - 大佳拉 API
 - Tavily Search
 - 微信官方 API + 固定 IP 转发网关
@@ -103,7 +156,15 @@ components/
   chat/
   sidebar/
 lib/
+  agent/
+    chains/
+    graphs/
+    models.ts
+    retrievers/
+    schemas/
+    tools/
   llm.ts
+  memory.ts
   system-prompt.ts
   koc-import.ts
   knowledge-base.ts
@@ -166,11 +227,13 @@ WECHAT_GATEWAY_TOKEN=
 - `POST /api/journeys`
   作用：创建旅程并生成首个对话
 - `POST /api/koc/import`
-  作用：导入指定对标账号和文章
+  作用：导入指定对标账号和文章（当前默认只同步 3 篇）
 - `POST /api/koc/:id/sync`
-  作用：同步已存在对标账号的文章
+  作用：同步已存在对标账号的文章（当前默认只同步 3 篇）
 - `POST /api/conversations/:id/messages`
   作用：Agent 聊天主入口，返回 SSE 流
+- `POST /api/wechat/owned-analysis`
+  作用：增长分析入口，导入自己的公众号内容并生成结构化结果卡
 - `POST /api/wechat/publish`
   作用：保存到公众号草稿箱
 
@@ -183,7 +246,8 @@ WECHAT_GATEWAY_TOKEN=
 - 已经有单 Agent + 多工具 + 半自动执行
 - 已经支持导入对标账号、增长分析、内容生成、风险检查、排版、发布草稿
 - 已经支持基于 Supabase 的结构化对标内容检索
-- 还没有做多 Agent 调度
+- 已经开始接入 LangChain 生态，并将增长分析作为第一条 LangGraph 试点链路
+- 还没有做完整的多 Agent 调度
 - 还没有做真正的向量 RAG
 - 还没有做完整的跨平台社媒发布矩阵
 

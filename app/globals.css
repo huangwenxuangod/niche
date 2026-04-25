@@ -282,87 +282,124 @@ html, body {
   line-height: 1.45;
 }
 
-.niche-toast {
-  min-width: min(360px, calc(100vw - 24px));
-  max-width: min(360px, calc(100vw - 24px));
+.niche-toast-shell {
   margin-top: 8px;
+}
+
+.niche-toast-card {
+  width: min(320px, calc(100vw - 24px));
   border-radius: 14px;
   border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-surface) 96%, var(--bg-base) 4%);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.16);
+  background: color-mix(in srgb, var(--bg-surface) 97%, var(--bg-base) 3%);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.14);
   color: var(--text-primary);
-  padding: 10px 10px 10px 12px;
+  padding: 10px 12px;
   backdrop-filter: blur(10px);
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 10px;
-  row-gap: 0;
 }
 
-.niche-toast[data-type="error"] {
-  border-color: color-mix(in srgb, #e57373 18%, var(--border));
+.niche-toast-card[data-type="default"] {
+  border-color: color-mix(in srgb, var(--accent) 14%, var(--border));
 }
 
-.niche-toast[data-type="success"] {
-  border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+.niche-toast-card[data-type="success"] {
+  border-color: color-mix(in srgb, #4caf50 42%, var(--border));
 }
 
-.niche-toast [data-icon] {
-  width: 16px;
-  height: 16px;
-  color: var(--text-secondary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.niche-toast-card[data-type="error"] {
+  border-color: color-mix(in srgb, #ef5350 44%, var(--border));
 }
 
-.niche-toast [data-content] {
+.niche-toast-card[data-type="warning"] {
+  border-color: color-mix(in srgb, #f4b400 48%, var(--border));
+}
+
+.niche-toast-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.niche-toast-card__title-wrap {
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
+  align-items: center;
+  gap: 8px;
 }
 
-.niche-toast [data-title] {
+.niche-toast-card__badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 650;
+  padding: 5px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent 12%);
+}
+
+.niche-toast-card[data-type="success"] .niche-toast-card__badge {
+  color: #2e7d32;
+  border-color: color-mix(in srgb, #4caf50 42%, var(--border));
+  background: color-mix(in srgb, #4caf50 10%, var(--bg-elevated));
+}
+
+.niche-toast-card[data-type="error"] .niche-toast-card__badge {
+  color: #c62828;
+  border-color: color-mix(in srgb, #ef5350 44%, var(--border));
+  background: color-mix(in srgb, #ef5350 10%, var(--bg-elevated));
+}
+
+.niche-toast-card[data-type="warning"] .niche-toast-card__badge {
+  color: #a86d00;
+  border-color: color-mix(in srgb, #f4b400 50%, var(--border));
+  background: color-mix(in srgb, #f4b400 10%, var(--bg-elevated));
+}
+
+.niche-toast-card__title {
+  min-width: 0;
   font-size: 12px;
-  line-height: 1.45;
-  font-weight: 520;
+  line-height: 1.5;
+  font-weight: 560;
   color: var(--text-primary);
   word-break: break-word;
 }
 
-.niche-toast [data-description] {
-  margin-top: 3px;
-  color: var(--text-secondary);
-  font-size: 11px;
-  line-height: 1.5;
-  word-break: break-word;
-}
-
-.niche-toast [data-close-button] {
-  position: static;
-  width: 20px;
-  height: 20px;
-  margin: 0;
-  padding: 0;
+.niche-toast-card__toggle {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
   border-radius: 999px;
   background: transparent;
-  border: 1px solid var(--border);
   color: var(--text-secondary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  align-self: start;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
 }
 
-.niche-toast [data-close-button]:hover {
+.niche-toast-card__toggle:hover {
   background: color-mix(in srgb, var(--bg-elevated) 94%, transparent 6%);
   color: var(--text-primary);
 }
 
-.niche-toast [data-button] {
-  margin-top: 8px;
+.niche-toast-card__details {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.niche-toast-card__description {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.niche-toast-card__action {
+  margin-top: 10px;
   width: fit-content;
   padding: 6px 10px;
   border-radius: 999px;
@@ -372,8 +409,9 @@ html, body {
   font-size: 11px;
   line-height: 1;
   font-weight: 520;
+  transition: background 0.18s ease;
 }
 
-.niche-toast [data-button]:hover {
+.niche-toast-card__action:hover {
   background: color-mix(in srgb, var(--accent-dim) 88%, transparent 12%);
 }

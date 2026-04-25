@@ -80,10 +80,9 @@ export function AntdProvider({ children }: PropsWithChildren) {
           <Toaster
             position="top-center"
             expand={false}
-            closeButton
             toastOptions={{
               unstyled: true,
-              className: "niche-toast",
+              className: "niche-toast-shell",
               duration: 3200,
             }}
           />
