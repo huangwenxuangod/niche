@@ -1,4 +1,4 @@
-import { getPrimaryChatModel } from "@/lib/agent/models";
+import { getPrimaryChatModel, type ThinkingMode } from "@/lib/agent/models";
 import { buildAgentRunConfig } from "@/lib/agent/tracing";
 import type { LlmMessage, LlmTool, LlmToolCall } from "@/lib/llm";
 import {
@@ -19,6 +19,31 @@ function normalizeChunkContent(content: unknown): string {
         if (typeof item === "string") return item;
         if (item && typeof item === "object" && "text" in item) {
           return String((item as { text?: unknown }).text ?? "");
+        }
+        return "";
+      })
+      .join("");
+  }
+
+  return "";
+}
+
+function normalizeReasoningChunk(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => {
+        if (!item || typeof item !== "object") return "";
+        if ("type" in item && (item as { type?: unknown }).type === "reasoning") {
+          if ("reasoning" in item) {
+            return String((item as { reasoning?: unknown }).reasoning ?? "");
+          }
+          if ("text" in item) {
+            return String((item as { text?: unknown }).text ?? "");
+          }
         }
         return "";
       })
@@ -134,11 +159,12 @@ function safeParseToolArgs(argumentsText: string) {
 export async function invokeText(params: {
   systemPrompt: string;
   userContent: string;
+  thinkingMode?: ThinkingMode;
   runName?: string;
   tags?: string[];
   metadata?: Record<string, unknown>;
 }) {
-  const model = getPrimaryChatModel();
+  const model = getPrimaryChatModel(params.thinkingMode);
   const response = await model.invoke(
     [
       { role: "system", content: params.systemPrompt },
@@ -158,11 +184,13 @@ export async function streamText(params: {
   systemPrompt: string;
   messages: LlmMessage[];
   onChunk: (text: string) => void;
+  onReasoningChunk?: (text: string) => void;
+  thinkingMode?: ThinkingMode;
   runName?: string;
   tags?: string[];
   metadata?: Record<string, unknown>;
 }) {
-  const model = getPrimaryChatModel();
+  const model = getPrimaryChatModel(params.thinkingMode);
   const stream = await model.stream(
     buildLangChainMessages(params.systemPrompt, params.messages),
     buildAgentRunConfig({
@@ -173,6 +201,10 @@ export async function streamText(params: {
   );
 
   for await (const chunk of stream) {
+    const reasoning = normalizeReasoningChunk((chunk as { contentBlocks?: unknown }).contentBlocks);
+    if (reasoning) {
+      params.onReasoningChunk?.(reasoning);
+    }
     const text = normalizeChunkContent(chunk.content);
     if (text) {
       params.onChunk(text);
@@ -184,11 +216,12 @@ export async function invokeWithTools(params: {
   systemPrompt: string;
   messages: LlmMessage[];
   tools: LlmTool[];
+  thinkingMode?: ThinkingMode;
   runName?: string;
   tags?: string[];
   metadata?: Record<string, unknown>;
 }) {
-  const model = getPrimaryChatModel().bindTools(params.tools as never, {
+  const model = getPrimaryChatModel(params.thinkingMode).bindTools(params.tools as never, {
     tool_choice: "auto",
   });
 

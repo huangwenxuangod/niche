@@ -79,7 +79,8 @@ ${references || "暂无"}
       "reference_titles": ["参考标题1", "参考标题2"]
     }
   ]
-}`
+}`,
+    { thinkingProfile: "default" }
   );
 
   const parsed = safeParseJson<TopicToolResult>(text);

@@ -608,6 +608,7 @@ ${knowledgeContext}`,
             systemPrompt,
             messages,
             tools: AGENT_TOOLS,
+            thinkingProfile: "default",
           });
 
           if (!completion.toolCalls.length) {
@@ -1076,7 +1077,8 @@ ${params.previousArticle.article_markdown}
   "summary": "公众号摘要",
   "title_options": ["备选标题1", "备选标题2", "备选标题3", "备选标题4", "备选标题5"],
   "article_markdown": "完整 Markdown 正文"
-}`
+}`,
+    { thinkingProfile: "deep" }
   );
 
   const parsed = safeParseJson<Omit<FullArticleToolResult, "reference_note">>(text);
@@ -1171,7 +1173,8 @@ ${serializedRuleIssues}
       "replacement": "这个行业正在被重新洗牌"
     }
   ]
-}`
+}`,
+    { thinkingProfile: "deep" }
   );
 
   const parsed = safeParseJson<ComplianceCheckResult>(llmResult);
@@ -2047,6 +2050,7 @@ async function streamModelResponse(params: {
         fullContent += text;
         textEmitter.push(text);
       },
+      thinkingProfile: "default",
     });
     await textEmitter.flush();
   } catch {

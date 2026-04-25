@@ -110,6 +110,7 @@ niche/
 |------|------|
 | `lib/agent/models.ts` | LangChain 模型工厂（主模型、结构化输出、快速提取） |
 | `lib/agent/tracing.ts` | LangSmith 追踪配置 |
+| `lib/agent/runtime.ts` | LangChain 流式处理和工具调用执行层 |
 | `lib/agent/tools/registry.ts` | Agent 工具注册表 |
 | `lib/agent/tools/helpers.ts` | 工具定义类型转换（Zod → OpenAI Tool） |
 | `lib/agent/tools/types.ts` | 工具执行上下文类型 |
@@ -128,6 +129,27 @@ niche/
 ### LangChain 链
 
 - `lib/agent/chains/growth-analysis.ts` - 增长分析链（结构化输出）
+
+### 深度思考（Deep Thinking）
+
+项目支持火山引擎豆包模型的深度思考能力：
+
+- 模型在回答前进行多步骤推理分析（Chain of Thought）
+- 适合复杂场景：编程、科学推理、Agent 工作流等
+- 流式输出已启用，降低深度思考场景下的超时风险
+
+**当前实现**：
+
+- 基于 LangChain 的流式处理（`lib/agent/runtime.ts`）
+- 模型可根据任务复杂度自主判断是否启用深度思考（auto 模式）
+
+**工作流程**：
+
+1. 用户发送消息 → API 路由接收
+2. 构建系统提示词（注入记忆 + KOC 情报）
+3. LangChain 流式调用 LLM
+4. 模型输出思维链（reasoning_content）+ 最终回答
+5. SSE 流式返回给前端
 
 ## 对话 API 架构
 
@@ -169,6 +191,8 @@ ARK_MODEL_ID=                        # 火山引擎模型端点
 LANGSMITH_TRACING=true               # 启用 LangSmith 追踪（可选）
 LANGSMITH_API_KEY=                   # LangSmith API Key（可选）
 ```
+
+更多环境变量说明请参考 README.md。
 
 ## 常见任务
 

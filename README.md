@@ -24,14 +24,14 @@ Niche 是一个面向冷启动 KOC 的 AI 内容增长教练。
 
 ## 当前工程架构
 
-当前项目已经开始从“自研单体 Agent”迁移到 **LangChain 生态链路**：
+当前项目已经开始从”自研单体 Agent”迁移到 **LangChain 生态链路**：
 
 - `lib/agent/models.ts`
   - 统一模型初始化，兼容当前 Ark / OpenAI SDK 风格调用
 - `lib/agent/tools/*`
   - 核心工具开始从聊天主路由拆出，逐步脱离 `route.ts`
-- `lib/agent/retrievers/*`
-  - 对标内容、自己的公众号内容、热点、项目脑记忆已抽成独立检索层
+- `lib/agent/runtime.ts`
+  - LangChain 流式处理和工具调用执行层
 - `lib/agent/chains/*`
   - 增长分析结果卡、项目脑更新、本轮结论已经开始走 LangChain 结构化输出
 - `lib/agent/graphs/owned-wechat-analysis.ts`
@@ -53,6 +53,23 @@ Niche 是一个面向冷启动 KOC 的 AI 内容增长教练。
   作用：分析当前旅程下已有对标账号和高表现文章，拆解增长规律
 - `search_knowledge_base`
   作用：从 Supabase 里的 `knowledge_articles` 检索对标内容、标题和案例
+- `generate_topics`
+  作用：基于赛道、知识库和用户记忆生成候选选题
+- `generate_full_article`
+  作用：生成可发布级公众号完整初稿
+- `compliance_check`
+  作用：检查标题、摘要、正文的合规风险
+
+## 深度思考支持
+
+项目已支持火山引擎豆包模型的深度思考能力：
+
+- 模型可在回答前进行多步骤推理分析（Chain of Thought）
+- 适合复杂场景：编程、科学推理、Agent 工作流等
+- 流式输出已启用，有效降低深度思考场景下的超时风险
+- 模型可根据任务复杂度自主判断是否启用深度思考（auto 模式）
+
+当前实现基于 LangChain 的流式处理（`lib/agent/runtime.ts`），会自动处理模型的深度思考响应。
 
 ## 对标内容库说明
 
@@ -89,14 +106,15 @@ Niche 是一个面向冷启动 KOC 的 AI 内容增长教练。
 
 ## 记忆层说明
 
-当前记忆层采用“Markdown 文件 + Prompt 注入”的轻量方案。
+当前记忆层采用”Supabase 数据库 + Prompt 注入”的方案：
 
-- 用户全局记忆：`memory/users/{user_id}.md`
-- 旅程局部记忆：`memory/journeys/{journey_id}.md`
+- **用户全局记忆**：存储在 `user_memories` 表（跨旅程共享）
+- **旅程记忆**：存储在 `journey_memories` 表（项目级）
+- **项目记忆**：存储在 `journey_project_memories` 表（结构化策略卡片）
 
 当前会自动沉淀的内容：
 
-- 用户填写的“我是谁”
+- 用户填写的”我是谁”
 - 聊天中明确表达的风格偏好
 - 聊天中明确表达的选题偏好
 - 对选题的确认
@@ -106,13 +124,16 @@ Niche 是一个面向冷启动 KOC 的 AI 内容增长教练。
 
 - 聊天前会读取用户记忆和旅程记忆
 - 两份记忆会直接拼进 system prompt
-- “我是谁”页面可以直接查看和编辑用户记忆 markdown
+- “我是谁”页面可以直接查看和编辑用户记忆
 
-这是一版实现快、可见性强的记忆层。后续如果要升级，可以把 markdown 记忆进一步结构化，或者迁移到数据库与向量检索结合。
+**架构特点**：
+- `lib/memory.ts` 作为跨层模块，提供统一的记忆操作接口
+- 被 `/api/memory/*` 路由、`system-prompt.ts`、消息路由等多处调用
+- 支持结构化项目记忆（策略卡片），用于记录项目进度和决策
 
-### 项目级记忆（新增）
+### 项目级记忆
 
-除原有 Markdown 记忆外，当前已经增加一层 **结构化项目脑**：
+除基础记忆外，当前还有一层 **结构化项目脑**：
 
 - `journey_project_memories`
   - 项目档案卡
@@ -198,29 +219,43 @@ npm run dev
 http://localhost:3000
 ```
 
+完整技术架构图请查看 `ARCHITECTURE.md`。
+
 ## 环境变量
 
 至少需要这些环境变量：
 
 ```bash
+# Supabase
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+
+# LLM / API
 OPENAI_API_KEY=
 ARK_MODEL_ID=
+
+# 数据源
 DAJIALA_API_KEY=
 TAVILY_API_KEY=
+
+# 微信
 WECHAT_CREDENTIALS_SECRET=
 WECHAT_GATEWAY_URL=
 WECHAT_GATEWAY_TOKEN=
+
+# LangSmith（可选）
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=
 ```
 
 说明：
 
-- `OPENAI_API_KEY` 和 `ARK_MODEL_ID` 当前用于兼容 OpenAI SDK 的模型调用
+- `OPENAI_API_KEY` 和 `ARK_MODEL_ID` 当前用于兼容 OpenAI SDK 的模型调用（连接火山引擎 Ark / 豆包）
 - `DAJIALA_API_KEY` 用于导入公众号文章数据，建立对标内容库
 - `TAVILY_API_KEY` 用于增长机会搜索
 - `WECHAT_CREDENTIALS_SECRET` 用于加密保存公众号配置
 - `WECHAT_GATEWAY_URL` / `WECHAT_GATEWAY_TOKEN` 用于通过固定 IP 网关调用微信官方 API
+- `LANGSMITH_TRACING` / `LANGSMITH_API_KEY` 用于启用 LangSmith 追踪（可选）
 
 ## 关键接口
 

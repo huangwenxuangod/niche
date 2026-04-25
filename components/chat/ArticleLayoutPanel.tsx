@@ -281,7 +281,7 @@ export function ArticleLayoutPanel({
         if (!saveRes.ok) {
           throw new Error(saveData.error || "公众号配置保存失败");
         }
-        setWechatConfig(saveData.config);
+        setWechatConfig(saveData.config ?? null);
         setAppSecret("");
       }
 

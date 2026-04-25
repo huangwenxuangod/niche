@@ -61,7 +61,8 @@ async function expandHotQueries(baseQuery: string, journey: HotTopicContext | nu
     const prompt = buildExpansionPrompt(baseQuery, journey, fallback);
     const reply = await llm.chat(
       "你是一个增长情报搜索助手。你负责把泛化赛道词扩成适合搜索真实热点的具体查询词。",
-      prompt
+      prompt,
+      { thinkingProfile: "default" }
     );
     const match = reply.match(/\[[\s\S]*\]/);
     if (!match) return fallback;
@@ -163,7 +164,9 @@ ${shortlist
 
 只返回 JSON 数组。`;
 
-    const reply = await llm.chat("你是一个热点机会筛选助手。", prompt);
+    const reply = await llm.chat("你是一个热点机会筛选助手。", prompt, {
+      thinkingProfile: "default",
+    });
     const match = reply.match(/\[[\s\S]*\]/);
     if (!match) return fallback;
     const parsed = JSON.parse(match[0]);

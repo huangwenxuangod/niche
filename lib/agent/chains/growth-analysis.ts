@@ -26,7 +26,7 @@ export async function runGrowthAnalysisChain(params: {
   bestArticles: TopArticleInput[];
   competitorArticles: CompetitorArticleInput[];
 }) {
-  const model = getStructuredOutputModel().withStructuredOutput(
+  const model = getStructuredOutputModel("enabled").withStructuredOutput(
     GrowthAnalysisReportSchema,
     {
       name: "GrowthAnalysisReport",
