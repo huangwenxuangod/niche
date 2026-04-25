@@ -42,6 +42,19 @@ type WechatConfig = {
   app_id: string;
 };
 
+async function readJsonSafe<T>(response: Response) {
+  const raw = await response.text();
+  if (!raw.trim()) {
+    return {} as T;
+  }
+
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new Error(response.ok ? "接口返回了空响应" : "接口返回内容解析失败");
+  }
+}
+
 export function ArticleLayoutPanel({
   open,
   conversationId,
@@ -102,7 +115,7 @@ export function ArticleLayoutPanel({
         status,
       }),
     });
-    const data = await res.json();
+    const data = await readJsonSafe<{ error?: string; draft?: SavedDraft }>(res);
     if (!res.ok) {
       throw new Error(data.error || "保存失败");
     }
@@ -122,14 +135,14 @@ export function ArticleLayoutPanel({
 
       try {
         const configRes = await fetch("/api/wechat/config");
-        const configData = await configRes.json();
+        const configData = await readJsonSafe<{ config?: WechatConfig }>(configRes);
         if (!cancelled && configRes.ok && configData.config) {
           setWechatConfig(configData.config);
           setAppId(configData.config.app_id || "");
         }
 
         const existingRes = await fetch(`/api/article-layout?message_id=${encodeURIComponent(currentMessageId)}`);
-        const existingData = await existingRes.json();
+        const existingData = await readJsonSafe<{ draft?: SavedDraft }>(existingRes);
         if (!cancelled && existingRes.ok && existingData.draft) {
           const cleanedSource = sanitizeArticlePreviewMarkdown(
             existingData.draft.source_markdown || article.bodyMarkdown
@@ -154,7 +167,11 @@ export function ArticleLayoutPanel({
             source_markdown: article.bodyMarkdown,
           }),
         });
-        const optimizeData = await optimizeRes.json();
+        const optimizeData = await readJsonSafe<{
+          error?: string;
+          rendered_markdown?: string;
+          rendered_html?: string;
+        }>(optimizeRes);
         if (!optimizeRes.ok) {
           throw new Error(optimizeData.error || "排版优化失败");
         }
@@ -260,7 +277,7 @@ export function ArticleLayoutPanel({
             app_secret: appSecret,
           }),
         });
-        const saveData = await saveRes.json();
+        const saveData = await readJsonSafe<{ error?: string; config?: WechatConfig }>(saveRes);
         if (!saveRes.ok) {
           throw new Error(saveData.error || "公众号配置保存失败");
         }
@@ -278,7 +295,7 @@ export function ArticleLayoutPanel({
           summary: article.summary,
         }),
       });
-      const data = await res.json();
+      const data = await readJsonSafe<{ error?: string; media_id?: string }>(res);
       if (!res.ok) {
         throw new Error(data.error || "发布失败");
       }
