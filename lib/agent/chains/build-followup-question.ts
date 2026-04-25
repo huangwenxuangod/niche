@@ -40,7 +40,7 @@ ${params.assistantDraft}
 1. 追问最多 1 句。
 2. 语气像顺手推进下一步，不像问卷。
 3. 如果用户已经给了明确对标号或明确关键词，可以不追问，question 返回 null。
-4. 如果用户还没给对象，优先问“你想讲什么主题”或“你喜欢看哪些内容/哪些号”。`,
+4. 如果用户还没给对象，优先问"你想讲什么主题"或"你喜欢看哪些内容/哪些号"。`,
     buildAgentRunConfig({
       runName: "build-followup-question",
       tags: ["conversation", "followup"],

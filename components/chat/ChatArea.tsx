@@ -396,9 +396,6 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
             </div>
             <Space size={8}>
               <Tag bordered={false} style={headerTagStyle}>
-                {journey.knowledge_initialized ? "对标内容库已就绪" : "对标内容库初始化中"}
-              </Tag>
-              <Tag bordered={false} style={headerTagStyle}>
                 {kocCount} 个对标账号
               </Tag>
             </Space>
@@ -798,6 +795,7 @@ function resolveActiveStage(toolName?: string, assistantStatus?: string | null) 
   if (toolName === "generate_topics") return "compose";
   if (toolName === "generate_article_draft" || toolName === "generate_full_article" || toolName === "revise_full_article") return "generate";
   if (toolName === "compliance_check") return "review";
+  if (assistantStatus === "整合分析结果中") return "compose";
   if (assistantStatus === "输出答案中") return "stream";
   if (assistantStatus === "组织回答中") return "compose";
   if (assistantStatus === "整理上下文中") return "retrieve";
@@ -823,6 +821,7 @@ function getToolMeta(toolName?: string, assistantStatus?: string | null) {
     case "compliance_check":
       return { title: "风控检查中", hint: "检查标题、摘要、正文和 CTA 的风险点。" };
     default:
+      if (assistantStatus === "整合分析结果中") return { title: "整合分析结果中", hint: "结合检索到的数据和分析结果生成回答。" };
       if (assistantStatus === "输出答案中") return { title: "输出答案中", hint: "先把核心结论流式发出来。" };
       if (assistantStatus === "组织回答中") return { title: "组织回答中", hint: "把线索压缩成更清晰的回答结构。" };
       if (assistantStatus === "整理上下文中") return { title: "整理上下文中", hint: "结合当前对话和赛道背景继续处理。" };
@@ -867,11 +866,11 @@ function formatMessage(content: string): string {
       continue;
     }
 
-    const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
       flushParagraph();
       flushList();
-      const level = Math.min(headingMatch[1].length, 3);
+      const level = Math.min(headingMatch[1].length, 6);
       blocks.push(`<h${level}>${formatInline(headingMatch[2])}</h${level}>`);
       continue;
     }
@@ -921,6 +920,10 @@ function simplifyDisplayContent(content: string) {
   return content
     .replace(/\n{2,}如果你愿意，我可以继续帮你：[\s\S]*$/m, "")
     .replace(/\n{2,}如果你想继续调，我可以按你的要求做：[\s\S]*$/m, "")
+    .replace(/\n{2,}如果你要，我可以继续[\s\S]*$/m, "")
+    .replace(/\n{2,}我还可以帮你[\s\S]*$/m, "")
+    .replace(/\n{2,}你也可以让我[\s\S]*$/m, "")
+    .replace(/\n{2,}需要的话，我可以[\s\S]*$/m, "")
     .replace(/^\s*---+\s*$/gm, "")
     .trim();
 }

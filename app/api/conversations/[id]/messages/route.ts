@@ -286,13 +286,6 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
 1. 拆它最近几篇内容为什么能火
 2. 对比你的号和它的差距
 3. 基于它的写法给你出 3 个更适合你的选题`;
-          fullContent = await appendTemplateFollowup({
-            controller,
-            encoder,
-            userMessage: content,
-            projectMemory: await getJourneyProjectMemory(supabase, conv.journey_id),
-            currentContent: fullContent,
-          });
           await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
           void appendStructuredRoundSummary(supabase, {
             journeyId: conv.journey_id,
@@ -390,13 +383,6 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
 ${recommendationText}
 
 如果你愿意，直接回我其中一个公众号名字，我就把它导入成对标样本；如果你还没想好，我也可以继续帮你缩小角度。`;
-          fullContent = await appendTemplateFollowup({
-            controller,
-            encoder,
-            userMessage: content,
-            projectMemory: await getJourneyProjectMemory(supabase, conv.journey_id),
-            currentContent: fullContent,
-          });
           await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
           void appendStructuredRoundSummary(supabase, {
             journeyId: conv.journey_id,
@@ -457,6 +443,11 @@ ${recommendationText}
                     .join("\n")}`
               )
               .join("\n\n");
+
+            await emitEvent(controller, encoder, {
+              type: "assistant_status",
+              label: "整合分析结果中",
+            });
 
             fullContent = await streamModelResponse({
               controller,
@@ -557,6 +548,11 @@ ${comparisonContext}`,
               ? `【本轮重点账号】\n${knowledgeIntent.accountNames.map((name) => `- ${name}`).join("\n")}\n\n`
               : "";
 
+            await emitEvent(controller, encoder, {
+              type: "assistant_status",
+              label: "整合分析结果中",
+            });
+
             fullContent = await streamModelResponse({
               controller,
               encoder,
@@ -600,10 +596,6 @@ ${knowledgeContext}`,
 
         for (let step = 0; step < 5; step++) {
           let shouldStopAfterTool = false;
-          await emitEvent(controller, encoder, {
-            type: "assistant_status",
-            label: "组织回答中",
-          });
           const completion = await llm.completeWithTools({
             systemPrompt,
             messages,
@@ -612,6 +604,10 @@ ${knowledgeContext}`,
           });
 
           if (!completion.toolCalls.length) {
+            await emitEvent(controller, encoder, {
+              type: "assistant_status",
+              label: "整合分析结果中",
+            });
             fullContent = await streamModelResponse({
               controller,
               encoder,
@@ -807,6 +803,10 @@ ${knowledgeContext}`,
 
         if (!fullContent) {
           // 循环跑满但 LLM 还在调工具，强制让它基于已有信息回答
+          await emitEvent(controller, encoder, {
+            type: "assistant_status",
+            label: "整合分析结果中",
+          });
           fullContent = await streamModelResponse({
             controller,
             encoder,
@@ -816,14 +816,6 @@ ${knowledgeContext}`,
             forceNoTools: true,
           });
         }
-
-        fullContent = await appendTemplateFollowup({
-          controller,
-          encoder,
-          userMessage: content,
-          projectMemory: await getJourneyProjectMemory(supabase, conv.journey_id),
-          currentContent: fullContent,
-        });
 
         await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
         void appendStructuredRoundSummary(supabase, {
@@ -909,45 +901,6 @@ function inferNextAction(assistantContent: string) {
     return "从候选方向中确认一个，再扩成完整稿";
   }
   return "继续围绕当前结果推进下一步";
-}
-
-async function appendTemplateFollowup(params: {
-  controller: ReadableStreamDefaultController;
-  encoder: TextEncoder;
-  userMessage: string;
-  projectMemory: Awaited<ReturnType<typeof getJourneyProjectMemory>>;
-  currentContent: string;
-}) {
-  const followup = buildTemplateFollowup(params.userMessage, params.projectMemory);
-  if (!followup) {
-    return params.currentContent;
-  }
-
-  const nextContent = `${params.currentContent.trim()}\n\n${followup}`;
-  await emitText(params.controller, params.encoder, `\n\n${followup}`);
-  return nextContent;
-}
-
-function buildTemplateFollowup(
-  userMessage: string,
-  projectMemory: Awaited<ReturnType<typeof getJourneyProjectMemory>>
-) {
-  const strategy = projectMemory.strategy_state;
-  const text = userMessage.trim();
-
-  if (strategy.current_benchmark_name) {
-    return "如果你要，我可以继续帮你拆这个号的选题结构，或者直接按它的写法给你出 3 个新选题。";
-  }
-
-  if (strategy.current_focus_keyword) {
-    return `如果你要，我可以继续围绕「${strategy.current_focus_keyword}」帮你找对标、出选题，或者直接写下一篇。`;
-  }
-
-  if (/写|文章|公众号|选题|内容/.test(text)) {
-    return "如果你要，我可以继续帮你收窄主题、找对标账号，或者直接按这个方向写一篇。";
-  }
-
-  return "如果你要，我可以继续帮你改标题、缩短篇幅，或把它调成更安全版本。";
 }
 
 function shouldAutoImportBenchmark(content: string) {
@@ -1749,9 +1702,7 @@ ${result.safer_cta || "暂无"}
 
 ## 提示
 
-${result.disclaimer}
-
-如果你愿意，我可以继续帮你：**按这些建议直接重写整篇文章，或者只改高风险段落。**`;
+${result.disclaimer}`;
 }
 
 function formatComplianceIssues(issues: ComplianceIssue[]) {

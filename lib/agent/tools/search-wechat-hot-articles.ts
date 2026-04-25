@@ -23,12 +23,12 @@ export const searchWechatHotArticlesToolDefinition: AgentToolDefinition<typeof s
 【限制】只允许传入一个唯一关键词短语，不要拼两个 query
 
 【参数】
-- keyword: 唯一的公众号搜索关键词短语（如 "AI 新模型"）
+- keyword: 唯一的公众号搜索关键词短语（如 "Claude code，gpt5.5发布"）
 - days: 搜索最近几天，默认 7
 
 【示例】
-  ✅ "搜索 Claude Code 新模型"
-  ✅ "找 AI 领域的爆文"
+  ✅ " Claude Code 新模型"
+  ✅ " AI"
   ❌ "对标数字生命卡兹克" → 应使用 import_koc_by_name
 `,
   schema: searchWechatHotArticlesSchema,
