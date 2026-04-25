@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getJourneyMemory, getUserMemory } from "@/lib/memory";
 import { searchJourneyKnowledge } from "@/lib/knowledge-base";
+import { retrieveSemanticCompetitorContent } from "@/lib/agent/retrievers/semantic-knowledge";
 import { llm } from "@/lib/llm";
 import type { AgentToolDefinition } from "./helpers";
 import type { ToolExecutionContext } from "./types";
@@ -43,13 +44,34 @@ export async function runGenerateFullArticle(
     searchJourneyKnowledge(context.supabase, context.journeyId, topicTitle, 5),
   ]);
 
+  const semanticReferences = await retrieveSemanticCompetitorContent(
+    context.supabase,
+    {
+      journeyId: context.journeyId,
+      query: buildSemanticArticleQuery(topicTitle, args.angle),
+      limit: 6,
+    }
+  ).catch((error) => {
+    console.warn("[generate-full-article] semantic retrieval failed:", error);
+    return [];
+  });
+
   const references = knowledge.articles
     .map((item) => `- ${item.title} | ${item.account_name} | 阅读 ${item.read_count} | 摘要：${item.excerpt || "无"}`)
     .join("\n");
 
+  const semanticReferenceBlocks = semanticReferences
+    .map(
+      (item) =>
+        `- ${item.account_name || "未知"}｜${item.article_title || "未命名文章"}｜相似度 ${item.similarity.toFixed(2)}｜片段：${trimSemanticChunk(item.chunk_text)}`
+    )
+    .join("\n");
+
   const referenceNote = knowledge.articles.length
-    ? `已参考知识库中的 ${knowledge.articles.length} 篇相关文章。`
-    : "知识库暂无强相关参考，已按当前赛道和用户记忆生成，建议后续导入更多 KOC 文章增强案例。";
+    ? `已参考知识库中的 ${knowledge.articles.length} 篇相关文章${semanticReferences.length ? `，并补充 ${semanticReferences.length} 段高相关竞品片段` : ""}。`
+    : semanticReferences.length
+      ? `已补充 ${semanticReferences.length} 段高相关竞品片段作为写作参考。`
+      : "知识库暂无强相关参考，已按当前赛道和用户记忆生成，建议后续导入更多 KOC 文章增强案例。";
 
   const text = await llm.chat(
     "你是一个公众号主笔。只输出 JSON，不要任何额外解释，不要使用 Markdown 代码块。",
@@ -70,6 +92,9 @@ ${journeyMemory || "暂无"}
 【可参考知识库文章】
 ${references || "暂无"}
 
+【语义相关竞品片段】
+${semanticReferenceBlocks || "暂无"}
+
 写作要求：
 1. 输出完整 Markdown 成稿，不是提纲
 2. 结构采用：痛点开场 + 真实案例/现象 + 方法论拆解 + 行动清单 + 总结 CTA
@@ -78,6 +103,7 @@ ${references || "暂无"}
 5. 正文中自然提到可参考案例标题；如果没有参考文章，不要伪造案例
 6. 风格克制专业，可以有一点网感，但不要标题党、不要贩卖焦虑
 7. 避免绝对化承诺，涉及收益、医疗、金融、政策时要保守表达
+8. 如果提供了语义相关竞品片段，优先学习这些片段的结构、表达节奏和讲解顺序，但不要照抄原句
 
 返回 JSON：
 {
@@ -117,4 +143,12 @@ function safeParseJson<T>(text: string) {
   } catch {
     return null;
   }
+}
+
+function buildSemanticArticleQuery(topicTitle: string, angle?: string) {
+  return [topicTitle.trim(), String(angle || "").trim()].filter(Boolean).join("\n");
+}
+
+function trimSemanticChunk(text: string) {
+  return text.replace(/\s+/g, " ").trim().slice(0, 180);
 }
