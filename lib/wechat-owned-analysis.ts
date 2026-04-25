@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runGrowthAnalysisChain } from "@/lib/agent/chains/growth-analysis";
 import { runOwnedWechatAnalysisGraph } from "@/lib/agent/graphs/owned-wechat-analysis";
+import { retrieveSemanticCompetitorContent } from "@/lib/agent/retrievers/semantic-knowledge";
 import { dajiala } from "@/lib/dajiala";
 import {
   decryptWechatSecret,
@@ -538,6 +539,12 @@ async function buildOwnedWechatAnalysisReport(
     | null = null;
 
   try {
+    const competitorSemanticChunks = await buildCompetitorSemanticContext(
+      supabase,
+      params.journeyId,
+      bestArticles
+    );
+
     const structured = await runGrowthAnalysisChain({
       journeyId: params.journeyId,
       accountName: params.accountName,
@@ -566,6 +573,7 @@ async function buildOwnedWechatAnalysisReport(
             account_name: koc?.account_name ?? null,
           };
         }),
+      competitorSemanticChunks,
     });
 
     parsed = structured;
@@ -745,6 +753,74 @@ function pickNumber(source: Record<string, unknown>, keys: string[], fallback = 
 
 function normalizeComparisonText(value: string) {
   return value.toLowerCase().replace(/\s+/g, "");
+}
+
+async function buildCompetitorSemanticContext(
+  supabase: SupabaseClient,
+  journeyId: string,
+  bestArticles: SyncedOwnedArticle[]
+) {
+  const queries = bestArticles
+    .map((article) => buildSemanticQuery(article))
+    .filter(Boolean)
+    .slice(0, 3);
+
+  if (queries.length === 0) {
+    return [];
+  }
+
+  const resultSets = await Promise.all(
+    queries.map((query) =>
+      retrieveSemanticCompetitorContent(supabase, {
+        journeyId,
+        query,
+        limit: 4,
+      }).catch((error) => {
+        console.warn("[owned-analysis] semantic competitor retrieval failed:", error);
+        return [];
+      })
+    )
+  );
+
+  const merged = new Map<string, {
+    article_title: string | null;
+    account_name: string | null;
+    chunk_text: string;
+    similarity: number;
+  }>();
+
+  for (const items of resultSets) {
+    for (const item of items) {
+      const key = `${item.source_id}:${item.chunk_text}`;
+      if (merged.has(key)) continue;
+      merged.set(key, {
+        article_title: item.article_title,
+        account_name: item.account_name,
+        chunk_text: trimSemanticChunk(item.chunk_text),
+        similarity: item.similarity,
+      });
+    }
+  }
+
+  return Array.from(merged.values())
+    .sort((left, right) => right.similarity - left.similarity)
+    .slice(0, 6);
+}
+
+function buildSemanticQuery(article: SyncedOwnedArticle) {
+  const title = article.title?.trim() || "";
+  const digest = article.digest?.trim() || "";
+  const titleWithoutNoise = title.replace(/[【】「」]/g, " ").replace(/\s+/g, " ").trim();
+
+  if (digest) {
+    return `${titleWithoutNoise}\n${digest}`.trim();
+  }
+
+  return titleWithoutNoise;
+}
+
+function trimSemanticChunk(text: string) {
+  return text.replace(/\s+/g, " ").trim().slice(0, 180);
 }
 
 async function upsertOwnedWechatProfile(

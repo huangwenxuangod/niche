@@ -14,6 +14,13 @@ type CompetitorArticleInput = {
   account_name: string | null;
 };
 
+type CompetitorSemanticChunkInput = {
+  article_title: string | null;
+  account_name: string | null;
+  chunk_text: string;
+  similarity: number;
+};
+
 export async function runGrowthAnalysisChain(params: {
   journeyId: string;
   accountName: string;
@@ -25,6 +32,7 @@ export async function runGrowthAnalysisChain(params: {
   competitorTitlePattern: string;
   bestArticles: TopArticleInput[];
   competitorArticles: CompetitorArticleInput[];
+  competitorSemanticChunks?: CompetitorSemanticChunkInput[];
 }) {
   const model = getStructuredOutputModel("enabled").withStructuredOutput(
     GrowthAnalysisReportSchema,
@@ -51,11 +59,22 @@ ${params.bestArticles.map((item) => `- ${item.title} | 阅读 ${item.read_num} |
 【竞品高表现文章】
 ${params.competitorArticles.map((item) => `- ${item.title} | ${item.account_name || "未知"} | 阅读 ${item.read_count ?? 0}`).join("\n")}
 
+【竞品相关内容片段】
+${(params.competitorSemanticChunks ?? []).length > 0
+    ? (params.competitorSemanticChunks ?? [])
+        .map(
+          (item) =>
+            `- ${item.account_name || "未知"}｜${item.article_title || "未命名文章"}｜相似度 ${item.similarity.toFixed(2)}｜片段：${item.chunk_text}`
+        )
+        .join("\n")
+    : "- 暂无可用的语义相似片段"}
+
 请遵循这些要求：
 1. 结论必须可执行，不要空泛。
 2. topic_gap / title_gap / structure_gap 每项给 2-4 条。
 3. next_actions 给 3 条以内，必须可以直接执行。
-4. top_articles 的 reason 要解释为什么它表现好。`;
+4. top_articles 的 reason 要解释为什么它表现好。
+5. 如果提供了竞品相关内容片段，要优先基于这些片段判断结构差距和表达差距，而不是只看标题。`;
 
   return model.invoke(prompt, buildAgentRunConfig({
     runName: "growth-analysis-report",
