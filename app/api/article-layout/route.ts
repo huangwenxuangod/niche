@@ -10,6 +10,26 @@ import {
 
 type LayoutStatus = "draft" | "published";
 
+function summarizeMarkdown(markdown: string, max = 180) {
+  const compact = markdown.replace(/\s+/g, " ").trim();
+  if (!compact) return "";
+  return compact.length > max ? `${compact.slice(0, max)}…` : compact;
+}
+
+function serializeError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+
+  return {
+    message: String(error),
+  };
+}
+
 function renderBasicHtml(markdown: string) {
   const escaped = markdown
     .replace(/&/g, "&amp;")
@@ -52,6 +72,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const requestId =
+    req.headers.get("x-request-id") ||
+    (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `layout_${Date.now()}`);
+
   try {
     const cookieStore = await cookies();
     const supabase = createClient(cookieStore);
@@ -78,11 +104,21 @@ export async function POST(req: NextRequest) {
           rendered_html: renderedHtml,
         });
       } catch (error) {
-        console.error("[article-layout] optimize failed, fallback to basic layout:", error);
+        console.error("[article-layout] optimize failed, fallback to basic layout", {
+          requestId,
+          mode,
+          userId: user.id,
+          title: String(body.title || "").slice(0, 120),
+          summaryPreview: summarizeMarkdown(String(body.summary || ""), 120),
+          sourceLength: sourceMarkdown.length,
+          sourcePreview: summarizeMarkdown(sourceMarkdown),
+          error: serializeError(error),
+        });
         return NextResponse.json({
           rendered_markdown: sourceMarkdown,
           rendered_html: renderBasicHtml(sourceMarkdown),
           fallback: true,
+          request_id: requestId,
         });
       }
     }
@@ -100,7 +136,18 @@ export async function POST(req: NextRequest) {
     const status = (body.status === "published" ? "published" : "draft") as LayoutStatus;
 
     if (!conversationId || !journeyId || !messageId || !sourceMarkdown || !renderedMarkdown || !renderedHtml) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      console.error("[article-layout] save rejected: missing required fields", {
+        requestId,
+        mode,
+        userId: user.id,
+        conversationId,
+        journeyId,
+        messageId,
+        sourceLength: sourceMarkdown.length,
+        renderedLength: renderedMarkdown.length,
+        htmlLength: renderedHtml.length,
+      });
+      return NextResponse.json({ error: "Missing required fields", request_id: requestId }, { status: 400 });
     }
 
     const { data: conversation } = await supabase
@@ -111,7 +158,15 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (!conversation || conversation.journey_id !== journeyId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      console.error("[article-layout] save rejected: forbidden", {
+        requestId,
+        mode,
+        userId: user.id,
+        conversationId,
+        journeyId,
+        conversationJourneyId: conversation?.journey_id ?? null,
+      });
+      return NextResponse.json({ error: "Forbidden", request_id: requestId }, { status: 403 });
     }
 
     const { data, error } = await supabase
@@ -131,12 +186,33 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[article-layout] draft upsert failed", {
+        requestId,
+        mode,
+        userId: user.id,
+        conversationId,
+        journeyId,
+        messageId,
+        status,
+        sourceLength: sourceMarkdown.length,
+        renderedLength: renderedMarkdown.length,
+        htmlLength: renderedHtml.length,
+        sourcePreview: summarizeMarkdown(sourceMarkdown, 120),
+        renderedPreview: summarizeMarkdown(renderedMarkdown, 120),
+        error: serializeError(error),
+      });
+      return NextResponse.json({ error: error.message, request_id: requestId }, { status: 500 });
     }
 
     return NextResponse.json({ draft: data });
   } catch (error) {
-    console.error("[article-layout] route failed:", error);
-    return NextResponse.json({ error: "排版服务暂时不可用，请稍后重试。" }, { status: 500 });
+    console.error("[article-layout] route failed", {
+      requestId,
+      error: serializeError(error),
+    });
+    return NextResponse.json(
+      { error: "排版服务暂时不可用，请稍后重试。", request_id: requestId },
+      { status: 500 }
+    );
   }
 }
