@@ -34,6 +34,11 @@ interface Props {
   kocCount: number;
 }
 
+type ReasoningState = {
+  text: string;
+  active: boolean;
+};
+
 type ToolEvent = {
   id: string;
   type: "tool_start" | "tool_result" | "tool_requires_confirmation" | "tool_error";
@@ -83,6 +88,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   >([]);
   const [recommendedKeyword, setRecommendedKeyword] = useState("");
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
+  const [reasoningByMessage, setReasoningByMessage] = useState<Record<string, ReasoningState>>({});
   const [layoutTarget, setLayoutTarget] = useState<{ id: string; content: string } | null>(null);
   const assistantBufferRef = useRef("");
   const assistantFlushTimerRef = useRef<number | null>(null);
@@ -106,7 +112,12 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
         key: message.id,
         role: message.role === "user" ? "user" : "assistant",
         placement: message.role === "user" ? "end" : "start",
-        content: <div className="msg-prose" dangerouslySetInnerHTML={{ __html: formatMessage(message.content) }} />,
+        content: (
+          <AssistantMessageContent
+            content={message.content}
+            reasoning={message.role === "assistant" ? reasoningByMessage[message.id] : undefined}
+          />
+        ),
         streaming: isStreamingAssistant,
         typing: false,
         variant: message.role === "user" ? "filled" : "borderless",
@@ -126,7 +137,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
     });
 
     return items;
-  }, [messages, streaming, toolEvents, loadingSnapshot]);
+  }, [messages, streaming, toolEvents, loadingSnapshot, reasoningByMessage]);
 
   async function sendMessage(text: string) {
     if (!text.trim() || streaming) return;
@@ -165,6 +176,10 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
         created_at: new Date().toISOString(),
       },
     ]);
+    setReasoningByMessage((prev) => ({
+      ...prev,
+      [assistantId]: { text: "", active: false },
+    }));
     setStreaming(true);
 
     try {
@@ -223,6 +238,34 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
               }
             } else if (parsed.type === "assistant_status" && parsed.label) {
               setAssistantStatus(String(parsed.label));
+            } else if (parsed.type === "reasoning_start") {
+              setReasoningByMessage((prev) => ({
+                ...prev,
+                [currentAssistantId]: {
+                  text: prev[currentAssistantId]?.text ?? "",
+                  active: true,
+                },
+              }));
+            } else if (parsed.type === "reasoning_chunk" && parsed.text) {
+              setReasoningByMessage((prev) => {
+                const current = prev[currentAssistantId] ?? { text: "", active: true };
+                const nextText = mergeReasoningPreview(current.text, String(parsed.text));
+                return {
+                  ...prev,
+                  [currentAssistantId]: {
+                    text: nextText,
+                    active: true,
+                  },
+                };
+              });
+            } else if (parsed.type === "reasoning_end") {
+              setReasoningByMessage((prev) => ({
+                ...prev,
+                [currentAssistantId]: {
+                  text: prev[currentAssistantId]?.text ?? "",
+                  active: false,
+                },
+              }));
             } else if (parsed.type === "assistant_message" && parsed.messageId) {
               const nextId = String(parsed.messageId);
               setMessages((prev) =>
@@ -230,6 +273,13 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                   message.id === currentAssistantId ? { ...message, id: nextId } : message
                 )
               );
+              setReasoningByMessage((prev) => {
+                const current = prev[currentAssistantId];
+                if (!current || currentAssistantId === nextId) return prev;
+                const next = { ...prev, [nextId]: current };
+                delete next[currentAssistantId];
+                return next;
+              });
               currentAssistantId = nextId;
             } else if (parsed.type === "koc_recommendation_ready") {
               const payload = parsed.payload as
@@ -630,6 +680,47 @@ function AssistantFooter({
   );
 }
 
+function AssistantMessageContent({
+  content,
+  reasoning,
+}: {
+  content: string;
+  reasoning?: ReasoningState;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {reasoning?.text ? <ReasoningBar reasoning={reasoning} /> : null}
+      <div className="msg-prose" dangerouslySetInnerHTML={{ __html: formatMessage(content) }} />
+    </div>
+  );
+}
+
+function ReasoningBar({ reasoning }: { reasoning: ReasoningState }) {
+  const [expanded, setExpanded] = useState(false);
+  const label = reasoning.active ? "深度思考中" : "已深度分析";
+
+  return (
+    <div style={reasoningWrapStyle}>
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        style={reasoningButtonStyle}
+      >
+        <span style={reasoningLabelStyle}>{label}</span>
+        <span
+          style={{
+            ...reasoningChevronStyle,
+            transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+          }}
+        >
+          ›
+        </span>
+      </button>
+      {expanded ? <div style={reasoningTextStyle}>{reasoning.text}</div> : null}
+    </div>
+  );
+}
+
 function buildToolSummary(events: ToolEvent[]) {
   const latestResult = [...events].reverse().find((event) => event.type === "tool_result");
   if (!latestResult) return "已完成这轮处理";
@@ -847,6 +938,28 @@ function formatInline(value: string) {
     .replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
+function mergeReasoningPreview(current: string, incoming: string) {
+  const normalizedIncoming = incoming.replace(/\s+/g, " ").trim();
+  if (!normalizedIncoming) {
+    return current;
+  }
+
+  const merged = `${current} ${normalizedIncoming}`.trim().replace(/\s+/g, " ");
+  if (merged.length <= 260) {
+    return merged;
+  }
+
+  const clipped = merged.slice(0, 260);
+  const lastBoundary = Math.max(
+    clipped.lastIndexOf("。"),
+    clipped.lastIndexOf("；"),
+    clipped.lastIndexOf("，"),
+    clipped.lastIndexOf(" ")
+  );
+
+  return `${clipped.slice(0, lastBoundary > 120 ? lastBoundary : 240).trim()}…`;
+}
+
 const chatPageStyle: React.CSSProperties = {
   height: "100%",
   display: "grid",
@@ -940,6 +1053,47 @@ const senderFooterStyle: React.CSSProperties = {
 const miniProcessLineStyle: React.CSSProperties = {
   maxWidth: 560,
   padding: "2px 0",
+};
+
+const reasoningWrapStyle: React.CSSProperties = {
+  width: "fit-content",
+  maxWidth: 420,
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+};
+
+const reasoningButtonStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  padding: "3px 0",
+  border: "none",
+  background: "transparent",
+  color: "var(--text-secondary)",
+  cursor: "pointer",
+  fontSize: 12,
+  lineHeight: 1.4,
+};
+
+const reasoningLabelStyle: React.CSSProperties = {
+  color: "var(--text-secondary)",
+  fontWeight: 500,
+};
+
+const reasoningChevronStyle: React.CSSProperties = {
+  color: "var(--text-tertiary)",
+  fontSize: 15,
+  lineHeight: 1,
+  transition: "transform 0.18s ease",
+};
+
+const reasoningTextStyle: React.CSSProperties = {
+  maxWidth: 440,
+  color: "var(--text-secondary)",
+  fontSize: 12,
+  lineHeight: 1.75,
+  paddingLeft: 2,
 };
 
 const miniProcessCollapsedStyle: React.CSSProperties = {

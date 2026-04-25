@@ -2023,6 +2023,17 @@ async function emitText(controller: ReadableStreamDefaultController, encoder: Te
   }
 }
 
+async function emitReasoningEvent(
+  controller: ReadableStreamDefaultController,
+  encoder: TextEncoder,
+  payload:
+    | { type: "reasoning_start" }
+    | { type: "reasoning_chunk"; text: string }
+    | { type: "reasoning_end" }
+) {
+  controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
+}
+
 async function streamModelResponse(params: {
   controller: ReadableStreamDefaultController;
   encoder: TextEncoder;
@@ -2033,6 +2044,7 @@ async function streamModelResponse(params: {
 }) {
   let fullContent = "";
   const textEmitter = createSmoothTextEmitter(params.controller, params.encoder);
+  let reasoningStarted = false;
 
   await emitEvent(params.controller, params.encoder, {
     type: "assistant_status",
@@ -2050,9 +2062,27 @@ async function streamModelResponse(params: {
         fullContent += text;
         textEmitter.push(text);
       },
+      onReasoningChunk: (text) => {
+        if (!text.trim()) return;
+        if (!reasoningStarted) {
+          reasoningStarted = true;
+          void emitReasoningEvent(params.controller, params.encoder, {
+            type: "reasoning_start",
+          });
+        }
+        void emitReasoningEvent(params.controller, params.encoder, {
+          type: "reasoning_chunk",
+          text,
+        });
+      },
       thinkingProfile: "default",
     });
     await textEmitter.flush();
+    if (reasoningStarted) {
+      await emitReasoningEvent(params.controller, params.encoder, {
+        type: "reasoning_end",
+      });
+    }
   } catch {
     // Fall back to deterministic streaming if provider-side streaming fails.
   }
