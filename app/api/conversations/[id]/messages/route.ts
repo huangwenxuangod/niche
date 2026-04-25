@@ -5,6 +5,10 @@ import { buildSystemPrompt } from "@/lib/system-prompt";
 import { llm, type LlmMessage } from "@/lib/llm";
 import { AGENT_TOOL_REGISTRY, AGENT_TOOLS } from "@/lib/agent/tools/registry";
 import type { ToolContextJourney } from "@/lib/agent/tools/types";
+import { buildFollowupQuestionChain } from "@/lib/agent/chains/build-followup-question";
+import { recommendKocFromHotArticlesChain } from "@/lib/agent/chains/recommend-koc-from-hot-articles";
+import { resolveSearchFocusChain } from "@/lib/agent/chains/resolve-search-focus";
+import { resolveUserIntentChain } from "@/lib/agent/chains/resolve-user-intent";
 import { runGenerateFullArticle } from "@/lib/agent/tools/generate-full-article";
 import { searchJourneyKnowledge } from "@/lib/knowledge-base";
 import {
@@ -15,6 +19,7 @@ import {
   ensureJourneyMemory,
   ensureJourneyProjectMemory,
   getJourneyMemory,
+  getJourneyProjectMemory,
   getUserMemory,
   type JourneyStrategyState,
   updateProjectCard,
@@ -179,6 +184,7 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
         }));
 
         const trackedAccounts = await getTrackedAccountNames(supabase, conv.journey_id);
+        const projectMemory = await getJourneyProjectMemory(supabase, conv.journey_id);
 
         await emitEvent(controller, encoder, {
           type: "assistant_status",
@@ -201,6 +207,201 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
         if (handledFollowUp) {
           fullContent = handledFollowUp;
           await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+          return;
+        }
+
+        const resolvedIntent = await resolveUserIntentChain({
+          journeyId: conv.journey_id,
+          content,
+          recentMessages: ((history ?? []) as ConversationHistoryEntry[]),
+        });
+        const resolvedFocus = await resolveSearchFocusChain({
+          journeyId: conv.journey_id,
+          content,
+          recentMessages: ((history ?? []) as ConversationHistoryEntry[]),
+          projectMemory,
+        });
+
+        if (resolvedFocus.focus_keyword) {
+          await updateJourneyStrategyState(supabase, {
+            journeyId: conv.journey_id,
+            userId: user.id,
+            patch: {
+              current_problem: content.slice(0, 120),
+              current_focus_keyword: resolvedFocus.focus_keyword,
+              focus_confidence: resolvedFocus.confidence,
+              next_best_question: "",
+            },
+          });
+        } else {
+          await updateJourneyStrategyState(supabase, {
+            journeyId: conv.journey_id,
+            userId: user.id,
+            patch: {
+              current_problem: content.slice(0, 120),
+              focus_confidence: resolvedFocus.confidence,
+            },
+          });
+        }
+
+        const explicitBenchmarkName = detectExplicitBenchmarkName(content, trackedAccounts);
+        if (explicitBenchmarkName && shouldAutoImportBenchmark(content)) {
+          await emitEvent(controller, encoder, {
+            type: "tool_start",
+            toolName: "import_koc_by_name",
+            label: toolLabel("import_koc_by_name"),
+          });
+
+          const importResult = await executeTool({
+            toolName: "import_koc_by_name",
+            args: { account_name: explicitBenchmarkName },
+            journeyId: conv.journey_id,
+            userId: user.id,
+            supabase,
+            journey: (journeyRecord ?? null) as ToolContextJourney | null,
+          });
+
+          await emitEvent(controller, encoder, {
+            type: "tool_result",
+            toolName: "import_koc_by_name",
+            label: toolLabel("import_koc_by_name"),
+            payload: importResult as Record<string, unknown>,
+          });
+
+          await updateJourneyStrategyState(supabase, {
+            journeyId: conv.journey_id,
+            userId: user.id,
+            patch: {
+              confirmed_benchmarks: [explicitBenchmarkName],
+              current_benchmark_name: explicitBenchmarkName,
+              next_best_action: "继续拆解这个号的内容规律，或基于它生成下一篇内容",
+            },
+          });
+
+          fullContent = `我已经先把 **${explicitBenchmarkName}** 导入成对标样本了，当前会同步最近 3 篇文章到知识库。接下来你可以直接让我：
+
+1. 拆它最近几篇内容为什么能火
+2. 对比你的号和它的差距
+3. 基于它的写法给你出 3 个更适合你的选题`;
+          fullContent = await appendConversationalFollowup({
+            controller,
+            encoder,
+            journeyId: conv.journey_id,
+            userMessage: content,
+            assistantDraft: fullContent,
+            projectMemory: await getJourneyProjectMemory(supabase, conv.journey_id),
+            currentContent: fullContent,
+          });
+          await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+          await appendStructuredRoundSummary(supabase, {
+            journeyId: conv.journey_id,
+            userId: user.id,
+            summary: {
+              user_intent: "导入明确对标公众号",
+              confirmed_decisions: [`已导入对标号：${explicitBenchmarkName}`],
+              produced_outputs: ["对标样本导入"],
+              open_questions: [],
+              next_action: "基于该对标号继续拆解内容或生成新选题",
+            },
+          });
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+          return;
+        }
+
+        if (
+          resolvedFocus.search_ready &&
+          resolvedFocus.focus_keyword &&
+          (resolvedIntent.intent === "search_wechat_articles" || /爆文|公众号|对标|账号/.test(content))
+        ) {
+          await emitEvent(controller, encoder, {
+            type: "tool_start",
+            toolName: "search_wechat_hot_articles",
+            label: toolLabel("search_wechat_hot_articles"),
+          });
+
+          const hotSearch = await executeTool({
+            toolName: "search_wechat_hot_articles",
+            args: { keyword: resolvedFocus.focus_keyword },
+            journeyId: conv.journey_id,
+            userId: user.id,
+            supabase,
+            journey: (journeyRecord ?? null) as ToolContextJourney | null,
+          }) as {
+            keyword: string;
+            articles: Array<{
+              mp_nickname?: string;
+              wxid?: string;
+              title?: string;
+              read_num?: number;
+              fans?: number;
+            }>;
+          };
+
+          const recommendations = await recommendKocFromHotArticlesChain({
+            journeyId: conv.journey_id,
+            keyword: hotSearch.keyword,
+            articles: hotSearch.articles,
+          });
+
+          await emitEvent(controller, encoder, {
+            type: "tool_result",
+            toolName: "search_wechat_hot_articles",
+            label: toolLabel("search_wechat_hot_articles"),
+            payload: {
+              keyword: hotSearch.keyword,
+              total: hotSearch.articles.length,
+              recommended_accounts: recommendations.recommended_accounts,
+            },
+          });
+
+          await updateJourneyStrategyState(supabase, {
+            journeyId: conv.journey_id,
+            userId: user.id,
+            patch: {
+              current_focus_keyword: hotSearch.keyword,
+              focus_confidence: resolvedFocus.confidence,
+              last_search_mode: "wechat_hot_articles",
+              last_successful_keyword: hotSearch.keyword,
+              next_best_action: "从推荐账号中确认一个并导入知识库",
+            },
+          });
+
+          const recommendationText = recommendations.recommended_accounts.length
+            ? recommendations.recommended_accounts
+                .map((item, index) => `${index + 1}. **${item.account_name}**：${item.reason}`)
+                .join("\n")
+            : "我先帮你搜到了一批相关文章，但还没有足够稳定的账号候选。";
+
+          fullContent = `我先按 **${hotSearch.keyword}** 帮你搜了一轮公众号爆文，这个词已经足够具体，比较适合公众号检索逻辑。
+
+基于这批结果，我更建议优先看这些号：
+${recommendationText}
+
+如果你愿意，直接回我其中一个公众号名字，我就把它导入成对标样本；如果你还没想好，我也可以继续帮你缩小角度。`;
+          fullContent = await appendConversationalFollowup({
+            controller,
+            encoder,
+            journeyId: conv.journey_id,
+            userMessage: content,
+            assistantDraft: fullContent,
+            projectMemory: await getJourneyProjectMemory(supabase, conv.journey_id),
+            currentContent: fullContent,
+          });
+          await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+          await appendStructuredRoundSummary(supabase, {
+            journeyId: conv.journey_id,
+            userId: user.id,
+            summary: {
+              user_intent: "基于唯一关键词搜索公众号爆文",
+              confirmed_decisions: [`当前焦点词：${hotSearch.keyword}`],
+              produced_outputs: ["公众号爆文搜索结果", "推荐对标账号"],
+              open_questions: [],
+              next_action: "确认一个推荐账号并导入知识库",
+            },
+          });
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
           return;
@@ -630,6 +831,16 @@ ${knowledgeContext}`,
           });
         }
 
+        fullContent = await appendConversationalFollowup({
+          controller,
+          encoder,
+          journeyId: conv.journey_id,
+          userMessage: content,
+          assistantDraft: fullContent,
+          projectMemory: await getJourneyProjectMemory(supabase, conv.journey_id),
+          currentContent: fullContent,
+        });
+
         await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
         await appendStructuredRoundSummary(supabase, {
           journeyId: conv.journey_id,
@@ -716,9 +927,55 @@ function inferNextAction(assistantContent: string) {
   return "继续围绕当前结果推进下一步";
 }
 
+async function appendConversationalFollowup(params: {
+  controller: ReadableStreamDefaultController;
+  encoder: TextEncoder;
+  journeyId: string;
+  userMessage: string;
+  assistantDraft: string;
+  projectMemory: Awaited<ReturnType<typeof getJourneyProjectMemory>>;
+  currentContent: string;
+}) {
+  try {
+    const followup = await buildFollowupQuestionChain({
+      journeyId: params.journeyId,
+      userMessage: params.userMessage,
+      assistantDraft: params.assistantDraft,
+      projectMemory: params.projectMemory,
+    });
+
+    if (!followup.question) {
+      return params.currentContent;
+    }
+
+    const nextContent = `${params.currentContent.trim()}\n\n${followup.question.trim()}`;
+    await emitText(params.controller, params.encoder, `\n\n${followup.question.trim()}`);
+    return nextContent;
+  } catch {
+    return params.currentContent;
+  }
+}
+
+function shouldAutoImportBenchmark(content: string) {
+  return /(对标|拆解|导入|跟踪|研究|分析这个号|分析这个公众号|想学这个号)/i.test(content);
+}
+
+function detectExplicitBenchmarkName(content: string, trackedAccounts: string[]) {
+  const explicit = content.match(/(?:对标|拆解|研究|分析|导入|跟踪|学习)\s*([^\n，。,；;：:]{2,30})/);
+  const accountLike = explicit?.[1]?.trim();
+  if (accountLike && !/公众号|文章|内容|问题|方向/.test(accountLike)) {
+    return accountLike;
+  }
+
+  const normalized = normalizeComparisonText(content);
+  return trackedAccounts.find((name) => normalized.includes(normalizeComparisonText(name))) || null;
+}
+
 function addToolHint(toolName: string, result: Record<string, unknown>): Record<string, unknown> {
   const hints: Record<string, string> = {
     search_hot_topics: "建议接下来调用 search_knowledge_base 检索知识库已有案例，或调用 analyze_journey_data 分析爆款规律。",
+    search_wechat_hot_articles: "如果已经找到合适的公众号账号，建议继续导入成对标样本。",
+    import_koc_by_name: "账号导入后，建议继续拆解这个号的内容规律或对比差距。",
     analyze_journey_data: "如果需要案例支撑，建议接下来调用 search_knowledge_base 获取详细文章内容。",
     search_knowledge_base: "如果用户还关注热点趋势，建议接下来调用 search_hot_topics；如果需要选题，建议调用 generate_topics。",
   };
@@ -1618,6 +1875,10 @@ function toolLabel(toolName: string) {
   switch (toolName) {
     case "search_hot_topics":
       return "搜索赛道热点";
+    case "search_wechat_hot_articles":
+      return "搜索公众号爆文";
+    case "import_koc_by_name":
+      return "导入对标公众号";
     case "analyze_journey_data":
       return "分析知识库";
     case "search_knowledge_base":

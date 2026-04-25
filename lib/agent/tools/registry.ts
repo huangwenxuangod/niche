@@ -3,13 +3,23 @@ import { analyzeJourneyDataToolDefinition, runAnalyzeJourneyData } from "./analy
 import { complianceCheckToolDefinition } from "./compliance-check";
 import { generateFullArticleToolDefinition, runGenerateFullArticle } from "./generate-full-article";
 import { generateTopicsToolDefinition, runGenerateTopics } from "./generate-topics";
+import { importKocByNameToolDefinition, runImportKocByName } from "./import-koc-by-name";
 import { searchHotTopicsToolDefinition, runSearchHotTopics } from "./search-hot-topics";
 import { searchKnowledgeBaseToolDefinition, runSearchKnowledgeBase } from "./search-knowledge-base";
+import { searchWechatHotArticlesToolDefinition, runSearchWechatHotArticles } from "./search-wechat-hot-articles";
 
 export const AGENT_TOOL_REGISTRY = {
   search_hot_topics: {
     definition: searchHotTopicsToolDefinition,
     execute: runSearchHotTopics,
+  },
+  search_wechat_hot_articles: {
+    definition: searchWechatHotArticlesToolDefinition,
+    execute: runSearchWechatHotArticles,
+  },
+  import_koc_by_name: {
+    definition: importKocByNameToolDefinition,
+    execute: runImportKocByName,
   },
   analyze_journey_data: {
     definition: analyzeJourneyDataToolDefinition,

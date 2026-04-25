@@ -23,10 +23,11 @@ ${params.content}
 提取原则：
 1. 只提取“明确确认”的信息，不要臆测。
 2. project_card_patch 适合放：定位、目标用户、平台策略、当前阶段、当前目标、内容风格等。
-3. strategy_patch 适合放：已确认对标、已确认方向、当前内容策略、当前阻塞、待办、下一步等。
+3. strategy_patch 适合放：已确认对标、已确认方向、当前内容策略、当前问题、当前焦点词、对标账号、搜索模式、当前阻塞、待办、下一步等。
 4. 如果消息只是闲聊或没有明确项，就返回空 patch。
 5. distribution_channels / confirmed_benchmarks / confirmed_directions / current_blockers / current_todos 用数组。
-6. 用中文返回结构化对象，不要额外解释。`;
+6. current_focus_keyword 只能是一个唯一关键词短语，不能是两个 query。
+7. 用中文返回结构化对象，不要额外解释。`;
 
   return model.invoke(
     prompt,

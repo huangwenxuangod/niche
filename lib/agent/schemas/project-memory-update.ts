@@ -23,6 +23,13 @@ export const JourneyStrategyPatchSchema = z.object({
   current_blockers: z.array(z.string().min(1)).max(6).optional(),
   current_todos: z.array(z.string().min(1)).max(6).optional(),
   next_best_action: z.string().min(1).optional(),
+  current_problem: z.string().min(1).optional(),
+  current_focus_keyword: z.string().min(1).optional(),
+  focus_confidence: z.number().min(0).max(1).optional(),
+  current_benchmark_name: z.string().min(1).optional(),
+  last_search_mode: z.string().min(1).optional(),
+  last_successful_keyword: z.string().min(1).optional(),
+  next_best_question: z.string().min(1).optional(),
 });
 
 export const ProjectMemoryUpdateSchema = z.object({

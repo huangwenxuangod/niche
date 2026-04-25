@@ -32,9 +32,10 @@ export type Journey = {
   id: string;
   name: string;
   platform: string;
-  niche_level1: string;
-  niche_level2: string;
-  niche_level3: string;
+  niche_level1?: string | null;
+  niche_level2?: string | null;
+  niche_level3?: string | null;
+  keywords?: string[] | null;
   is_active: boolean;
   knowledge_initialized: boolean;
   init_status: "pending" | "running" | "done" | "error";

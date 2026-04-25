@@ -33,7 +33,14 @@ export async function runSearchHotTopics(
 
   return retrieveHotTopics({
     baseQuery: query,
-    journey: context.journey,
+    journey: context.journey
+      ? {
+          keywords: context.journey.keywords,
+          niche_level1: context.journey.niche_level1 ?? undefined,
+          niche_level2: context.journey.niche_level2 ?? undefined,
+          niche_level3: context.journey.niche_level3 ?? undefined,
+        }
+      : null,
     maxResults,
     days,
   });

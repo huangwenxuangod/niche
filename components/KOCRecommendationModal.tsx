@@ -18,7 +18,7 @@ interface Props {
   journeyId: string;
   conversationId?: string;
   initialArticles?: HotArticle[];
-  initialKeywords?: string[];
+  initialKeyword?: string;
   autoSearch?: boolean;
   onImportComplete: (conversationId: string) => void;
   onSkip: () => void;
@@ -28,6 +28,7 @@ export default function KOCRecommendationModal({
   journeyId,
   conversationId,
   initialArticles,
+  initialKeyword,
   autoSearch = true,
   onImportComplete,
   onSkip,
@@ -41,13 +42,17 @@ export default function KOCRecommendationModal({
 
   // Search for hot articles on load
   useEffect(() => {
-    if (!autoSearch || initialArticles?.length) {
+    if (!autoSearch || initialArticles?.length || !initialKeyword) {
       return;
     }
 
     async function search() {
       try {
-        const res = await fetch(`/api/journeys/${journeyId}/hot-articles`);
+        const res = await fetch(`/api/journeys/${journeyId}/hot-articles`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ keyword: initialKeyword }),
+        });
         if (!res.ok) throw new Error("Search failed");
         const data = await res.json();
         setArticleList(data.articles || []);
@@ -58,7 +63,7 @@ export default function KOCRecommendationModal({
       }
     }
     search();
-  }, [autoSearch, initialArticles, journeyId]);
+  }, [autoSearch, initialArticles, initialKeyword, journeyId]);
 
   const toggleSelect = (wxid: string) => {
     setSelected(prev =>

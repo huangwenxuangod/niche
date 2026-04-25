@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { DownOutlined, UpOutlined } from "@ant-design/icons";
+import { CheckOutlined, CloseOutlined, DownOutlined, ExclamationOutlined, UpOutlined } from "@ant-design/icons";
 import { toast as sonnerToast } from "sonner";
 
 type ToastType = "default" | "success" | "error" | "warning";
@@ -39,16 +39,16 @@ function ToastCard({
     return () => window.clearTimeout(timer);
   }, [hasDetails, id]);
 
-  const typeLabel = useMemo(() => {
+  const typeIcon = useMemo(() => {
     switch (type) {
       case "success":
-        return "成功";
+        return <CheckOutlined />;
       case "error":
-        return "失败";
+        return <CloseOutlined />;
       case "warning":
-        return "警告";
+        return <ExclamationOutlined />;
       default:
-        return "提示";
+        return <CheckOutlined />;
     }
   }, [type]);
 
@@ -56,7 +56,7 @@ function ToastCard({
     <div className="niche-toast-card" data-type={type}>
       <div className="niche-toast-card__header">
         <div className="niche-toast-card__title-wrap">
-          <span className="niche-toast-card__badge">{typeLabel}</span>
+          <span className="niche-toast-card__badge" aria-hidden="true">{typeIcon}</span>
           <span className="niche-toast-card__title">{title}</span>
         </div>
         {hasDetails ? (

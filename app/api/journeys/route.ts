@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { llm } from "@/lib/llm";
-import { ensureJourneyMemory, syncUserIdentityMemory } from "@/lib/memory";
+import { ensureJourneyMemory, ensureJourneyProjectMemory, syncUserIdentityMemory } from "@/lib/memory";
 
 export async function GET() {
   const cookieStore = await cookies();
@@ -26,10 +25,12 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
-  const { platform, niche_level1, niche_level2, niche_level3, identity_memo } = body;
+  const { platform, identity_memo } = body;
+  if (!platform) {
+    return NextResponse.json({ error: "platform is required" }, { status: 400 });
+  }
 
-  // Generate journey name + keywords via 豆包
-  const nameAndKeywords = await generateJourneyMeta(platform, niche_level1, niche_level2, niche_level3);
+  const platformLabel = platform === "wechat_mp" ? "公众号" : platform;
 
   // Deactivate all previous journeys
   await supabase.from("journeys").update({ is_active: false }).eq("user_id", user.id);
@@ -39,12 +40,12 @@ export async function POST(req: NextRequest) {
     .from("journeys")
     .insert({
       user_id: user.id,
-      name: nameAndKeywords.name,
+      name: `${platformLabel}内容增长旅程`,
       platform,
-      niche_level1,
-      niche_level2,
-      niche_level3,
-      keywords: nameAndKeywords.keywords,
+      niche_level1: null,
+      niche_level2: null,
+      niche_level3: null,
+      keywords: [],
       is_active: true,
       knowledge_initialized: false,
       init_status: "pending",
@@ -68,9 +69,18 @@ export async function POST(req: NextRequest) {
   await ensureJourneyMemory(supabase, {
     journeyId: journey.id,
     platform: platform === "wechat_mp" ? "公众号" : platform,
-    nicheLevel1: niche_level1,
-    nicheLevel2: niche_level2,
-    nicheLevel3: niche_level3,
+    nicheLevel1: "",
+    nicheLevel2: "",
+    nicheLevel3: "",
+  });
+  await ensureJourneyProjectMemory(supabase, {
+    journeyId: journey.id,
+    userId: user.id,
+    projectName: journey.name,
+    platform: platformLabel,
+    nicheLevel1: "",
+    nicheLevel2: "",
+    nicheLevel3: "",
   });
 
   // Create initial conversation
@@ -81,28 +91,4 @@ export async function POST(req: NextRequest) {
     .single();
 
   return NextResponse.json({ journey_id: journey.id, conversation_id: conv?.id });
-}
-
-async function generateJourneyMeta(platform: string, l1: string, l2: string, l3: string) {
-  const platformLabel = platform === "wechat_mp" ? "公众号" : platform;
-  try {
-    const text = await llm.chat(
-      "你是一个内容策略助手，只输出 JSON，不要任何解释。",
-      `给一个内容创作旅程生成名称和搜索关键词。
-平台：${platformLabel}，大方向：${l1}，细分：${l2}，内容类型：${l3}
-
-返回 JSON：
-{
-  "name": "简短旅程名称，如'公众号×AI产品体验'",
-  "keywords": ["关键词1", "关键词2", "关键词3", "关键词4", "关键词5"]
-}`
-    );
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) return JSON.parse(jsonMatch[0]);
-  } catch {}
-
-  return {
-    name: `${platformLabel}×${l2}`,
-    keywords: [l2, `${l1} ${l2}`, `${l2} 公众号`, `${l2} 评测`, `${l2} 2025`],
-  };
 }

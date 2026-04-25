@@ -26,7 +26,6 @@ import {
   sanitizeArticlePreviewMarkdown,
 } from "@/lib/article-layout";
 import KOCRecommendationModal from "@/components/KOCRecommendationModal";
-import { toast } from "@/lib/toast";
 
 interface Props {
   conversationId: string;
@@ -70,7 +69,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [showRecommendations, setShowRecommendations] = useState(false);
-  const [recommendedArticles, setRecommendedArticles] = useState<
+  const [recommendedArticles] = useState<
     Array<{
       url: string;
       mp_nickname: string;
@@ -86,45 +85,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const [layoutTarget, setLayoutTarget] = useState<{ id: string; content: string } | null>(null);
   const assistantBufferRef = useRef("");
   const assistantFlushTimerRef = useRef<number | null>(null);
-  const recommendationToastShown = useRef(false);
   const loadingSnapshot = buildLoadingSnapshot(toolEvents, assistantStatus);
-
-  useEffect(() => {
-    if (kocCount > 0 || initialMessages.length > 0 || recommendationToastShown.current) {
-      return;
-    }
-
-    let aborted = false;
-    recommendationToastShown.current = true;
-
-    async function preloadRecommendations() {
-      try {
-        const res = await fetch(`/api/journeys/${journey.id}/hot-articles`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (aborted || !Array.isArray(data.articles) || data.articles.length === 0) {
-          return;
-        }
-
-        setRecommendedArticles(data.articles);
-        toast("已为你准备好推荐对标账号", {
-          description: `基于当前赛道找到 ${data.articles.length} 个可参考账号，随时可以补充到对标内容库。`,
-          action: {
-            label: "查看推荐",
-            onClick: () => setShowRecommendations(true),
-          },
-        });
-      } catch {
-        // Keep this silently backgrounded.
-      }
-    }
-
-    preloadRecommendations();
-
-    return () => {
-      aborted = true;
-    };
-  }, [initialMessages.length, journey.id, kocCount]);
 
   const bubbleItems = useMemo<BubbleItemType[]>(() => {
     const items: BubbleItemType[] = [];
@@ -335,7 +296,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
             <div>
               <div style={headerEyebrowStyle}>Niche Chat</div>
               <div style={headerTitleStyle}>
-                {journey.platform === "wechat_mp" ? "公众号" : journey.platform} · {journey.niche_level2}
+                {journey.platform === "wechat_mp" ? "公众号" : journey.platform} · 内容增长对话
               </div>
             </div>
             <Space size={8}>
@@ -358,10 +319,10 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                   icon={<AppstoreOutlined style={{ color: "var(--accent)" }} />}
                   title={
                     <span>
-                      从0到1最缺的不是努力，是一个真正懂增长的内容教练。
+                      直接告诉我你现在最想解决的问题。
                     </span>
                   }
-                  description={"Niche 面向冷启动 KOC，用 AI 帮你找方向、拆对标、补差距，并直接产出可发布内容。社媒通用，公众号先落地。"}
+                  description={"你可以先说问题，也可以直接发一个你想研究的主题、产品或公众号名字。我会先帮你解决问题，再顺手把方向收窄。"}
                   styles={{
                     root: { padding: 0, background: "transparent" },
                     title: { color: "var(--text-primary)", fontFamily: "var(--font-display)", fontSize: 36, lineHeight: 1.08, maxWidth: 680 },
@@ -482,7 +443,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
               onChange={(value) => setInput(value)}
               onSubmit={(value) => sendMessage(value)}
               loading={streaming}
-              placeholder="告诉我你的方向、对标账号或增长问题..."
+              placeholder="先说你现在最想解决的问题，也可以直接发一个想对标的公众号名..."
               submitType="enter"
               autoSize={{ minRows: 1, maxRows: 6 }}
               footer={() => (
@@ -541,10 +502,9 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
           journeyId={journey.id}
           conversationId={conversationId}
           initialArticles={recommendedArticles}
-          autoSearch={recommendedArticles.length === 0}
+          autoSearch={false}
           onImportComplete={() => {
             setShowRecommendations(false);
-            toast.success("对标账号已开始导入，后台会继续同步内容。");
           }}
           onSkip={() => setShowRecommendations(false)}
         />

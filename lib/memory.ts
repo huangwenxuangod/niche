@@ -34,6 +34,13 @@ export type JourneyStrategyState = {
   current_blockers: string[];
   current_todos: string[];
   next_best_action: string;
+  current_problem: string;
+  current_focus_keyword: string;
+  focus_confidence: number;
+  current_benchmark_name: string;
+  last_search_mode: string;
+  last_successful_keyword: string;
+  next_best_question: string;
 };
 
 export type RoundSummary = {
@@ -409,10 +416,15 @@ export async function captureProjectMemoryFromMessage(
   const benchmarkMatches = text.match(/数字生命卡兹克|Claude Code|GPT5\.5|GPT-5\.5/g);
   if (benchmarkMatches?.length) {
     strategyPatch.confirmed_benchmarks = benchmarkMatches;
+    strategyPatch.current_benchmark_name = benchmarkMatches[0];
   }
 
   if (/对标|差距|内容策略/.test(text)) {
     strategyPatch.current_content_strategy = "先做对标分析，再反推内容策略与选题";
+  }
+
+  if (/想做|想写|想讲|卡在|不知道怎么/.test(text)) {
+    strategyPatch.current_problem = text.slice(0, 120);
   }
 
   if (/下一步|先做|先改|优先/.test(text)) {
@@ -456,11 +468,18 @@ export function formatJourneyProjectMemoryForPrompt(memory: JourneyProjectMemory
     `- 已确认对标：${strategy.confirmed_benchmarks.join("、") || "暂无"}`,
     `- 已确认方向：${strategy.confirmed_directions.join("、") || "暂无"}`,
     `- 当前内容策略：${strategy.current_content_strategy || "待确认"}`,
+    `- 当前问题：${strategy.current_problem || "待确认"}`,
+    `- 当前焦点词：${strategy.current_focus_keyword || "待确认"}`,
+    `- 焦点置信度：${strategy.focus_confidence ? `${Math.round(strategy.focus_confidence * 100)}%` : "待确认"}`,
+    `- 当前对标号：${strategy.current_benchmark_name || "待确认"}`,
     `- 最近产出：${strategy.last_generated_asset || "暂无"}`,
     `- 发布状态：${strategy.last_publish_state || "暂无"}`,
+    `- 最近搜索模式：${strategy.last_search_mode || "暂无"}`,
+    `- 最近成功关键词：${strategy.last_successful_keyword || "暂无"}`,
     `- 当前阻塞：${strategy.current_blockers.join("；") || "暂无"}`,
     `- 当前待办：${strategy.current_todos.join("；") || "暂无"}`,
     `- 下一步：${strategy.next_best_action || "待确认"}`,
+    `- 建议追问：${strategy.next_best_question || "待确认"}`,
     "",
     "【本轮结论】",
     latest
@@ -691,8 +710,8 @@ function buildDefaultJourneyProjectMemory(params?: {
       positioning: "AI 内容增长教练",
       target_user: "冷启动 KOC",
       core_value: "帮助用户找方向、拆对标、补差距，并快速产出可发布内容",
-      current_stage: "方向确认",
-      current_goal: "完成项目定位和首条内容增长闭环",
+      current_stage: "对话启动",
+      current_goal: "通过对话理解用户问题并收敛可执行方向",
       success_metric: "找到方向、产出内容、形成稳定发布闭环",
       content_style: "直接、克制、有据可查",
       distribution_channels: params?.platform ? [params.platform] : ["公众号"],
@@ -730,6 +749,13 @@ function normalizeJourneyStrategyState(value: unknown): JourneyStrategyState {
     current_blockers: sanitizeStringList(source.current_blockers),
     current_todos: sanitizeStringList(source.current_todos),
     next_best_action: stringValue(source.next_best_action, ""),
+    current_problem: stringValue(source.current_problem, ""),
+    current_focus_keyword: stringValue(source.current_focus_keyword, ""),
+    focus_confidence: numberValue(source.focus_confidence, 0),
+    current_benchmark_name: stringValue(source.current_benchmark_name, ""),
+    last_search_mode: stringValue(source.last_search_mode, ""),
+    last_successful_keyword: stringValue(source.last_successful_keyword, ""),
+    next_best_question: stringValue(source.next_best_question, ""),
   };
 }
 
@@ -767,6 +793,11 @@ function mergeUniqueStrings(current: string[] = [], incoming: unknown) {
 function stringValue(value: unknown, fallback: string) {
   const text = String(value ?? "").trim();
   return text || fallback;
+}
+
+function numberValue(value: unknown, fallback: number) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

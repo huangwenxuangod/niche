@@ -46,6 +46,9 @@ type ArticlePayload = {
   publish_time: string | null;
   create_time: string | null;
   is_viral: boolean;
+  source_type: "competitor_account" | "wechat_hot_discovery";
+  discovery_keyword?: string;
+  discovery_reason?: string;
 };
 
 const DEFAULT_IMPORT_ARTICLE_LIMIT = 3;
@@ -53,7 +56,13 @@ const DEFAULT_IMPORT_ARTICLE_LIMIT = 3;
 export async function importKocForJourney(
   supabase: SupabaseClient,
   journeyId: string,
-  input: string
+  input: string,
+  options?: {
+    sourceType?: "explicit_benchmark" | "hot_article_discovery";
+    discoveryKeyword?: string;
+    discoveryConfidence?: number;
+    discoveryReason?: string;
+  }
 ) {
   const postHistory = await dajiala.getPostHistory(input, 1);
 
@@ -97,6 +106,9 @@ export async function importKocForJourney(
       wxid: postHistory.mp_wxid,
       avatar_url: normalizeImageUrl(postHistory.head_img),
       is_manually_added: false,
+      source_type: options?.sourceType || "explicit_benchmark",
+      discovery_keyword: options?.discoveryKeyword,
+      discovery_confidence: options?.discoveryConfidence,
     })
     .select()
     .single();
@@ -112,6 +124,9 @@ export async function importKocForJourney(
     articles: postHistory.articles,
     limit: DEFAULT_IMPORT_ARTICLE_LIMIT,
     viralThreshold: 10000,
+    sourceType: options?.sourceType === "hot_article_discovery" ? "wechat_hot_discovery" : "competitor_account",
+    discoveryKeyword: options?.discoveryKeyword,
+    discoveryReason: options?.discoveryReason,
   });
 
   await updateKocStats(supabase, koc.id, saveResult);
@@ -171,6 +186,7 @@ export async function syncKocSourceArticles(
     articles: postHistory.articles,
     limit,
     viralThreshold: Math.max((koc.avg_top_read || 1000) * 10, 10000),
+    sourceType: "competitor_account",
   });
 
   await updateKocStats(supabase, koc.id, saveResult);
@@ -188,6 +204,9 @@ async function saveArticlesToKnowledgeBase({
   articles,
   limit,
   viralThreshold,
+  sourceType,
+  discoveryKeyword,
+  discoveryReason,
 }: {
   supabase: SupabaseClient;
   journeyId: string;
@@ -195,6 +214,9 @@ async function saveArticlesToKnowledgeBase({
   articles: DajialaArticleListItem[];
   limit: number;
   viralThreshold: number;
+  sourceType: "competitor_account" | "wechat_hot_discovery";
+  discoveryKeyword?: string;
+  discoveryReason?: string;
 }): Promise<ArticleSaveResult> {
   let totalReads = 0;
   let maxReads = 0;
@@ -272,6 +294,9 @@ async function saveArticlesToKnowledgeBase({
         ? new Date(article.create_time * 1000).toISOString()
         : null,
       is_viral: readCount >= viralThreshold,
+      source_type: sourceType,
+      discovery_keyword: discoveryKeyword,
+      discovery_reason: discoveryReason,
     };
 
     await saveKnowledgeArticle(supabase, payload);
