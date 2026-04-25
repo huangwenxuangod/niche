@@ -745,13 +745,14 @@ const previewTitleStyle: React.CSSProperties = {
 
 const previewSummaryStyle: React.CSSProperties = {
   marginBottom: 18,
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "#F8F4ED",
-  color: "#6B6257",
-  border: "1px solid #E7DACA",
-  lineHeight: 1.8,
-  fontSize: 14,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "linear-gradient(180deg, #FCF8F1 0%, #F8F3EA 100%)",
+  color: "#74695B",
+  border: "1px solid rgba(197, 177, 145, 0.52)",
+  lineHeight: 1.75,
+  fontSize: 13,
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.72)",
 };
 
 const editorWrapStyle: React.CSSProperties = {

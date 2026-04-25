@@ -69,6 +69,7 @@ export function sanitizeArticlePreviewMarkdown(markdown: string) {
     .replace(/---+\s*(?=#{1,3}\s)/g, "")
     .replace(/:::cta\s*\n?\*{0,2}\s*:::?/g, "")
     .replace(/^\s*---+\s*$/gm, "")
+    .replace(/^\s*>\s*$/gm, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -201,7 +202,7 @@ function formatDefaultBlock(block: string): string[] {
   if (structuredParts) {
     return structuredParts.flatMap((part) => formatDefaultBlock(part));
   }
-  if (/^#{1,3}\s/.test(block) || /^>\s/.test(block) || /^-\s/.test(block) || /^\d+\.\s/.test(block)) {
+  if (/^#{1,3}\s/.test(block) || /^>\s*/.test(block) || /^-\s/.test(block) || /^\d+\.\s/.test(block)) {
     return [block];
   }
 
@@ -228,7 +229,7 @@ function splitStructuredBlock(block: string): string[] | null {
     const trimmed = line.trim();
     return (
       /^#{1,3}\s/.test(trimmed) ||
-      /^>\s/.test(trimmed) ||
+      /^>\s*/.test(trimmed) ||
       /^-\s/.test(trimmed) ||
       /^\d+\.\s/.test(trimmed)
     );
@@ -274,7 +275,14 @@ function splitStructuredBlock(block: string): string[] | null {
       continue;
     }
 
-    if (/^>\s/.test(trimmed)) {
+    if (/^>\s*$/.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      flushQuote();
+      continue;
+    }
+
+    if (/^>\s*/.test(trimmed)) {
       flushParagraph();
       flushList();
       quoteBuffer.push(trimmed);
@@ -472,20 +480,30 @@ function parseMarkdown(markdown: string): Block[] {
       continue;
     }
 
-    if (line.startsWith("> ")) {
+    if (/^>\s*$/.test(line)) {
+      index++;
+      continue;
+    }
+
+    if (/^>\s*/.test(line)) {
       const quoteLines: string[] = [];
-      while (index < lines.length && lines[index].trim().startsWith("> ")) {
-        quoteLines.push(lines[index].trim().slice(2).trim());
+      while (index < lines.length && /^>\s*/.test(lines[index].trim())) {
+        const normalizedQuote = lines[index].trim().replace(/^>\s*/, "").trim();
+        if (normalizedQuote) {
+          quoteLines.push(normalizedQuote);
+        }
         index++;
       }
-      blocks.push({ type: "blockquote", lines: quoteLines });
+      if (quoteLines.length) {
+        blocks.push({ type: "blockquote", lines: quoteLines });
+      }
       continue;
     }
 
     const paragraphLines: string[] = [];
     while (index < lines.length) {
       const current = lines[index].trim();
-      if (!current || current.startsWith("#") || current.startsWith("- ") || /^\d+\.\s/.test(current) || current.startsWith("> ") || current.startsWith(":::")) {
+      if (!current || current.startsWith("#") || current.startsWith("- ") || /^\d+\.\s/.test(current) || /^>\s*/.test(current) || current.startsWith(":::")) {
         break;
       }
       paragraphLines.push(lines[index]);
