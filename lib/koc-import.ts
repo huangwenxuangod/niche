@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { dajiala, type DajialaArticleListItem, type DajialaPostHistoryResult } from "./dajiala";
+import { indexKnowledgeArticlesByIds } from "@/lib/rag/llamaindex/ingest";
 
 type KocSourceForSync = {
   id: string;
@@ -15,6 +16,7 @@ type ArticleSaveResult = {
   savedCount: number;
   totalReads: number;
   maxReads: number;
+  articleIds: string[];
 };
 
 type ArticlePayload = {
@@ -130,6 +132,7 @@ export async function importKocForJourney(
   });
 
   await updateKocStats(supabase, koc.id, saveResult);
+  await tryIndexKnowledgeArticles(supabase, saveResult.articleIds);
 
   return {
     success: true,
@@ -190,6 +193,7 @@ export async function syncKocSourceArticles(
   });
 
   await updateKocStats(supabase, koc.id, saveResult);
+  await tryIndexKnowledgeArticles(supabase, saveResult.articleIds);
 
   return {
     success: true,
@@ -221,6 +225,7 @@ async function saveArticlesToKnowledgeBase({
   let totalReads = 0;
   let maxReads = 0;
   let savedCount = 0;
+  const articleIds: string[] = [];
 
   for (const article of articles.slice(0, limit)) {
     let readCount = 0;
@@ -299,9 +304,10 @@ async function saveArticlesToKnowledgeBase({
       discovery_reason: discoveryReason,
     };
 
-    await saveKnowledgeArticle(supabase, payload);
+    const articleId = await saveKnowledgeArticle(supabase, payload);
 
     savedCount++;
+    articleIds.push(articleId);
     totalReads += readCount;
     maxReads = Math.max(maxReads, readCount);
   }
@@ -310,6 +316,7 @@ async function saveArticlesToKnowledgeBase({
     savedCount,
     totalReads,
     maxReads,
+    articleIds,
   };
 }
 
@@ -317,12 +324,17 @@ async function saveKnowledgeArticle(
   supabase: SupabaseClient,
   payload: ArticlePayload
 ) {
-  const { error } = await supabase.from("knowledge_articles").upsert(
-    payload,
-    { onConflict: "journey_id,url" }
-  );
+  const { data, error } = await supabase
+    .from("knowledge_articles")
+    .upsert(payload, { onConflict: "journey_id,url" })
+    .select("id")
+    .single();
 
-  if (!error) return;
+  if (!error && data?.id) return data.id as string;
+
+  if (!error) {
+    throw new Error(`保存文章失败: ${payload.title || payload.url || "未知文章"} - 未返回文章 ID`);
+  }
 
   if (error.code !== "42P10" || !payload.url) {
     throw new Error(`保存文章失败: ${payload.title || payload.url || "未知文章"} - ${error.message}`);
@@ -350,16 +362,24 @@ async function saveKnowledgeArticle(
     if (updateError) {
       throw new Error(`更新文章失败: ${payload.title || payload.url} - ${updateError.message}`);
     }
-    return;
+    return existing.id;
   }
 
-  const { error: insertError } = await supabase
+  const { data: inserted, error: insertError } = await supabase
     .from("knowledge_articles")
-    .insert(payload);
+    .insert(payload)
+    .select("id")
+    .single();
 
   if (insertError) {
     throw new Error(`插入文章失败: ${payload.title || payload.url} - ${insertError.message}`);
   }
+
+  if (!inserted?.id) {
+    throw new Error(`插入文章失败: ${payload.title || payload.url} - 未返回文章 ID`);
+  }
+
+  return inserted.id as string;
 }
 
 async function updateKocStats(
@@ -408,4 +428,20 @@ function stripHtml(html: string) {
     .replace(/&gt;/gi, ">")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+async function tryIndexKnowledgeArticles(
+  supabase: SupabaseClient,
+  articleIds: string[]
+) {
+  if (articleIds.length === 0) return;
+
+  try {
+    await indexKnowledgeArticlesByIds(supabase, articleIds);
+  } catch (error) {
+    console.warn("[koc-import] Failed to index knowledge articles", {
+      articleCount: articleIds.length,
+      error,
+    });
+  }
 }

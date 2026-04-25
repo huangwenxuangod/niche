@@ -2,7 +2,7 @@ import { ChatOpenAI } from "@langchain/openai";
 
 const MODEL = process.env.ARK_MODEL_ID ?? "ep-xxxxxxxx";
 const API_KEY = process.env.OPENAI_API_KEY ?? "";
-const BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
+const BASE_URL = process.env.ARK_BASE_URL ?? "https://ark.cn-beijing.volces.com/api/v3";
 
 export type ThinkingMode = "enabled" | "disabled" | "auto";
 

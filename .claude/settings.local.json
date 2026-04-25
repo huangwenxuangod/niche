@@ -13,7 +13,14 @@
       "Bash(ls:*)",
       "Bash(rm:*)",
       "Bash(npx tsc:*)",
-      "Bash(npx:*)"
+      "Bash(npx:*)",
+      "WebSearch",
+      "Skill(tavily-research)",
+      "Skill(tavily-research:*)",
+      "Skill(tavily-search)",
+      "Skill(tavily-search:*)",
+      "Bash(export TAVILY_API_KEY=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)",
+      "Bash(tvly search *)"
     ]
   }
 }

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { searchSemanticKnowledge } from "@/lib/rag/llamaindex/retrieve";
 
 type KnowledgeArticleRow = {
   id: string;
@@ -99,10 +100,72 @@ export async function searchJourneyKnowledge(
     };
   });
 
+  if (articles.length >= limit || !keyword) {
+    return {
+      query: keyword,
+      total: articles.length,
+      articles,
+    };
+  }
+
+  try {
+    const semanticResults = await searchSemanticKnowledge(supabase, {
+      journeyId,
+      query: keyword,
+      sourceType: "competitor_account",
+      topK: limit,
+      minSimilarity: 0.25,
+    });
+
+    for (const item of semanticResults) {
+      if (merged.has(item.source_id)) continue;
+      if (
+        accountNames.length > 0 &&
+        !accountNames.some((name) => item.account_name?.includes(name))
+      ) {
+        continue;
+      }
+
+      merged.set(item.source_id, {
+        id: item.source_id,
+        koc_source_id: null,
+        title: item.article_title ?? "未命名文章",
+        digest: null,
+        content: item.chunk_text,
+        read_count: item.read_count,
+        publish_time: item.publish_time,
+        url: null,
+        koc_sources: item.account_name ? { account_name: item.account_name } : null,
+      });
+    }
+  } catch (error) {
+    console.warn("[knowledge-base] semantic fallback failed", error);
+  }
+
+  const hybridArticles = Array.from(merged.values())
+    .sort((a, b) => (b.read_count ?? 0) - (a.read_count ?? 0))
+    .slice(0, limit)
+    .map((article) => {
+      const kocSource = Array.isArray(article.koc_sources)
+        ? article.koc_sources[0]
+        : article.koc_sources;
+
+      return {
+        id: article.id,
+        title: article.title,
+        digest: article.digest,
+        read_count: article.read_count ?? 0,
+        publish_time: article.publish_time,
+        url: article.url,
+        account_name: kocSource?.account_name ?? "未知",
+        excerpt: buildExcerpt(article.content || article.digest, keyword),
+      };
+    });
+
   return {
     query: keyword,
-    total: articles.length,
-    articles,
+    total: hybridArticles.length,
+    articles: hybridArticles,
   };
 }
 

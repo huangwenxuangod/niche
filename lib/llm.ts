@@ -5,7 +5,7 @@ import { invokeText, invokeWithTools, streamText } from "@/lib/agent/runtime";
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  baseURL: "https://ark.cn-beijing.volces.com/api/v3",
+  baseURL: process.env.ARK_BASE_URL ?? "https://ark.cn-beijing.volces.com/api/v3",
 });
 
 // Model endpoint — set via env var or fall back to placeholder
