@@ -43,7 +43,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
   }
 
   try {
-    const result = await syncKocSourceArticles(supabase, koc, 20);
+    const result = await syncKocSourceArticles(supabase, koc, 3);
     return NextResponse.json(result);
   } catch (err) {
     console.error("Sync failed:", err);

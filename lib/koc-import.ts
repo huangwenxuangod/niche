@@ -48,7 +48,7 @@ type ArticlePayload = {
   is_viral: boolean;
 };
 
-const DEFAULT_IMPORT_ARTICLE_LIMIT = 20;
+const DEFAULT_IMPORT_ARTICLE_LIMIT = 3;
 
 export async function importKocForJourney(
   supabase: SupabaseClient,

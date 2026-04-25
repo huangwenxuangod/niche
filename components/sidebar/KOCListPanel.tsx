@@ -91,6 +91,18 @@ export function KOCListPanel({ journeyId }: { journeyId: string }) {
         </button>
       </div>
 
+      <div
+        style={{
+          fontSize: 10,
+          color: "var(--text-tertiary)",
+          fontFamily: "var(--font-body)",
+          lineHeight: 1.6,
+          marginBottom: 8,
+        }}
+      >
+        当前每个对标账号默认同步最近 3 篇文章，用于快速建立样本。
+      </div>
+
       {/* KOC list */}
       {loading ? (
         <div style={{ fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", padding: "4px 0" }}>

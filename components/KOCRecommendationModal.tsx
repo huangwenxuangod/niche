@@ -174,6 +174,15 @@ export default function KOCRecommendationModal({
           }}>
             基于最近 7 天的赛道爆文推荐，你可以先补充对标内容库，之后也能随时再添加
           </p>
+          <p style={{
+            fontSize: 11,
+            color: "var(--text-tertiary)",
+            marginTop: 8,
+            marginBottom: 0,
+            lineHeight: 1.7,
+          }}>
+            为了加快初始化速度，当前每个对标账号默认只同步最近 3 篇文章样本。
+          </p>
         </div>
 
         {/* Content */}
