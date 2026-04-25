@@ -10,8 +10,27 @@ export const searchWechatHotArticlesSchema = z.object({
 
 export const searchWechatHotArticlesToolDefinition: AgentToolDefinition<typeof searchWechatHotArticlesSchema> = {
   name: "search_wechat_hot_articles",
-  description:
-    "搜索公众号爆文与优质样本账号。只允许传入一个唯一关键词短语，不要拼两个 query。",
+  description: `
+【功能】搜索公众号爆文与优质样本账号
+
+【触发关键词】搜索、找、看看、爆文、爆款、优质
+
+【不触发条件】
+- "对标 XXX" → 应使用 import_koc_by_name
+- "导入 XXX" → 应使用 import_koc_by_name
+- "我的号"/"我的账号" → 应使用 analyze_my_account
+
+【限制】只允许传入一个唯一关键词短语，不要拼两个 query
+
+【参数】
+- keyword: 唯一的公众号搜索关键词短语（如 "AI 新模型"）
+- days: 搜索最近几天，默认 7
+
+【示例】
+  ✅ "搜索 Claude Code 新模型"
+  ✅ "找 AI 领域的爆文"
+  ❌ "对标数字生命卡兹克" → 应使用 import_koc_by_name
+`,
   schema: searchWechatHotArticlesSchema,
 };
 

@@ -20,8 +20,26 @@ export const analyzeJourneyDataToolDefinition: AgentToolDefinition<
   typeof analyzeJourneyDataSchema
 > = {
   name: "analyze_journey_data",
-  description:
-    "分析当前旅程下已有 KOC 和爆款文章，适合回答爆款规律、标题套路、选题建议。调用本工具后，如果用户还提到具体账号或案例，建议再调用 search_knowledge_base 获取详细文章内容做支撑。",
+  description: `
+【功能】分析当前旅程下已有 KOC 和爆款文章
+
+【触发关键词】爆款规律、标题套路、选题、分析对标、分析已导入
+
+【不触发条件】
+- "对标 XXX" → 应先调用 import_koc_by_name
+- "搜索 XXX" → 应使用 search_wechat_hot_articles 或 search_knowledge_base
+
+【调用建议】调用本工具后，如果用户还提到具体账号或案例，建议再调用 search_knowledge_base 获取详细文章内容做支撑
+
+【参数】
+- focus: 分析重点，可选值：viral_patterns（爆款规律）、koc_summary（KOC 总结）、topic_generation（选题生成）
+
+【示例】
+  ✅ "分析一下已导入对标账号的爆款规律"
+  ✅ "总结对标账号的标题套路"
+  ✅ "基于对标生成选题建议"
+  ❌ "分析数字生命卡兹克" → 应先导入再分析
+`,
   schema: analyzeJourneyDataSchema,
 };
 

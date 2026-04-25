@@ -11,8 +11,20 @@ export const searchHotTopicsSchema = z.object({
 
 export const searchHotTopicsToolDefinition: AgentToolDefinition<typeof searchHotTopicsSchema> = {
   name: "search_hot_topics",
-  description:
-    "搜索当前赛道近 3 天热点，适合回答热点、趋势、选题相关问题。调用本工具后，通常还需要调用 search_knowledge_base 用热点关键词检索已有案例，或调用 analyze_journey_data 分析爆款规律，以提供更完整的建议。",
+  description: `
+【功能】搜索当前赛道近几天热点
+
+【触发关键词】热点、趋势、最近、这周、这月、该写什么、选题
+
+【调用后建议】
+- 通常需要调用 search_knowledge_base 用热点关键词检索已有案例
+- 或调用 analyze_journey_data 分析爆款规律
+
+【参数】
+- query: 搜索关键词，优先使用当前赛道关键词
+- days: 搜索最近几天，默认 3
+- max_results: 返回结果数，默认 5
+`,
   schema: searchHotTopicsSchema,
 };
 

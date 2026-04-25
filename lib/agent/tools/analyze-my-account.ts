@@ -8,13 +8,26 @@ export const analyzeMyAccountSchema = z.object({
 
 export const analyzeMyAccountToolDefinition: AgentToolDefinition<typeof analyzeMyAccountSchema> = {
   name: "analyze_my_account",
-  description: `分析用户自己的公众号内容，生成增长分析报告。
+  description: `
+【功能】分析用户自己的公众号内容，生成增长分析报告
 
-重要使用规则：
-- account_name 参数必须是纯公众号名称，不包含任何修饰词
-- 例如：用户说"分析一下我的号"或"帮我看看我的账号"，需要先询问用户的公众号名称
-- 例如：用户说"分析我的公众号XX科技"，提取 account_name 为 "XX科技"
-- 功能：导入用户公众号最近的文章，分析标题模式、选题方向、发文节奏，对比竞品给出建议`,
+【触发关键词】我的号、我的账号、我的公众号、分析我的、增长分析
+
+【不触发条件】
+- "对标 XXX" → 应使用 import_koc_by_name
+- "搜索 XXX" → 应使用 search_wechat_hot_articles
+
+【功能说明】导入用户公众号最近的文章，分析标题模式、选题方向、发文节奏，对比竞品给出建议
+
+【参数提取规则】account_name 必须是纯公众号名称：
+- 移除前缀：分析、看看、帮我、我的、我的公众号、我的号、我的账号、一下
+- 移除后缀：这个号、这个公众号、的公众号、的账号、公众号
+
+【示例】
+  用户: "分析一下我的号" → 先询问公众号名称
+  用户: "分析我的公众号XX科技" → account_name="XX科技"
+  用户: "帮我看看我的账号XX" → account_name="XX"
+`,
   schema: analyzeMyAccountSchema,
 };
 

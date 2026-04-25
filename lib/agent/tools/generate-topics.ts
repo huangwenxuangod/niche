@@ -23,8 +23,23 @@ export const generateTopicsSchema = z.object({
 
 export const generateTopicsToolDefinition: AgentToolDefinition<typeof generateTopicsSchema> = {
   name: "generate_topics",
-  description:
-    "基于当前赛道、知识库和用户记忆生成 3 个适合当前用户的选题。建议在调用本工具前，先调用 search_hot_topics 和 analyze_journey_data 收集最新热点和爆款规律，这样生成的选题更有时效性和针对性。",
+  description: `
+【功能】基于当前赛道、知识库和用户记忆生成适合当前用户的选题
+
+【触发关键词】选题、推荐选题、给我选题、生成选题
+
+【调用建议】建议在调用本工具前，先调用 search_hot_topics 和 analyze_journey_data
+
+【参数】
+- count: 选题数量，默认 3
+- goal: 选题目标（如公众号选题、本周选题）
+- timeframe: 时间范围（如今天、本周）
+
+【示例】
+  ✅ "给我3个选题"
+  ✅ "推荐本周的选题"
+  ✅ "生成公众号选题"
+`,
   schema: generateTopicsSchema,
 };
 

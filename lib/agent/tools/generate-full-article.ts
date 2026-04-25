@@ -24,8 +24,26 @@ export const generateFullArticleToolDefinition: AgentToolDefinition<
   typeof generateFullArticleSchema
 > = {
   name: "generate_full_article",
-  description:
-    "基于已确认选题生成可发布级公众号完整 Markdown 初稿，包含摘要、备选标题和正文",
+  description: `
+【功能】基于已确认选题生成可发布级公众号完整 Markdown 初稿
+
+【触发关键词】写稿、成稿、完整稿、可发布、生成文章、写一篇
+
+【调用前准备】确保已有明确的 topic_title
+
+【功能说明】包含摘要、备选标题和正文
+
+【参数】
+- topic_title: 选题标题（必填）
+- angle: 切入角度（可选）
+- style: 文风（默认克制专业，略有网感）
+
+【示例】
+  ✅ "写一篇完整稿"
+  ✅ "生成可发布文章"
+  ✅ "基于XX选题写稿"
+  ❌ "写一个选题" → 应先调用 generate_topics
+`,
   schema: generateFullArticleSchema,
 };
 
