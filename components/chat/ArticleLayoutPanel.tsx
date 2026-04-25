@@ -160,7 +160,9 @@ export function ArticleLayoutPanel({
         }
         if (cancelled) return;
 
-        const nextRendered = optimizeData.rendered_markdown || article.bodyMarkdown;
+        const nextRendered = sanitizeArticlePreviewMarkdown(
+          optimizeData.rendered_markdown || article.bodyMarkdown
+        );
         const nextSource = sanitizeArticlePreviewMarkdown(article.bodyMarkdown);
         setSourceMarkdown(nextSource);
         setRenderedMarkdown(nextRendered);
@@ -177,8 +179,9 @@ export function ArticleLayoutPanel({
         }
       } catch (err) {
         if (!cancelled) {
-          setSourceMarkdown(article.bodyMarkdown);
-          setRenderedMarkdown(article.bodyMarkdown);
+          const cleaned = sanitizeArticlePreviewMarkdown(article.bodyMarkdown);
+          setSourceMarkdown(cleaned);
+          setRenderedMarkdown(cleaned);
           toast.error(err instanceof Error ? err.message : "默认排版生成失败");
         }
       } finally {

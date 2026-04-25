@@ -66,6 +66,7 @@ export function sanitizeArticlePreviewMarkdown(markdown: string) {
   }
 
   return next
+    .replace(/---+\s*(?=#{1,3}\s)/g, "")
     .replace(/:::cta\s*\n?\*{0,2}\s*:::?/g, "")
     .replace(/^\s*---+\s*$/gm, "")
     .replace(/\n{3,}/g, "\n\n")
@@ -80,7 +81,9 @@ export function normalizeLayoutMarkdown(markdown: string) {
 }
 
 function splitInlineHeadings(markdown: string) {
-  const withHeadingBreaks = markdown.replace(/([^\n])\s+(#{1,3}\s)/g, "$1\n\n$2");
+  const withHeadingBreaks = markdown
+    .replace(/([^\n])\s*(#{1,3}\s)/g, "$1\n\n$2")
+    .replace(/(#{1,3}\s[^\n]{6,80})(#{1,3}\s)/g, "$1\n\n$2");
   const lines = withHeadingBreaks.split("\n");
 
   return lines
@@ -119,6 +122,30 @@ function findSafeHeadingSplitIndex(content: string) {
     const restText = content.slice(index).trim();
     if (headingText.length >= 8 && headingText.length <= 36 && restText.length >= 10) {
       return index;
+    }
+  }
+
+  const sentenceStarterPatterns = [
+    /这是/,
+    /很多人/,
+    /我这次/,
+    /之前/,
+    /现在/,
+    /如果/,
+    /你会/,
+    /这种/,
+    /对于/,
+  ];
+
+  for (const pattern of sentenceStarterPatterns) {
+    const match = content.match(pattern);
+    const index = match?.index ?? -1;
+    if (index > 0) {
+      const headingText = content.slice(0, index).trim();
+      const restText = content.slice(index).trim();
+      if (headingText.length >= 8 && headingText.length <= 42 && restText.length >= 8) {
+        return index;
+      }
     }
   }
 
