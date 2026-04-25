@@ -78,10 +78,16 @@ export async function buildSystemPrompt(
   第1步调用 search_hot_topics → 第2步调用 search_knowledge_base（用热点关键词检索已有案例）→ 综合两步结果回答
 
 - 用户已经说清楚具体主题/产品/对象，想找公众号样本时：
-  第1步确认只有一个搜索关键词 → 第2步调用 search_wechat_hot_articles → 如果用户进一步确认某个账号，调用 import_koc_by_name
+  第1步确认只有一个搜索关键词(不是对标账号名称) → 第2步调用 search_wechat_hot_articles → 如果用户进一步确认某个账号，调用 import_koc_by_name
 
-- 用户已经明确给出对标公众号名字时：
-  直接调用 import_koc_by_name，不要绕去搜索热点或公众号爆文
+- **对标导入类问题（最高优先级）**：
+  当用户说”对标 XXX””导入 XXX””添加 XXX 作为对标””把 XXX 作为竞品”时：
+  直接调用 import_koc_by_name，提取公众号名称，**不要**调用 search_wechat_hot_articles 或其他搜索工具
+
+- **对标分析类问题（对标 + 我的账号）**：
+  当用户说”对标 XXX 来分析我的内容””对标 XXX 看看我哪里不足””和 XXX 对比分析我的号”时：
+  第1步调用 import_koc_by_name（导入对标账号）→ 第2步询问用户自己的公众号名称 → 第3步调用 analyze_my_account → 第4步调用 analyze_journey_data（综合对标数据分析）
+  如果用户已提供自己的公众号名称，跳过第2步
 
 - 账号分析类问题（”这个号为什么能火””拆解XXX的写法”）：
   第1步调用 search_knowledge_base（用账号名检索）→ 第2步调用 analyze_journey_data（分析爆款规律）→ 综合两步结果回答

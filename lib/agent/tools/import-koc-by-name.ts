@@ -9,12 +9,13 @@ export const importKocByNameSchema = z.object({
 
 export const importKocByNameToolDefinition: AgentToolDefinition<typeof importKocByNameSchema> = {
   name: "import_koc_by_name",
-  description: `通过公众号名称导入对标账号的文章数据到知识库，帮助 AI 学习对标账号的内容策略和风格。
+  description: `导入对标账号到知识库。当用户说"对标 XXX""导入 XXX""添加 XXX"时，直接调用此工具。
 
 重要使用规则：
 - account_name 参数必须是纯公众号名称，不包含任何修饰词
-- 例如：用户说"导入一下数字生命卡兹克这个号"，提取 account_name 为 "数字生命卡兹克"
-- 例如：用户说"添加量子位"，提取 account_name 为 "量子位"
+- 例如：用户说"对标数字生命卡兹克"，提取 account_name 为 "数字生命卡兹克"
+- 例如：用户说"导入一下量子位"，提取 account_name 为 "量子位"
+- 例如：用户说"添加XX作为对标"，提取 account_name 为 "XX"
 - 调用方式：调用大佳啦 post_history API，导入最近3篇文章样本到知识库`,
   schema: importKocByNameSchema,
 };
