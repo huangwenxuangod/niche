@@ -172,6 +172,14 @@ export interface DajialaHotSearchResponse {
   data: DajialaHotArticle[];
 }
 
+// 大佳啦 post_history API 参数说明
+// 根据搜索结果，API 接受的参数类型：
+// - name: 公众号名称（字符串）
+// - biz: biz 或 url 标识（布尔值）
+// - url: 公众号完整 URL（字符串）
+//
+// 推荐使用：优先使用 name 参数，避免使用 biz/url 方式
+
 export const dajiala = {
   getPostHistory: async (input: string, page = 1) => {
     const params: Record<string, unknown> = {
@@ -182,9 +190,12 @@ export const dajiala = {
     // 判断输入类型，只给一个参数赋值，其他字段不传！
     if (input.startsWith("http")) {
       params.url = input;
+    } else if (input.includes("http://mp.weixin.qq.com/") || input.includes("mp.weixin.qq.com/")) {
+      // 微信公众号文章 URL，使用 url 参数
+      params.url = input;
     } else {
-      // 其他情况都用 name
-      params.name = input;
+      // 其他情况都用 account_name（公众号名称）
+      params.account_name = input;
     }
 
     console.log("[dajiala] Calling post_history with params:", params);

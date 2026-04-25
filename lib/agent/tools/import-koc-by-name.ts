@@ -9,7 +9,12 @@ export const importKocByNameSchema = z.object({
 
 export const importKocByNameToolDefinition: AgentToolDefinition<typeof importKocByNameSchema> = {
   name: "import_koc_by_name",
-  description: "当用户明确说出要对标的公众号名字时，直接导入该账号最近 3 篇文章样本到知识库。",
+  description: `通过公众号名称导入对标账号，需要识别出公众号名称这一关键词，支持参数：name（公众号名称），并且导入该账号最近3篇文章样本到知识库
+
+重要说明：
+- 仅支持通过公众号名称查询
+- 如需使用 biz 或 url 方式，请使用其他导入方式
+- 调用方式：调用大佳啦 post_history API`,
   schema: importKocByNameSchema,
 };
 
