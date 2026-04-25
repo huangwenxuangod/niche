@@ -357,6 +357,16 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
             },
           });
 
+          await emitEvent(controller, encoder, {
+            type: "koc_recommendation_ready",
+            label: "已找到推荐对标账号",
+            payload: {
+              keyword: hotSearch.keyword,
+              articles: hotSearch.articles,
+              recommended_accounts: recommendations.recommended_accounts,
+            },
+          });
+
           await updateJourneyStrategyState(supabase, {
             journeyId: conv.journey_id,
             userId: user.id,

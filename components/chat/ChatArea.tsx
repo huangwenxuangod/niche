@@ -69,7 +69,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [showRecommendations, setShowRecommendations] = useState(false);
-  const [recommendedArticles] = useState<
+  const [recommendedArticles, setRecommendedArticles] = useState<
     Array<{
       url: string;
       mp_nickname: string;
@@ -81,6 +81,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
       fans: number;
     }>
   >([]);
+  const [recommendedKeyword, setRecommendedKeyword] = useState("");
   const [toolEvents, setToolEvents] = useState<ToolEvent[]>([]);
   const [layoutTarget, setLayoutTarget] = useState<{ id: string; content: string } | null>(null);
   const assistantBufferRef = useRef("");
@@ -230,6 +231,50 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                 )
               );
               currentAssistantId = nextId;
+            } else if (parsed.type === "koc_recommendation_ready") {
+              const payload = parsed.payload as
+                | {
+                    keyword?: unknown;
+                    articles?: unknown;
+                  }
+                | undefined;
+              const articles = Array.isArray(payload?.articles)
+                ? (payload.articles.filter((item): item is {
+                    url: string;
+                    mp_nickname: string;
+                    title: string;
+                    pub_time: string;
+                    wxid: string;
+                    hot: number;
+                    read_num: number;
+                    fans: number;
+                  } =>
+                    Boolean(
+                      item &&
+                        typeof item === "object" &&
+                        typeof (item as { wxid?: unknown }).wxid === "string" &&
+                        typeof (item as { mp_nickname?: unknown }).mp_nickname === "string" &&
+                        typeof (item as { title?: unknown }).title === "string"
+                    )
+                  ) as Array<{
+                    url: string;
+                    mp_nickname: string;
+                    title: string;
+                    pub_time: string;
+                    wxid: string;
+                    hot: number;
+                    read_num: number;
+                    fans: number;
+                  }>)
+                : [];
+
+              if (articles.length > 0) {
+                setRecommendedArticles(articles);
+                setRecommendedKeyword(
+                  typeof payload?.keyword === "string" ? payload.keyword : ""
+                );
+                setShowRecommendations(true);
+              }
             } else if (parsed.type && parsed.type !== "text") {
               setToolEvents((prev) => [
                 ...prev,
@@ -502,11 +547,18 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
           journeyId={journey.id}
           conversationId={conversationId}
           initialArticles={recommendedArticles}
+          initialKeyword={recommendedKeyword}
           autoSearch={false}
           onImportComplete={() => {
             setShowRecommendations(false);
+            setRecommendedArticles([]);
+            setRecommendedKeyword("");
           }}
-          onSkip={() => setShowRecommendations(false)}
+          onSkip={() => {
+            setShowRecommendations(false);
+            setRecommendedArticles([]);
+            setRecommendedKeyword("");
+          }}
         />
       )}
     </>
