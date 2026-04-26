@@ -421,7 +421,352 @@ erDiagram
 | article-layout.ts | Markdown → 微信 HTML |
 | wechat-gateway/ | 可选的微信 API 代理 |
 
-## 七、核心设计模式
+## 七、产品功能架构
+
+### 核心用户旅程
+
+```mermaid
+graph TB
+    subgraph "用户层"
+        USER[创作者用户]
+        GOAL["目标: 持续产出优质公众号内容"]
+    end
+
+    subgraph "旅程创建与配置"
+        J_CREATE["创建旅程 Journey"]
+        J_CONFIG["配置项目参数"]
+        C_PLATFORM["选择内容平台<br/>（公众号/小红书等）"]
+        C_TRACK["选择细分赛道"]
+    end
+
+    subgraph "竞品情报收集"
+        KOC_IMPORT["KOC 导入"]
+        DJL_SYNC["大佳啦同步"]
+        KH_IMPORT["TikHub 导入"]
+        KB_INDEX["知识库索引<br/>RAG 向量化"]
+    end
+
+    subgraph "AI 对话与助手"
+        CHAT["AI 对话 Chat"]
+        MEM_INJECT["记忆注入"]
+        MEM_CAPTURE["记忆捕获"]
+        TOOL_CALL["Agent 工具调用"]
+    end
+
+    subgraph "内容生产工作流"
+        HOT_SEARCH["热点搜索<br/>search_hot_topics"]
+        DATA_ANALYSIS["数据分析<br/>analyze_journey_data"]
+        KB_SEARCH["知识库检索<br/>search_knowledge_base"]
+        TOPIC_GEN["选题生成<br/>generate_topics"]
+        ARTICLE_GEN["文章生成<br/>generate_full_article"]
+        COMP_CHECK["合规检查<br/>compliance_check"]
+    end
+
+    subgraph "内容优化与发布"
+        LAYOUT["文章排版<br/>article-layout"]
+        DRAFT_SAVE["草稿保存"]
+        WC_PUBLISH["微信草稿箱发布"]
+        DATA_SYNC["自有账号同步<br/>owned_wechat_sync"]
+        ANALYSIS["公众号分析<br/>owned_wechat_analysis"]
+    end
+
+    subgraph "数据闭环"
+        FEEDBACK["数据反馈"]
+        MEM_UPDATE["记忆更新"]
+        IMPROVE["策略优化"]
+    end
+
+    USER --> GOAL
+    GOAL --> J_CREATE
+    J_CREATE --> J_CONFIG
+    J_CONFIG --> C_PLATFORM
+    J_CONFIG --> C_TRACK
+    C_TRACK --> KOC_IMPORT
+
+    KOC_IMPORT --> DJL_SYNC
+    KOC_IMPORT --> KH_IMPORT
+    DJL_SYNC --> KB_INDEX
+    KH_IMPORT --> KB_INDEX
+
+    KB_INDEX --> CHAT
+
+    CHAT --> MEM_INJECT
+    MEM_INJECT --> TOOL_CALL
+    TOOL_CALL --> HOT_SEARCH
+    TOOL_CALL --> DATA_ANALYSIS
+    TOOL_CALL --> KB_SEARCH
+
+    HOT_SEARCH --> TOPIC_GEN
+    DATA_ANALYSIS --> TOPIC_GEN
+    KB_SEARCH --> TOPIC_GEN
+
+    TOPIC_GEN --> ARTICLE_GEN
+    ARTICLE_GEN --> COMP_CHECK
+    COMP_CHECK --> LAYOUT
+
+    LAYOUT --> DRAFT_SAVE
+    DRAFT_SAVE --> WC_PUBLISH
+    WC_PUBLISH --> DATA_SYNC
+    DATA_SYNC --> ANALYSIS
+
+    ANALYSIS --> FEEDBACK
+    CHAT --> MEM_CAPTURE
+    MEM_CAPTURE --> MEM_UPDATE
+    FEEDBACK --> MEM_UPDATE
+    MEM_UPDATE --> IMPROVE
+    IMPROVE --> CHAT
+```
+
+### 功能模块详细图
+
+```mermaid
+graph LR
+    subgraph "基础层"
+        G1["1. 旅程管理 Journeys<br/><br/>创建新旅程<br/>旅程详情<br/>编辑配置<br/>删除旅程"]
+        G2["2. KOC 情报系统<br/><br/>添加 KOC<br/>同步文章<br/>KOC 列表<br/>粉丝/阅读筛选"]
+    end
+
+    subgraph "数据层"
+        G3["3. 知识库 RAG<br/><br/>文章索引<br/>文档分块<br/>Ark 向量化<br/>混合检索"]
+        G4["4. 热点搜索<br/><br/>Tavily 搜索<br/>大佳啦热点<br/>TikHub 补充<br/>时间/赛道过滤"]
+        G5["5. 数据分析<br/><br/>爆款规律分析<br/>KOC 账号分析<br/>自有账号分析<br/>增长分析链"]
+    end
+
+    subgraph "生产层"
+        G6["6. 内容生产<br/><br/>选题生成<br/>大纲生成<br/>文章生成<br/>标题/摘要优化"]
+        G7["7. 文章排版<br/><br/>Markdown 解析<br/>HTML 转换<br/>样式应用<br/>预览编辑"]
+        G8["8. 微信发布<br/><br/>微信配置<br/>图片上传<br/>草稿箱<br/>DataCube 数据"]
+    end
+
+    subgraph "智能层"
+        G9["9. 记忆系统<br/><br/>用户记忆（跨旅程）<br/>旅程记忆（项目级）<br/>项目记忆（策略卡）<br/>自动捕获"]
+        G10["10. AI 对话助手<br/><br/>聊天界面<br/>流式输出<br/>工具调用<br/>对话历史"]
+    end
+
+    G1 --> G2
+    G2 --> G3
+    G3 --> G4
+    G3 --> G5
+    G4 --> G6
+    G5 --> G6
+    G6 --> G7
+    G7 --> G8
+    G8 --> G9
+    G9 --> G10
+    G10 -.-> G4
+    G10 -.-> G6
+```
+    HOT_SEARCH --> HOT_DJL
+    HOT_SEARCH --> HOT_KH
+
+    HOT_SEARCH --> ANALYSIS_VIRAL
+    KB_SEARCH --> ANALYSIS_KOC
+    KOC_SYNC --> ANALYSIS_KOC
+    ANALYSIS_KOC --> ANALYSIS_OWN
+    ANALYSIS_OWN --> ANALYSIS_GROWTH
+
+    ANALYSIS_VIRAL --> PROD_TOPIC
+    ANALYSIS_KOC --> PROD_TOPIC
+    KB_SEARCH --> PROD_TOPIC
+
+    PROD_TOPIC --> PROD_OUTLINE
+    PROD_OUTLINE --> PROD_ARTICLE
+    PROD_ARTICLE --> PROD_TITLE
+    PROD_ARTICLE --> PROD_SUMMARY
+
+    PROD_ARTICLE --> LAYOUT_MD
+    LAYOUT_MD --> LAYOUT_HTML
+    LAYOUT_HTML --> LAYOUT_STYLES
+    LAYOUT_STYLES --> LAYOUT_PREVIEW
+
+    LAYOUT_PREVIEW --> WC_CONFIG
+    WC_CONFIG --> WC_UPLOAD
+    WC_UPLOAD --> WC_DRAFT
+    WC_DRAFT --> WC_PUB
+    WC_PUB --> WC_CUBE
+
+    CHAT_UI --> MEM_CAPTURE
+    MEM_CAPTURE --> MEM_USER
+    MEM_CAPTURE --> MEM_JOURNEY
+    MEM_CAPTURE --> MEM_PROJECT
+    MEM_USER --> CHAT_UI
+    MEM_JOURNEY --> CHAT_UI
+    MEM_PROJECT --> CHAT_UI
+```
+
+### Agent 工具完整流程
+
+```mermaid
+graph TB
+    subgraph "用户输入"
+        INPUT["用户消息"]
+        INTENT["意图识别"]
+    end
+
+    subgraph "工具注册表 registry.ts"
+        REGISTRY["AGENT_TOOL_REGISTRY"]
+        T1["search_hot_topics"]
+        T2["analyze_journey_data"]
+        T3["search_knowledge_base"]
+        T4["generate_topics"]
+        T5["generate_full_article"]
+        T6["compliance_check"]
+    end
+
+    subgraph "热点搜索流程"
+        T1 --> Q1["query 查询词"]
+        T1 --> D1["days 天数"]
+        T1 --> R1["max_results 结果数"]
+        Q1 --> TV1["Tavily API"]
+        Q1 --> DJ1["大佳啦 API"]
+        TV1 --> RES1["热点列表"]
+        DJ1 --> RES1
+    end
+
+    subgraph "数据分析流程"
+        T2 --> FOCUS["focus 焦点"]
+        FOCUS --> F1["viral_patterns 爆款规律"]
+        FOCUS --> F2["koc_summary KOC 总结"]
+        FOCUS --> F3["topic_generation 选题生成"]
+        F1 --> AN1["分析 KOC 文章"]
+        F2 --> AN2["生成 KOC 报告"]
+        F3 --> AN3["分析选题趋势"]
+    end
+
+    subgraph "知识库检索流程"
+        T3 --> Q2["query 查询"]
+        T3 --> L1["limit 限制"]
+        T3 --> ACC["account_names 账号"]
+        Q2 --> KW["关键词检索"]
+        ACC --> KW
+        KW --> FIL1["结果过滤"]
+        FIL1 --> VEC["语义召回<br/>pgvector"]
+        VEC --> RES2["检索结果"]
+    end
+
+    subgraph "选题生成流程"
+        T4 --> C1["count 数量"]
+        T4 --> G1["goal 目标"]
+        T4 --> T1["timeframe 时间范围"]
+        C1 --> GENT["生成选题"]
+        GENT --> TOP["选题列表"]
+    end
+
+    subgraph "文章生成流程"
+        T5 --> TT["topic_title 标题"]
+        T5 --> ANG["angle 角度"]
+        T5 --> STY["style 风格"]
+        TT --> GENA["生成文章"]
+        ANG --> GENA
+        STY --> GENA
+        GENA --> ART["完整初稿<br/>Markdown"]
+    end
+
+    subgraph "合规检查流程"
+        T6 --> TI["title 标题"]
+        T6 --> SU["summary 摘要"]
+        T6 --> AM["article_markdown 正文"]
+        TI --> CHECK["风险检查"]
+        SU --> CHECK
+        AM --> CHECK
+        CHECK --> RISK["风险报告"]
+    end
+
+    INPUT --> INTENT
+    INTENT --> REGISTRY
+    REGISTRY --> T1
+    REGISTRY --> T2
+    REGISTRY --> T3
+    REGISTRY --> T4
+    REGISTRY --> T5
+    REGISTRY --> T6
+```
+
+### 数据流转全景图
+
+```mermaid
+graph LR
+    subgraph "外部数据源"
+        DJL["大佳啦 API<br/>公众号数据"]
+        KH["TikHub API<br/>微信数据"]
+        TV["Tavily API<br/>热点搜索"]
+        WC["微信 API<br/>发布/数据"]
+    end
+
+    subgraph "数据摄取层"
+        IMPORT["KOC 导入<br/>koc-import.ts"]
+        SYNC["文章同步<br/>owned_wechat_sync"]
+        SEARCH["热点搜索<br/>hot-topic-search.ts"]
+    end
+
+    subgraph "知识库层"
+        ARTICLES["knowledge_articles<br/>owned_articles"]
+        CHUNKS["knowledge_chunks<br/>向量索引"]
+        KB["knowledge-base.ts<br/>混合检索"]
+    end
+
+    subgraph "记忆层"
+        MEM["记忆系统<br/>memory.ts"]
+        UM["user_memories"]
+        JM["journey_memories"]
+        PM["journey_project_memories"]
+    end
+
+    subgraph "Agent 执行层"
+        TOOLS["Agent 工具<br/>lib/agent/tools/"]
+        RUNTIME["执行运行时<br/>runtime.ts"]
+        CHAINS["LangChain 链<br/>lib/agent/chains/"]
+    end
+
+    subgraph "LLM 层"
+        MODEL["豆包 LLM<br/>火山引擎 Ark"]
+        DEEP["深度思考<br/>Chain of Thought"]
+    end
+
+    subgraph "输出层"
+        TOPICS["选题输出"]
+        ARTICLES_OUT["文章输出"]
+        ANALYSIS["分析报告"]
+        LAYOUT["排版后 HTML"]
+    end
+
+    subgraph "发布层"
+        DRAFT["草稿保存"]
+        PUBLISH["微信发布"]
+        METRICS["数据指标"]
+    end
+
+    DJL --> IMPORT
+    KH --> IMPORT
+    TV --> SEARCH
+
+    IMPORT --> ARTICLES
+    SYNC --> ARTICLES
+    ARTICLES --> CHUNKS
+    CHUNKS --> KB
+
+    KB --> TOOLS
+    SEARCH --> TOOLS
+    MEM --> TOOLS
+
+    TOOLS --> RUNTIME
+    RUNTIME --> CHAINS
+    RUNTIME --> MODEL
+    MODEL --> DEEP
+
+    CHAINS --> TOPICS
+    CHAINS --> ARTICLES_OUT
+    CHAINS --> ANALYSIS
+
+    ARTICLES_OUT --> LAYOUT
+    LAYOUT --> DRAFT
+    DRAFT --> WC
+    WC --> PUBLISH
+    WC --> METRICS
+    METRICS --> MEM
+```
+
+## 八、核心设计模式
 
 ### 1. Server Components 优先
 ```
