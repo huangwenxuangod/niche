@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check, ChevronRight, ArrowRight } from "lucide-react";
+import { CheckOutlined, RightOutlined, ArrowRightOutlined } from "@ant-design/icons";
 
 type Plan = {
   id: string;
@@ -581,7 +581,7 @@ export default function PricingPage() {
           }}
         >
           联系销售
-          <ArrowRight size={16} />
+          <ArrowRightOutlined size={16} />
         </a>
       </section>
 
@@ -796,7 +796,7 @@ function PlanCard({
       <ul style={{ listStyle: "none", margin: 0, padding: 0, marginBottom: 24, gap: 10, display: "flex", flexDirection: "column" }}>
         {plan.features.map((feature, i) => (
           <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-            <Check size={16} style={{ color: "var(--accent)", flexShrink: 0, marginTop: 2 }} />
+            <CheckOutlined size={16} style={{ color: "var(--accent)", flexShrink: 0, marginTop: 2 }} />
             <span style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
               {feature}
             </span>
@@ -829,7 +829,7 @@ function PlanCard({
         }}
       >
         {plan.tier === "free" ? "开始免费使用" : `订阅${period === "monthly" ? "月付" : period === "quarterly" ? "季付" : "年付"}方案`}
-        <ChevronRight size={14} />
+        <RightOutlined size={14} />
       </button>
     </div>
   );
