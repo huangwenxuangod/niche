@@ -6,6 +6,7 @@ export const ProjectCardPatchSchema = z.object({
   platform: z.string().min(1).optional(),
   positioning: z.string().min(1).optional(),
   target_user: z.string().min(1).optional(),
+  monetization_model: z.string().min(1).optional(),
   core_value: z.string().min(1).optional(),
   current_stage: z.string().min(1).optional(),
   current_goal: z.string().min(1).optional(),

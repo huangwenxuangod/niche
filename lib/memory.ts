@@ -17,6 +17,7 @@ export type ProjectCard = {
   platform: string;
   positioning: string;
   target_user: string;
+  monetization_model: string;
   core_value: string;
   current_stage: string;
   current_goal: string;
@@ -413,6 +414,23 @@ export async function captureProjectMemoryFromMessage(
     projectPatch.current_stage = "比赛打磨";
   }
 
+  const monetizationPatterns = [
+    /知识付费|卖课|课程|训练营/,
+    /广告|流量主|接广告|广点通/,
+    /带货|分销|返利|电商/,
+    /咨询|顾问|1对1|一对一|私教/,
+    /社群|会员|付费群|星球|知识星球/,
+    /品牌合作|商单|赞助/,
+    /IP|个人品牌|出书|线下/,
+  ];
+  for (const pattern of monetizationPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      projectPatch.monetization_model = match[0];
+      break;
+    }
+  }
+
   const benchmarkMatches = text.match(/数字生命卡兹克|Claude Code|GPT5\.5|GPT-5\.5/g);
   if (benchmarkMatches?.length) {
     strategyPatch.confirmed_benchmarks = benchmarkMatches;
@@ -460,6 +478,7 @@ export function formatJourneyProjectMemoryForPrompt(memory: JourneyProjectMemory
     `- 平台策略：${card.platform || "待确认"}`,
     `- 产品定位：${card.positioning || "待确认"}`,
     `- 目标用户：${card.target_user || "待确认"}`,
+    `- 变现模式：${card.monetization_model || "待确认"}`,
     `- 当前阶段：${card.current_stage || "待确认"}`,
     `- 当前目标：${card.current_goal || "待确认"}`,
     `- 内容风格：${card.content_style || "待确认"}`,
@@ -709,9 +728,10 @@ function buildDefaultJourneyProjectMemory(params?: {
       platform: params?.platform || "待确认",
       positioning: "AI 内容增长教练",
       target_user: "冷启动 KOC",
+      monetization_model: "",
       core_value: "帮助用户找方向、拆对标、补差距，并快速产出可发布内容",
-      current_stage: "对话启动",
-      current_goal: "通过对话理解用户问题并收敛可执行方向",
+      current_stage: "变现模式确认",
+      current_goal: "确认用户靠什么内容变现，再推导赛道和方向",
       success_metric: "找到方向、产出内容、形成稳定发布闭环",
       content_style: "直接、克制、有据可查",
       distribution_channels: params?.platform ? [params.platform] : ["公众号"],
@@ -729,6 +749,7 @@ function normalizeProjectCard(value: unknown): ProjectCard {
     platform: stringValue(source.platform, "待确认"),
     positioning: stringValue(source.positioning, "AI 内容增长教练"),
     target_user: stringValue(source.target_user, "冷启动 KOC"),
+    monetization_model: stringValue(source.monetization_model, ""),
     core_value: stringValue(source.core_value, ""),
     current_stage: stringValue(source.current_stage, "待确认"),
     current_goal: stringValue(source.current_goal, ""),
