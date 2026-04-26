@@ -378,7 +378,7 @@ erDiagram
           │ 按阅读数重排        │
           │ 生成 excerpt        │
           └────────────────────┘
-
+```
 ## 六、技术栈清单
 
 ### 前端
@@ -421,7 +421,229 @@ erDiagram
 | article-layout.ts | Markdown → 微信 HTML |
 | wechat-gateway/ | 可选的微信 API 代理 |
 
-## 七、产品功能架构
+## 七、AI 模型与 API 汇总
+
+### LLM 模型
+
+| 模型 | 用途 | 提供方 | 特性 |
+|------|------|--------|------|
+| **Ark Chat Model** | 主对话、文章生成、选题生成 | 火山引擎 | 流式输出、深度思考支持 |
+| **doubao-embedding-vision-251215** | 文本向量化 | 火山引擎 | 1024维向量、批处理 |
+
+### Embedding 模型
+
+| 参数 | 配置 |
+|------|------|
+| 模型名称 | `doubao-embedding-vision-251215` |
+| 向量维度 | 1024 |
+| 批处理限制 | 4 |
+| API | Ark Embeddings API |
+
+### 外部 API 集成
+
+| API | 用途 | 用途 |
+|------|------|------|
+| **大佳啦 API** | 微信公众号数据 | KOC 导入、文章同步 |
+| **TikHub API** | 微信数据补充 | 补充 KOC 数据 |
+| **Tavily API** | 网络热点搜索 | 热点追踪、话题搜索 |
+| **微信 API** | 公众号发布与数据 | 草稿箱发布、DataCube 数据 |
+
+### 支持平台
+
+| 平台 | 状态 | 用途 |
+|------|------|------|
+| **微信公众号** | ✅ 已支持 | 长文创作、排版、发布 |
+| **微信视频号** | ✅ 已支持 | 短视频对标、脚本创作 |
+| **小红书** | 🚧 规划中 | 笔记创作、排版 |
+
+## 八、AI 工作流程
+
+### AI 对话完整流程
+
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant UI as ChatArea
+    participant API as /messages 路由
+    participant SYS as system-prompt.ts
+    participant MEM as memory.ts
+    participant LLM as 豆包 LLM
+    participant AGENT as Agent 工具系统
+    participant KB as 知识库 RAG
+    participant EXT as 外部 API
+    participant DB as Supabase
+
+    U->>UI: 发送消息
+    UI->>API: POST /messages { content, journey_id }
+    API->>DB: 保存用户消息
+
+    API->>SYS: 构建系统提示词
+    SYS->>MEM: 获取用户记忆
+    SYS->>MEM: 获取旅程记忆
+    SYS->>MEM: 获取项目记忆
+    MEM-->>SYS: 返回记忆内容
+    SYS->>SYS: 注入 KOC 情报
+    SYS->>SYS: 注入热点信息
+    SYS-->>API: 完整系统提示词
+
+    API->>LLM: completeWithTools(系统提示词 + 用户消息)
+
+    loop 工具调用循环
+        LLM->>API: 返回 tool_calls
+        API->>AGENT: 执行工具
+
+        alt 热点搜索
+            AGENT->>EXT: Tavily API
+            AGENT->>EXT: 大佳啦 API
+            EXT-->>AGENT: 热点数据
+        else 知识库检索
+            AGENT->>KB: searchJourneyKnowledge()
+            KB->>DB: pgvector 搜索
+            DB-->>KB: 向量结果
+            KB->>EXT: Ark Embeddings API
+            EXT-->>KB: 查询向量
+            KB-->>AGENT: 检索结果
+        else 数据分析
+            AGENT->>DB: 查询 KOC/文章数据
+            DB-->>AGENT: 分析数据
+            AGENT->>LLM: LLM 分析
+            LLM-->>AGENT: 分析报告
+        else 选题/文章生成
+            AGENT->>LLM: 生成请求
+            LLM-->>AGENT: 生成结果
+        else 合规检查
+            AGENT->>LLM: 风险检测
+            LLM-->>AGENT: 风险报告
+        end
+
+        API->>DB: 保存工具调用日志
+        API->>LLM: 工具结果继续推理
+    end
+
+    API->>LLM: streamChat 流式输出
+
+    loop SSE 流式响应
+        LLM-->>API: 文本块 / 思考链
+        API-->>UI: SSE 事件 { type: "text" / "thinking" }
+        UI->>U: 实时显示
+    end
+
+    API->>MEM: captureMessageMemory(用户消息)
+    API->>MEM: captureMessageMemory(助手回答)
+    API->>DB: 保存助手消息
+```
+
+### Agent 工具调用决策流程
+
+```mermaid
+graph TB
+    START[用户消息] --> INTENT[意图识别]
+    INTENT --> NEED{需要外部数据?}
+
+    NEED -->|是| TOOLS[选择工具]
+    NEED -->|否| DIRECT[直接生成]
+
+    TOOLS --> HOT{热点搜索?}
+    TOOLS --> KB{知识检索?}
+    TOOLS --> DATA{数据分析?}
+    TOOLS --> GEN{内容生成?}
+    TOOLS --> COMP{合规检查?}
+
+    HOT --> TAV[Tavily API]
+    HOT --> DJL[大佳啦 API]
+    TAV --> RESULT[工具结果]
+    DJL --> RESULT
+
+    KB --> KEY[关键词检索]
+    KEY --> VEC{结果足够?}
+    VEC -->|否| EMB[Ark Embeddings]
+    EMB --> PGV[pgvector 搜索]
+    PGV --> RESULT
+    VEC -->|是| RESULT
+
+    DATA --> QUERY[数据库查询]
+    QUERY --> LLM2[LLM 分析]
+    LLM2 --> RESULT
+
+    GEN --> LLM3[LLM 生成]
+    LLM3 --> RESULT
+
+    COMP --> LLM4[LLM 检测]
+    LLM4 --> RESULT
+
+    RESULT --> FEEDBACK[反馈给 LLM]
+    FEEDBACK --> MORE{需要更多工具?}
+    MORE -->|是| TOOLS
+    MORE -->|否| STREAM[流式输出]
+
+    DIRECT --> STREAM
+    STREAM --> FINAL[生成最终回答]
+    FINAL --> MEM[捕获记忆]
+    MEM --> END[结束]
+```
+
+### RAG 知识库 AI 工作流
+
+```mermaid
+graph TB
+    subgraph "索引阶段"
+        ART[文章内容] --> SPLIT[SentenceSplitter<br/>420字符/60重叠]
+        SPLIT --> DOC[LlamaIndex Document]
+        DOC --> EMB[Ark Embeddings API<br/>doubao-embedding-vision]
+        EMB --> VEC[1024维向量]
+        VEC --> CHUNKS[knowledge_chunks 表<br/>pgvector]
+    end
+
+    subgraph "检索阶段"
+        QUERY[用户查询] --> KB[knowledge-base.ts]
+        KB --> KW[关键词检索]
+        KB --> ACC[账号过滤]
+        KW --> NOT_ENOUGH{结果足够?}
+        ACC --> KW
+        NOT_ENOUGH -->|否| QVEC[embedQuery<br/>Ark Embeddings]
+        QVEC --> PGV[pgvector 余弦相似度<br/>minSimilarity: 0.25]
+        PGV --> MERGE[结果合并]
+        NOT_ENOUGH -->|是| MERGE
+        KW --> MERGE
+        MERGE --> RANK[按阅读数重排]
+        RANK --> RES[检索结果]
+    end
+
+    subgraph "生成阶段"
+        RES --> PROMPT[构建 RAG 提示词]
+        PROMPT --> LLM[豆包 LLM]
+        LLM --> ANSWER[生成回答]
+    end
+```
+
+### 记忆系统 AI 工作流
+
+```mermaid
+graph TB
+    subgraph "记忆注入"
+        USER_MSG[用户消息] --> CAPTURE[captureMessageMemory]
+        ASSIST_MSG[助手回答] --> CAPTURE
+        CAPTURE --> CLASSIFY{记忆类型判断}
+
+        CLASSIFY -->|用户偏好| USER_MEM[saveUserMemory<br/>跨旅程]
+        CLASSIFY -->|项目上下文| JOURNEY_MEM[saveJourneyMemory<br/>项目级]
+        CLASSIFY -->|策略决策| PROJ_MEM[saveJourneyProjectMemory<br/>策略卡片]
+    end
+
+    subgraph "记忆使用"
+        NEW_MSG[新消息] --> SYS[buildSystemPrompt]
+        SYS --> FETCH[获取记忆]
+        FETCH --> UM[getUserMemory]
+        FETCH --> JM[getJourneyMemory]
+        FETCH --> PM[getJourneyProjectMemory]
+        UM --> INJECT[注入系统提示词]
+        JM --> INJECT
+        PM --> INJECT
+        INJECT --> LLM[发送给豆包 LLM]
+    end
+```
+
+## 十、产品功能架构
 
 ### 核心用户旅程
 
@@ -766,7 +988,7 @@ graph LR
     METRICS --> MEM
 ```
 
-## 八、核心设计模式
+## 十二、核心设计模式
 
 ### 1. Server Components 优先
 ```
@@ -795,3 +1017,377 @@ Schema → Definition → Execution → Result
 ```text
 Supabase RLS → 用户数据隔离
 ```
+
+## 十三、落地可行性
+
+### 技术实现路径
+
+#### 核心技术成熟度
+
+| 模块 | 技术成熟度 | 风险等级 | 说明 |
+|------|------------|----------|------|
+| **LLM 调用** | ✅ 成熟 | 低 | 火山引擎 Ark API 稳定，已实现流式输出 |
+| **Agent 工具系统** | ✅ 成熟 | 低 | LangChain 1.3.4 + 工具注册表已实现 |
+| **RAG 知识库** | ✅ 成熟 | 低 | pgvector + Ark Embeddings 已部署 |
+| **记忆系统** | ✅ 成熟 | 低 | 三层记忆架构已实现 |
+| **KOC 导入** | ✅ 成熟 | 中 | 大佳啦/TikHub API 依赖第三方 |
+| **微信发布** | ✅ 成熟 | 中 | 微信 API 依赖外部服务 |
+| **多平台扩展** | 🚧 部分完成 | 中 | 公众号/视频号已完成，小红书待开发 |
+
+#### 技术依赖风险
+
+```
+高风险依赖
+├── 大佳啦 API (KOC 数据源)
+│   └── 缓解: TikHub 备用 + 数据缓存
+├── 火山引擎 Ark (LLM)
+│   └── 缓解: OpenAI/通义千问 可替换接口
+├── 微信 API (发布渠道)
+│   └── 缓解: 草稿箱 + DataCube 数据
+└── Tavily API (热点搜索)
+    └── 缓解: 大佳啦热点 + 自建搜索索引
+
+低风险依赖
+├── Supabase (数据库 + RLS)
+├── Next.js (前端框架)
+└── LangChain (Agent 框架)
+```
+
+### 开发节奏
+
+#### MVP 阶段 (已实现)
+
+```
+Week 1-4: 基础架构
+├── Next.js 16 + App Router 搭建
+├── Supabase 数据库设计与 RLS
+├── 用户认证系统
+└── 基础 UI 框架 (Ant Design)
+
+Week 5-8: AI 核心能力
+├── 豆包 LLM 客户端集成
+├── LangChain Agent 工具系统
+├── 6 个核心工具实现
+└── SSE 流式对话
+
+Week 9-12: 知识库与记忆
+├── RAG 向量检索系统
+├── 三层记忆系统
+├── KOC 导入与大佳啦集成
+└── 微信草稿箱发布
+```
+
+#### 优化阶段 (进行中)
+
+```
+Week 13-16: 产品完善
+├── 文章排版引擎优化
+├── 自有公众号数据分析
+├── 视频号 KOC 导入
+└── UI/UX 优化
+
+Week 17-20: 增强功能
+├── 深度思考优化
+├── LangSmith 可观测性
+├── 合规检查强化
+└── 数据闭环完善
+```
+
+#### 扩展阶段 (规划中)
+
+```
+Week 21-24: 多平台支持
+├── 小红书内容创作
+├── 抖音/快手对标
+├── 跨平台统一赛道树
+└── 多格式排版适配
+
+Week 25+: 企业功能
+├── 团队协作增强
+├── 企业版 API 开放
+├── 私有化部署支持
+└── 定制化服务
+```
+
+### 所需资源评估
+
+#### 人力资源
+
+```
+核心团队配置 (最小可用)
+
+角色                人数   主要职责
+─────────────────────────────────────────────────────
+全栈开发工程师       1-2    Next.js + Supabase + AI 集成
+AI 工程师          1       LangChain Agent + Prompt 优化
+产品经理            1       需求定义 + 用户研究
+UI/UX 设计师       0.5     设计系统 + 交互优化
+运维/DevOps        0.5     部署 + 监控 + 成本优化
+─────────────────────────────────────────────────────
+合计                4-5 人
+```
+
+#### 技术基础设施
+
+```
+云服务资源 (按 1000 用户估算)
+
+资源项                 月成本    说明
+────────────────────────────────────────────────────
+Supabase Pro          $25      数据库 + RLS + pgvector
+火山引擎 Ark           $50      LLM + Embedding (按量)
+Next.js 部署 (Vercel) $20      前端托管
+API 调用              $30      大佳啦 + Tavily + TikHub
+监控与日志            $10      LangSmith + 日志服务
+────────────────────────────────────────────────────
+合计                  ~$135/月
+```
+
+#### API 费用估算
+
+```
+火山引擎 Ark (按量)
+├── LLM: ~0.02元/千tokens
+│   └── 单用户日均 10万 tokens → ~2元/天
+├── Embeddings: ~0.007元/千tokens
+│   └── 单用户日均 5万 tokens → ~0.35元/天
+└── 1000 用户月成本: ~7000元
+
+第三方 API
+├── 大佳啦: ~500元/月 (基础套餐)
+├── Tavily: $100/月 (Pro 套餐)
+├── TikHub: ~200元/月 (按量)
+└── 合计: ~1000元/月
+```
+
+### 技术债务与风险
+
+| 风险类型 | 影响 | 缓解措施 |
+|-----------|------|----------|
+| **第三方 API 依赖** | 高 | 多数据源备份 + 缓存策略 |
+| **LLM 成本不可控** | 中 | Token 优化 + 模型分级 + 按量计费 |
+| **微信 API 限制** | 中 | 草稿箱优先 + 用户自操作 |
+| **向量搜索性能** | 低 | pgvector 优化 + 索引策略 |
+| **数据合规** | 高 | AIGC 标识 + RLS + 审核流程 |
+
+---
+
+## 十四、商业化思考
+
+### 盈利模式
+
+#### 1. 订阅制 (SaaS 模式)
+
+```
+个人创作者
+├── 免费版
+│   ├── 每月 10 次 AI 对话
+│   ├── 单个旅程
+│   ├── 3 个 KOC 追踪
+│   └── 基础知识库
+├── 专业版 ¥99/月
+│   ├── 无限 AI 对话
+│   ├── 5 个旅程
+│   ├── 20 个 KOC 追踪
+│   ├── 完整知识库 + 向量检索
+│   ├── 文章排版与发布
+│   └── 优先客服支持
+└── 终身版 ¥999/次
+    └── 所有专业版功能
+
+小微团队 / MCN
+├── 团队版 ¥499/月
+│   ├── 5 个账号
+│   ├── 20 个旅程
+│   ├── 100 个 KOC 追踪
+│   ├── 团队协作 (权限管理)
+│   ├── 批量内容生成
+│   ├── 多平台统一管理
+│   └── API 访问权限
+└── 企业版 ¥1999/月
+    ├── 无限账号
+    ├── 私有化部署
+    ├── 定制化开发
+    └── 专属客户经理
+```
+
+#### 2. 按量付费
+
+```
+API 调用计费
+├── LLM Token: 0.05元/千tokens (批发价)
+├── 向量检索: 0.01元/次
+├── 文章生成: 5元/篇 (高配模型)
+└── 数据分析: 10元/份报告
+
+超额资源
+├── 对话次数: ¥1/次
+├── KOC 追踪: ¥5/个/月
+└── 向量存储: ¥0.1/千条/月
+```
+
+#### 3. 增值服务
+
+```
+高级功能
+├── 专属模型微调: ¥5000 起
+├── 行业知识库定制: ¥2000 起
+├── 数据分析报告: ¥500/份
+├── 运营策略咨询: ¥2000/小时
+└── 1v1 辅导: ¥500/次
+
+API 服务
+├── 企业版 API: ¥9999/月
+├── 白标服务: ¥19999/年
+└── 私有化部署: ¥50000 起
+```
+
+### 目标市场
+
+#### 市场分层
+
+```
+第一梯队: 个人创作者 (30%)
+├── 自媒体博主
+├── 自由撰稿人
+├── 副业创作者
+└── 市场规模: 100万+ 用户
+    ├── 单价: ¥99/月
+    └── 年营收潜力: 3600万
+
+第二梯队: 小微团队 (40%)
+├── 新媒体工作室 (3-10人)
+├── MCN 机构
+├── 企业新媒体部
+└── 市场规模: 20万+ 客户
+    ├── 单价: ¥499-1999/月
+    └── 年营收潜力: 6000万
+
+第三梯队: 大型企业 (30%)
+├── 品牌营销部
+├── 电商内容团队
+├── 政府/教育机构
+└── 市场规模: 5000+ 客户
+    ├── 单价: ¥20000+/月
+    └── 年营收潜力: 1200万
+```
+
+#### 细分赛道机会
+
+| 赛道 | 痛点 | Niche 价值 | 获客难度 |
+|------|------|------------|----------|
+| **职场成长** | 需持续输出，选题枯竭 | KOC 情报 + 热点追踪 | 低 |
+| **AI 与科技** | 技术快，需要对标 | KOC 追踪 + 规律分析 | 中 |
+| **财经商业** | 合规要求高 | 合规检查 + 专业库 | 高 |
+| **生活方式** | 视觉要求高 | 排版优化 + 配图建议 | 中 |
+| **教育** | 内容结构化 | 大纲生成 + 知识库 | 低 |
+
+### 竞争优势
+
+#### vs 壹伴/135编辑器/秀米
+
+| 维度 | 竞品 | Niche 差异化 |
+|------|------|------------|
+| **定位** | AI 编辑器 | 内容策略合伙人 |
+| **KOC 情报** | ❌ 无 | ✅ 大佳啦导入 + 自动分析 |
+| **RAG 知识库** | ❌ 无 | ✅ 向量检索 + 混合搜索 |
+| **记忆系统** | ❌ 无 | ✅ 三层记忆 + 自动捕获 |
+| **多平台** | 专注公众号 | ✅ 公众号 + 视频号 + 小红书 |
+| **可观测性** | ❌ 无 | ✅ LangSmith 追踪 |
+| **自托管** | SaaS only | ✅ 支持私有化部署 |
+
+#### 独特护城河
+
+```
+技术护城河
+├── LangChain Agent 工具编排 (竞品无)
+├── pgvector + Ark Embeddings RAG (竞品无)
+├── 三层记忆系统 (竞品无)
+└── 旅程式项目管理体系 (首创)
+
+数据护城河
+├── KOC 情报库 (积累效应)
+├── 知识库向量索引 (用户自建)
+├── 行业爆款规律 (AI 持续学习)
+└── 用户行为数据 (优化推荐)
+
+网络效应
+├── KOC 数据共享 (平台化)
+├── 知识库模板市场 (UGC)
+├── 行业赛道树 (持续扩展)
+└── 社区运营 (用户留存)
+```
+
+### 市场进入策略
+
+#### 阶段 1: 种子用户验证 (Month 1-3)
+
+```
+目标: 100 付费用户, ¥10k MRR
+
+策略
+├── 免费试用 14 天
+├── 早期用户 5 折优惠
+├── 社区运营 (微信群/知识星球)
+├── 内容营销 (公众号/小红书)
+└── KOL 合作 (科技/职场博主)
+```
+
+#### 阶段 2: 增长爬坡 (Month 4-6)
+
+```
+目标: 1000 付费用户, ¥100k MRR
+
+策略
+├── 产品功能完善 (视频号/小红书)
+├── 付费推广 (投放/SEO)
+├── 渠道合作 (新媒体培训机构)
+├── 客户成功体系 (客服/培训)
+└── 用户口碑传播 (邀请返现)
+```
+
+#### 阶段 3: 规模化 (Month 7-12)
+
+```
+目标: 5000 付费用户, ¥500k MRR
+
+策略
+├── 企业版产品
+├── 私有化部署服务
+├── 生态建设 (模板市场/插件)
+├── 多语言支持 (出海)
+└── 融资扩张
+```
+
+### 盈亏平衡分析
+
+```
+固定成本 (月)
+├── 人力成本: ¥150k (5人 × ¥30k)
+├── 基础设施: ¥5k (服务器/域名/工具)
+└── 合计: ¥155k
+
+可变成本 (按 5000 付费用户)
+├── API 调用: ¥100k (火山引擎 + 第三方)
+├── 客服支持: ¥10k (兼职)
+└── 合计: ¥110k
+
+总成本: ¥265k/月
+
+盈亏平衡点
+├── 假设 ARPU = ¥300/月 (混合个人/团队)
+├── 盈亏平衡用户数 = 265k ÷ 300 ≈ 883 用户
+├── 目标毛利 40%: 需 1500 付费用户
+└── 目标净利润 100k/月: 需 1700 付费用户
+```
+
+### 风险与应对
+
+| 风险 | 概率 | 影响 | 应对策略 |
+|------|------|------|----------|
+| **微信封禁 AI 生成内容** | 中 | 高 | AIGC 标识 + 人工审核流程 |
+| **大佳啦 API 停服** | 低 | 高 | TikHub 备用 + 自建爬虫 |
+| **火山引擎涨价** | 中 | 中 | 多模型备选 + 按量转嫁 |
+| **壹伴/135 推出 KOC 功能** | 高 | 中 | 深度学习 + 记忆系统护城河 |
+| **市场需求不足** | 低 | 高 | 快速迭代 + 多平台扩展 |
+| **监管收紧** | 中 | 高 | 合规优先 + 法务咨询 |
