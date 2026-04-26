@@ -3,7 +3,6 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import type { Journey, Conversation } from "@/lib/data";
-import { getJourneyProjectMemory } from "@/lib/memory";
 
 export default async function AppLayout({
   children,
@@ -29,7 +28,6 @@ export default async function AppLayout({
   const activeJourney = (journeys ?? []).find((j: Journey) => j.is_active) ?? null;
 
   let conversations: Conversation[] = [];
-  let activeProjectMemory = null;
   if (activeJourney) {
     const { data } = await supabase
       .from("conversations")
@@ -38,7 +36,6 @@ export default async function AppLayout({
       .order("created_at", { ascending: false })
       .limit(30);
     conversations = data ?? [];
-    activeProjectMemory = await getJourneyProjectMemory(supabase, activeJourney.id);
   }
 
   return (
@@ -54,7 +51,6 @@ export default async function AppLayout({
         journeys={journeys ?? []}
         activeJourney={activeJourney}
         conversations={conversations}
-        activeProjectMemory={activeProjectMemory}
       />
       <main style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
         {children}

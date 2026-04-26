@@ -69,3 +69,30 @@ export type KOCSource = {
   is_manually_added: boolean;
   last_fetched_at: string | null;
 };
+
+export type WechatDashboardSummary = {
+  article_count: number;
+  total_reads: number;
+  avg_reads: number;
+  avg_likes: number;
+  avg_shares: number;
+  avg_comments: number;
+  peak_reads: number;
+};
+
+export type WechatDashboardArticle = {
+  id: string;
+  title: string;
+  read_num: number;
+  like_num: number;
+  share_num: number;
+  comment_num: number;
+  publish_time: string;
+};
+
+export type WechatDashboardData = {
+  account: { name: string; avatar_url: string | null };
+  summary: WechatDashboardSummary;
+  articles: WechatDashboardArticle[];
+  ai_insights: string;
+};
