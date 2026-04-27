@@ -6,6 +6,7 @@ const UserIntentSchema = z.object({
   intent: z.enum([
     "find_direction",
     "find_benchmark",
+    "find_benchmark_for_niche",
     "search_wechat_articles",
     "analyze_growth",
     "write_article",
@@ -43,12 +44,13 @@ ${params.content}
 
 只返回结构化结果。
 判断规则：
-1. 如果用户想找对标号、分析某个号、导入某个公众号，优先判为 find_benchmark。
-2. 如果用户想找公众号爆文、找谁在写某个主题、搜对应公众号内容，判为 search_wechat_articles。
-3. 如果用户想找方向、问应该写什么、最近适合讲什么，判为 find_direction。
-4. 如果用户明确要分析自己的公众号增长、复盘、看差距，判为 analyze_growth。
-5. 如果用户明确要出选题、写稿、改稿，且这轮更偏创作，判为 write_article。
-6. 不确定时判为 general_chat。`,
+1. 如果用户明确说出了具体公众号名字（如"导入量子位""对标数字生命卡兹克"），判为 find_benchmark。
+2. 如果用户想找对标账号但没有说出具体账号名（如"帮我找赛道对标""找找这个方向有哪些号""有哪些优质账号"），判为 find_benchmark_for_niche。
+3. 如果用户想找公众号爆文、找谁在写某个主题、搜对应公众号内容，判为 search_wechat_articles。
+4. 如果用户想找方向、问应该写什么、最近适合讲什么，判为 find_direction。
+5. 如果用户明确要分析自己的公众号增长、复盘、看差距，判为 analyze_growth。
+6. 如果用户明确要出选题、写稿、改稿，且这轮更偏创作，判为 write_article。
+7. 不确定时判为 general_chat。`,
     buildAgentRunConfig({
       runName: "resolve-user-intent",
       tags: ["conversation", "intent"],

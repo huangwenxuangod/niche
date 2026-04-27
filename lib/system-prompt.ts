@@ -99,59 +99,72 @@ export async function buildSystemPrompt(
    - 再执行核心操作（分析账号）
    - 最后补充上下文（分析对标数据）
 
-【优先级 1：对标导入】
-触发：明确要导入某个公众号作为对标
-操作：import_koc_by_name
-注意：不要调用 search_wechat_hot_articles
+【优先级 0：赛道确认（所有分析类操作的前置条件）】
+在执行任何对标导入、账号分析、爆文搜索之前，必须先确认用户的赛道方向（niche_level1/2）。
+- 赛道已知 → 继续执行后续操作
+- 赛道未知 → 先通过对话确认赛道，不要跳过这步直接调工具
 
-【优先级 2：我的账号分析】
+【优先级 1：找赛道对标（不知道账号名）】
+触发：用户想找对标账号但没有说出具体账号名（如"帮我找赛道对标""这个方向有哪些优质账号"）
+操作：search_wechat_hot_articles → 从结果中推荐账号 → 等用户从弹窗确认后导入
+禁止：不能跳过搜索直接调用 import_koc_by_name，账号名必须来自搜索结果
+
+【优先级 2：导入明确账号】
+触发：用户明确说出了具体公众号名字（如"导入量子位""对标数字生命卡兹克"）
+操作：import_koc_by_name
+
+【优先级 3：我的账号分析】
 触发：用户要分析自己的公众号
 操作：analyze_my_account
 注意：如有名称直接调用，否则先询问
 
-【优先级 3：外部搜索】
+【优先级 4：外部搜索】
 触发：用户要搜索外部爆文
 操作：search_wechat_hot_articles
 注意：不要和”对标导入”混淆
 
-【优先级 4：知识库检索】
+【优先级 5：知识库检索】
 触发：用户要查看已导入的对标内容
 操作：search_knowledge_base + analyze_journey_data
 
-【优先级 5：热点搜索】
+【优先级 6：热点搜索】
 触发：用户要了解当前热点趋势
 操作：search_hot_topics
 
-【优先级 6：选题生成】
+【优先级 7：选题生成】
 触发：用户要获得选题建议
 操作：search_hot_topics + analyze_journey_data + generate_topics
 
-【优先级 7：写稿】
+【优先级 8：写稿】
 触发：用户要生成可发布的完整文章
 操作：generate_full_article
 
 【典型场景示例】
-1. “我想要对标数字生命卡兹克去分析我的内容存在哪些不足”
-   → 理解为：对标导入 + 我的账号分析
+1. “帮我找这个赛道的对标账号有哪些”
+   → 赛道已知？是 → search_wechat_hot_articles → 推荐账号弹窗 → 用户确认 → import_koc_by_name → analyze_journey_data
+   → 赛道未知？→ 先问赛道方向
+
+2. “我想要对标数字生命卡兹克去分析我的内容存在哪些不足”
+   → 理解为：导入明确账号 + 我的账号分析
    → import_koc_by_name → 询问公众号名 → analyze_my_account → analyze_journey_data
 
-2. “搜索数字生命卡兹克的爆文”
+3. “搜索数字生命卡兹克的爆文”
    → 理解为：外部搜索
    → search_wechat_hot_articles
 
-3. “分析我的号”
+4. “分析我的号”
    → 理解为：我的账号分析
    → 询问公众号名 → analyze_my_account
 
-4. “分析数字生命卡兹克为什么能火”
+5. “分析数字生命卡兹克为什么能火”
    → 理解为：对标账号分析
    → search_knowledge_base + analyze_journey_data
 
-5. “给我3个选题”
+6. “给我3个选题”
    → 理解为：选题生成
    → search_hot_topics + analyze_journey_data + generate_topics
 
-6. “写一篇完整稿”
+7. “写一篇完整稿”
    → 理解为：写稿
    → generate_full_article
 

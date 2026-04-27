@@ -247,6 +247,138 @@ export async function POST(req: NextRequest, ctx: RouteContext<"/api/conversatio
           });
         }
 
+        // 赛道前置确认：任何分析类操作前先检查赛道是否已知
+        const nicheConfirmed = !!(journeyRecord?.niche_level1 || journeyRecord?.niche_level2);
+        const isAnalysisIntent = [
+          "find_benchmark",
+          "find_benchmark_for_niche",
+          "search_wechat_articles",
+          "analyze_growth",
+        ].includes(resolvedIntent.intent);
+
+        if (!nicheConfirmed && isAnalysisIntent) {
+          fullContent = `在我帮你找对标账号之前，先确认一下你的赛道方向——你目前想做的是哪个细分领域？
+
+比如：
+- 宠物 > 猫咪养护
+- 职场 > 副业变现
+- 健康 > 女性健身
+
+说一个方向就行，我来帮你往下推。`;
+          await emitText(controller, encoder, fullContent);
+          await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+          return;
+        }
+
+        // find_benchmark_for_niche：不知道账号名，先搜爆文再推荐
+        if (
+          resolvedIntent.intent === "find_benchmark_for_niche" &&
+          !detectExplicitBenchmarkName(content, trackedAccounts)
+        ) {
+          const focusKeyword = resolvedFocus.focus_keyword || journeyRecord?.niche_level2 || journeyRecord?.niche_level1 || "";
+
+          if (!focusKeyword) {
+            fullContent = `你想找这个赛道的对标账号，但我还不确定具体的关键词方向。你想围绕哪个主题搜？比如"AI工具"、"副业变现"、"猫咪养护"——说一个词就行。`;
+            await emitText(controller, encoder, fullContent);
+            await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
+            return;
+          }
+
+          await emitEvent(controller, encoder, {
+            type: "tool_start",
+            toolName: "search_wechat_hot_articles",
+            label: toolLabel("search_wechat_hot_articles"),
+          });
+
+          const hotSearch = await executeTool({
+            toolName: "search_wechat_hot_articles",
+            args: { keyword: focusKeyword },
+            journeyId: conv.journey_id,
+            userId: user.id,
+            supabase,
+            journey: (journeyRecord ?? null) as ToolContextJourney | null,
+          }) as {
+            keyword: string;
+            articles: Array<{
+              mp_nickname?: string;
+              wxid?: string;
+              title?: string;
+              read_num?: number;
+              fans?: number;
+            }>;
+          };
+
+          const recommendations = await recommendKocFromHotArticlesChain({
+            journeyId: conv.journey_id,
+            keyword: hotSearch.keyword,
+            articles: hotSearch.articles,
+          });
+
+          await emitEvent(controller, encoder, {
+            type: "tool_result",
+            toolName: "search_wechat_hot_articles",
+            label: toolLabel("search_wechat_hot_articles"),
+            payload: {
+              keyword: hotSearch.keyword,
+              total: hotSearch.articles.length,
+              recommended_accounts: recommendations.recommended_accounts,
+            },
+          });
+
+          await emitEvent(controller, encoder, {
+            type: "koc_recommendation_ready",
+            label: "已找到推荐对标账号",
+            payload: {
+              keyword: hotSearch.keyword,
+              articles: hotSearch.articles,
+              recommended_accounts: recommendations.recommended_accounts,
+            },
+          });
+
+          await updateJourneyStrategyState(supabase, {
+            journeyId: conv.journey_id,
+            userId: user.id,
+            patch: {
+              current_focus_keyword: hotSearch.keyword,
+              focus_confidence: resolvedFocus.confidence,
+              last_search_mode: "wechat_hot_articles",
+              last_successful_keyword: hotSearch.keyword,
+              next_best_action: "从推荐账号中确认并导入知识库",
+            },
+          });
+
+          const recommendationText = recommendations.recommended_accounts.length
+            ? recommendations.recommended_accounts
+                .map((item, index) => `${index + 1}. **${item.account_name}**：${item.reason}`)
+                .join("\n")
+            : "搜到了相关文章，但还没筛出足够稳定的账号候选。";
+
+          fullContent = `我按 **${hotSearch.keyword}** 帮你搜了一轮公众号爆文，基于结果推荐这些对标账号：
+
+${recommendationText}
+
+点击账号名可以直接导入，导入后我会继续帮你分析。`;
+          await persistAssistantMessageAndEmitId(supabase, controller, encoder, conversationId, fullContent);
+          void appendStructuredRoundSummary(supabase, {
+            journeyId: conv.journey_id,
+            userId: user.id,
+            summary: {
+              user_intent: "从赛道爆文中发现对标账号",
+              confirmed_decisions: [`当前焦点词：${hotSearch.keyword}`],
+              produced_outputs: ["公众号爆文搜索结果", "推荐对标账号"],
+              open_questions: [],
+              next_action: "确认推荐账号并导入知识库",
+            },
+          });
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+          return;
+        }
+
         const explicitBenchmarkName = detectExplicitBenchmarkName(content, trackedAccounts);
         if (explicitBenchmarkName && shouldAutoImportBenchmark(content)) {
           await emitEvent(controller, encoder, {
