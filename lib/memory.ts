@@ -1,5 +1,5 @@
 import { type SupabaseClient } from "@supabase/supabase-js";
-import { llm } from "@/lib/llm";
+import { chat } from "@/lib/llm";
 
 // ---------------------------------------------------------------------------
 // Read / Write
@@ -54,7 +54,10 @@ ${current || defaultUserMemory()}
 ${conversationMarkdown}`;
 
   try {
-    const updated = await llm.chat("你是记忆管理助手，只输出更新后的 Markdown 记忆文档。", prompt);
+    const updated = await chat({
+      systemPrompt: "你是记忆管理助手，只输出更新后的 Markdown 记忆文档。",
+      userContent: prompt,
+    });
     if (updated?.trim()) {
       await saveUserMemory(supabase, userId, updated.trim());
     }

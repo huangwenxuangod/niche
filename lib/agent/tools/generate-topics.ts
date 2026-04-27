@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getUserMemory } from "@/lib/memory";
-import { llm } from "@/lib/llm";
+import { chat } from "@/lib/llm";
 import type { AgentToolDefinition } from "./helpers";
 import type { ToolExecutionContext } from "./types";
 
@@ -65,9 +65,9 @@ export async function runGenerateTopics(
     .map((item: { title: string; read_count: number | null }) => `- ${item.title} | 阅读 ${item.read_count ?? 0}`)
     .join("\n");
 
-  const text = await llm.chat(
-    "你是一个选题策划助手，只输出 JSON，不要任何额外解释。",
-    `请基于以下信息，生成 ${count} 个适合当前用户的${goal}。
+  const text = await chat({
+    systemPrompt: "你是一个选题策划助手，只输出 JSON，不要任何额外解释。",
+    userContent: `请基于以下信息，生成 ${count} 个适合当前用户的${goal}。
 
 时间范围：${timeframe}
 
@@ -90,8 +90,7 @@ ${references || "暂无"}
     }
   ]
 }`,
-    { thinkingProfile: "default" }
-  );
+  });
 
   const parsed = safeParseJson<TopicToolResult>(text);
   if (parsed?.topics?.length) return parsed;

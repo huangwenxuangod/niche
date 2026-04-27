@@ -101,8 +101,10 @@ export async function recordSteps(
  */
 export async function getSessionSteps(
   supabase: SupabaseClient,
-  conversationId: string
+  conversationId: string | undefined
 ): Promise<StepRecord[]> {
+  if (!conversationId) return [];
+
   const { data } = await supabase
     .from('session_memory')
     .select('*')

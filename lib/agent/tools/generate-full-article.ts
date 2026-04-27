@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getUserMemory } from "@/lib/memory";
 import { searchJourneyKnowledge } from "@/lib/knowledge-base";
 import { retrieveSemanticCompetitorContent } from "@/lib/agent/retrievers/semantic-knowledge";
-import { llm } from "@/lib/llm";
+import { chat } from "@/lib/llm";
 import type { AgentToolDefinition } from "./helpers";
 import type { ToolExecutionContext } from "./types";
 
@@ -90,9 +90,9 @@ export async function runGenerateFullArticle(
       ? `已补充 ${semanticReferences.length} 段高相关竞品片段作为写作参考。`
       : "知识库暂无强相关参考，已按当前赛道和用户记忆生成，建议后续导入更多 KOC 文章增强案例。";
 
-  const text = await llm.chat(
-    "你是一个公众号主笔。只输出 JSON，不要任何额外解释，不要使用 Markdown 代码块。",
-    `请围绕下面的选题，生成一篇可发布级公众号完整初稿。
+  const text = await chat({
+    systemPrompt: "你是一个公众号主笔。只输出 JSON，不要任何额外解释，不要使用 Markdown 代码块。",
+    userContent: `请围绕下面的选题，生成一篇可发布级公众号完整初稿。
 
 选题：${topicTitle}
 切入角度：${String(args.angle || "从真实问题和可执行经验切入")}
@@ -125,8 +125,7 @@ ${semanticReferenceBlocks || "暂无"}
   "title_options": ["备选标题1", "备选标题2", "备选标题3", "备选标题4", "备选标题5"],
   "article_markdown": "完整 Markdown 正文"
 }`,
-    { thinkingProfile: "deep" }
-  );
+  });
 
   const parsed = safeParseJson<Omit<FullArticleToolResult, "reference_note">>(text);
   if (parsed?.article_markdown) {

@@ -83,8 +83,8 @@ function extractErrors(steps: StepRecord[]): string {
 export async function buildSystemPrompt(
   journeyId: string,
   userId: string,
-  conversationId: string,
-  supabase: SupabaseClient
+  supabase: SupabaseClient,
+  conversationId?: string
 ): Promise<string> {
   const [journeyRes, kocRes, viralRes, userMemory, sessionSteps] = await Promise.all([
     supabase.from("journeys").select("*").eq("id", journeyId).single(),

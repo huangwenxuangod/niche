@@ -1,4 +1,4 @@
-import { llm } from "@/lib/llm";
+import { chat } from "@/lib/llm";
 import { tavilySearch } from "@/lib/tavily";
 
 export type HotTopicContext = {
@@ -59,11 +59,10 @@ async function expandHotQueries(baseQuery: string, journey: HotTopicContext | nu
 
   try {
     const prompt = buildExpansionPrompt(baseQuery, journey, fallback);
-    const reply = await llm.chat(
-      "你是一个增长情报搜索助手。你负责把泛化赛道词扩成适合搜索真实热点的具体查询词。",
-      prompt,
-      { thinkingProfile: "default" }
-    );
+    const reply = await chat({
+      systemPrompt: "你是一个增长情报搜索助手。你负责把泛化赛道词扩成适合搜索真实热点的具体查询词。",
+      userContent: prompt,
+    });
     const match = reply.match(/\[[\s\S]*\]/);
     if (!match) return fallback;
     const parsed = JSON.parse(match[0]);
@@ -164,8 +163,9 @@ ${shortlist
 
 只返回 JSON 数组。`;
 
-    const reply = await llm.chat("你是一个热点机会筛选助手。", prompt, {
-      thinkingProfile: "default",
+    const reply = await chat({
+      systemPrompt: "你是一个热点机会筛选助手。",
+      userContent: prompt,
     });
     const match = reply.match(/\[[\s\S]*\]/);
     if (!match) return fallback;
