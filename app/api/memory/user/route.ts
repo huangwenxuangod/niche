@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { getUserMemory, saveUserMemory, syncUserIdentityMemory } from "@/lib/memory";
+import { getUserMemory, saveUserMemory } from "@/lib/memory";
 
 export async function GET() {
   const cookieStore = await cookies();
@@ -18,7 +18,7 @@ export async function GET() {
     .eq("user_id", user.id)
     .single();
 
-  const markdown = (await getUserMemory(supabase, user.id)) || (await syncUserIdentityMemory(supabase, user.id, profile?.identity_memo ?? ""));
+  const markdown = await getUserMemory(supabase, user.id);
 
   return NextResponse.json({
     identity_memo: profile?.identity_memo ?? "",
@@ -50,8 +50,6 @@ export async function POST(req: NextRequest) {
 
   if (memoryMarkdown.trim()) {
     await saveUserMemory(supabase, user.id, memoryMarkdown);
-  } else {
-    await syncUserIdentityMemory(supabase, user.id, identityMemo);
   }
 
   return NextResponse.json({ success: true });

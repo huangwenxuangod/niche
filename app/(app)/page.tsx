@@ -18,20 +18,39 @@ export default async function HomePage() {
     .order("created_at", { ascending: false })
     .limit(1);
 
-  // No journeys at all → go to new journey page
+  let targetJourneyId: string;
+
+  // No journeys at all → create one
   if (!journeys || journeys.length === 0) {
-    redirect("/journey/new");
+    const { data: newJourney } = await supabase
+      .from("journeys")
+      .insert({
+        user_id: user.id,
+        name: "公众号内容增长旅程",
+        platform: "wechat_mp",
+        keywords: [],
+        is_active: true,
+        knowledge_initialized: false,
+        init_status: "pending",
+      })
+      .select("id")
+      .single();
+
+    if (!newJourney) {
+      throw new Error("Failed to create journey");
+    }
+    targetJourneyId = newJourney.id;
+  } else {
+    // Has journeys → find or create conversation for latest/active journey
+    const { data: activeJourneys } = await supabase
+      .from("journeys")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("is_active", true)
+      .limit(1);
+
+    targetJourneyId = activeJourneys?.[0]?.id ?? journeys[0].id;
   }
-
-  // Has journeys → find or create conversation for latest/active journey
-  const { data: activeJourneys } = await supabase
-    .from("journeys")
-    .select("id")
-    .eq("user_id", user.id)
-    .eq("is_active", true)
-    .limit(1);
-
-  const targetJourneyId = activeJourneys?.[0]?.id ?? journeys[0].id;
 
   // Get latest conversation or create one
   const { data: convs } = await supabase
@@ -57,5 +76,5 @@ export default async function HomePage() {
   }
 
   // Fallback
-  redirect("/journey/new");
+  throw new Error("Failed to navigate to conversation");
 }

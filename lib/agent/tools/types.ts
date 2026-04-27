@@ -13,4 +13,5 @@ export type ToolExecutionContext = {
   userId: string;
   supabase: ReturnType<typeof createClient>;
   journey: ToolContextJourney | null;
+  conversationId?: string; // 用于情景记忆记录
 };

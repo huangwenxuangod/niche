@@ -11,6 +11,7 @@ import { KOCListPanel } from "./KOCListPanel";
 import { DashboardPanel } from "./DashboardPanel";
 import { createClient } from "@/lib/supabase/client";
 import { useThemeMode } from "@/components/providers/AntdProvider";
+import { toast } from "@/lib/toast";
 
 interface SidebarProps {
   journeys: Journey[];
@@ -44,6 +45,7 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
   const currentConvId = params?.conversationId as string | undefined;
   const [kocOpen, setKocOpen] = useState(false);
   const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
   const supabase = createClient();
   const { themeMode, toggleTheme } = useThemeMode();
 
@@ -63,15 +65,43 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
   }
 
   async function newConversation() {
-    if (!activeJourney) return;
-    const res = await fetch("/api/conversations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ journey_id: activeJourney.id }),
-    });
-    const data = await res.json();
-    router.push(`/chat/${data.id}`);
-    router.refresh();
+    setLoading(true);
+    try {
+      let journeyId = activeJourney?.id;
+
+      // Create a journey if none exists
+      if (!journeyId) {
+        const res = await fetch("/api/journeys", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform: "wechat_mp" }),
+        });
+        const journeyData = await res.json();
+        if (!res.ok || !journeyData.conversation_id) {
+          throw new Error(journeyData.error || "创建失败");
+        }
+        router.push(`/chat/${journeyData.conversation_id}`);
+        router.refresh();
+        return;
+      }
+
+      // Create new conversation for existing journey
+      const res = await fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ journey_id: journeyId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.id) {
+        throw new Error(data.error || "创建失败");
+      }
+      router.push(`/chat/${data.id}`);
+      router.refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "创建失败，请稍后重试");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -93,12 +123,6 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
             />
           </Tooltip>
         </div>
-        <Link href="/journey/new" style={{ textDecoration: "none" }}>
-          <button style={newJourneyBtnStyle} onMouseEnter={hoverAccentDim} onMouseLeave={hoverAccentDimReset}>
-            <span style={{ fontSize: 14, lineHeight: 1 }}>＋</span>
-            新建旅程
-          </button>
-        </Link>
       </div>
 
       {/* Scrollable body */}

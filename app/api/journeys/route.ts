@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { ensureJourneyMemory, ensureJourneyProjectMemory, syncUserIdentityMemory } from "@/lib/memory";
 
 export async function GET() {
   const cookieStore = await cookies();
@@ -25,12 +24,9 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
-  const { platform, identity_memo } = body;
-  if (!platform) {
-    return NextResponse.json({ error: "platform is required" }, { status: 400 });
-  }
-
-  const platformLabel = platform === "wechat_mp" ? "公众号" : platform;
+  const { platform } = body;
+  const resolvedPlatform = platform || "wechat_mp";
+  const platformLabel = resolvedPlatform === "wechat_mp" ? "公众号" : resolvedPlatform;
 
   // Deactivate all previous journeys
   await supabase.from("journeys").update({ is_active: false }).eq("user_id", user.id);
@@ -41,10 +37,7 @@ export async function POST(req: NextRequest) {
     .insert({
       user_id: user.id,
       name: `${platformLabel}内容增长旅程`,
-      platform,
-      niche_level1: "",
-      niche_level2: "",
-      niche_level3: "",
+      platform: resolvedPlatform,
       keywords: [],
       is_active: true,
       knowledge_initialized: false,
@@ -57,36 +50,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error?.message }, { status: 500 });
   }
 
-  // Save identity memo if provided
-  if (identity_memo) {
-    await supabase.from("user_profiles").upsert(
-      { user_id: user.id, identity_memo, updated_at: new Date().toISOString() },
-      { onConflict: "user_id" }
-    );
-    await syncUserIdentityMemory(supabase, user.id, identity_memo);
-  }
-
-  await ensureJourneyMemory(supabase, {
-    journeyId: journey.id,
-    platform: platform === "wechat_mp" ? "公众号" : platform,
-    nicheLevel1: "",
-    nicheLevel2: "",
-    nicheLevel3: "",
-  });
-  await ensureJourneyProjectMemory(supabase, {
-    journeyId: journey.id,
-    userId: user.id,
-    projectName: journey.name,
-    platform: platformLabel,
-    nicheLevel1: "",
-    nicheLevel2: "",
-    nicheLevel3: "",
-  });
-
   // Create initial conversation
   const { data: conv } = await supabase
     .from("conversations")
-    .insert({ journey_id: journey.id, user_id: user.id, title: "第一次对话" })
+    .insert({ journey_id: journey.id, user_id: user.id, title: "新对话" })
     .select()
     .single();
 

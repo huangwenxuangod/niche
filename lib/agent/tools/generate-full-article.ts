@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getJourneyMemory, getUserMemory } from "@/lib/memory";
+import { getUserMemory } from "@/lib/memory";
 import { searchJourneyKnowledge } from "@/lib/knowledge-base";
 import { retrieveSemanticCompetitorContent } from "@/lib/agent/retrievers/semantic-knowledge";
 import { llm } from "@/lib/llm";
@@ -56,9 +56,8 @@ export async function runGenerateFullArticle(
     throw new Error("topic_title is required");
   }
 
-  const [userMemory, journeyMemory, knowledge] = await Promise.all([
+  const [userMemory, knowledge] = await Promise.all([
     getUserMemory(context.supabase, context.userId),
-    getJourneyMemory(context.supabase, context.journeyId),
     searchJourneyKnowledge(context.supabase, context.journeyId, topicTitle, 5),
   ]);
 
@@ -95,7 +94,6 @@ export async function runGenerateFullArticle(
     "你是一个公众号主笔。只输出 JSON，不要任何额外解释，不要使用 Markdown 代码块。",
     `请围绕下面的选题，生成一篇可发布级公众号完整初稿。
 
-赛道：${context.journey?.niche_level2 ?? "未知赛道"}
 选题：${topicTitle}
 切入角度：${String(args.angle || "从真实问题和可执行经验切入")}
 文风：${String(args.style || "克制专业，可以有一点网感")}
@@ -103,9 +101,6 @@ export async function runGenerateFullArticle(
 
 【用户记忆】
 ${userMemory || "暂无"}
-
-【旅程记忆】
-${journeyMemory || "暂无"}
 
 【可参考知识库文章】
 ${references || "暂无"}

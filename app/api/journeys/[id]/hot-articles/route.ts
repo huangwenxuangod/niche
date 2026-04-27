@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { dajiala } from "@/lib/dajiala";
 import { recommendKocFromHotArticlesChain } from "@/lib/agent/chains/recommend-koc-from-hot-articles";
-import { getJourneyProjectMemory, updateJourneyStrategyState } from "@/lib/memory";
+import { getUserMemory } from "@/lib/memory";
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -35,8 +35,9 @@ async function handleSearch(req: NextRequest, journeyId: string) {
       ? String((await req.json()).keyword || "").trim()
       : req.nextUrl.searchParams.get("keyword")?.trim() || "";
 
-  const memory = await getJourneyProjectMemory(supabase, journeyId);
-  const keyword = requestKeyword || memory.strategy_state.current_focus_keyword || "";
+  const userMemory = await getUserMemory(supabase, user.id);
+  // Extract keyword from user memory if not provided
+  const keyword = requestKeyword || extractKeywordFromMemory(userMemory);
   if (!keyword) {
     return NextResponse.json(
       { error: "keyword is required", message: "请先通过对话收敛出一个明确关键词。" },
@@ -76,17 +77,6 @@ async function handleSearch(req: NextRequest, journeyId: string) {
       articles,
     });
 
-    await updateJourneyStrategyState(supabase, {
-      journeyId,
-      userId: user.id,
-      patch: {
-        current_focus_keyword: keyword,
-        focus_confidence: Math.max(memory.strategy_state.focus_confidence || 0, 0.7),
-        last_search_mode: "wechat_hot_articles",
-        last_successful_keyword: keyword,
-      },
-    });
-
     return NextResponse.json({
       keyword,
       articles,
@@ -97,6 +87,18 @@ async function handleSearch(req: NextRequest, journeyId: string) {
     console.error("Hot articles search failed:", error);
     return NextResponse.json({ error: "Search failed" }, { status: 500 });
   }
+}
+
+function extractKeywordFromMemory(memory: string): string {
+  // Simple extraction: look for赛道 section content
+  const nicheMatch = memory.match(/## 赛道与变现\s+([\s\S]+?)(?=##|$)/);
+  if (nicheMatch) {
+    const content = nicheMatch[1].trim();
+    if (content && content !== "（暂无）") {
+      return content.split(/[:：]/)[0].trim();
+    }
+  }
+  return "";
 }
 
 export async function GET(req: NextRequest, { params }: Params) {

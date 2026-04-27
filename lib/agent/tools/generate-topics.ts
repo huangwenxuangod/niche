@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getJourneyMemory, getUserMemory } from "@/lib/memory";
+import { getUserMemory } from "@/lib/memory";
 import { llm } from "@/lib/llm";
 import type { AgentToolDefinition } from "./helpers";
 import type { ToolExecutionContext } from "./types";
@@ -51,9 +51,8 @@ export async function runGenerateTopics(
   const goal = String(args.goal || "公众号选题");
   const timeframe = String(args.timeframe || "本周");
 
-  const [userMemory, journeyMemory, topArticlesRes] = await Promise.all([
+  const [userMemory, topArticlesRes] = await Promise.all([
     getUserMemory(context.supabase, context.userId),
-    getJourneyMemory(context.supabase, context.journeyId),
     context.supabase
       .from("knowledge_articles")
       .select("title, read_count")
@@ -71,13 +70,9 @@ export async function runGenerateTopics(
     `请基于以下信息，生成 ${count} 个适合当前用户的${goal}。
 
 时间范围：${timeframe}
-赛道：${context.journey?.niche_level2 ?? "未知赛道"}
 
 【用户记忆】
 ${userMemory || "暂无"}
-
-【旅程记忆】
-${journeyMemory || "暂无"}
 
 【知识库中的高阅读文章】
 ${references || "暂无"}
