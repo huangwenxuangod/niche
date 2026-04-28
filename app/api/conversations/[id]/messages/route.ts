@@ -673,6 +673,18 @@ function detectFastPathPlan(userContent: string): FastPathPlan | null {
     };
   }
 
+  const topicRequest = extractTopicGenerationRequest(userContent);
+  if (topicRequest) {
+    return {
+      steps: [
+        {
+          toolName: "generate_topics",
+          args: topicRequest,
+        },
+      ],
+    };
+  }
+
   const accountName = extractExplicitAccountName(userContent);
   if (!accountName) {
     return null;
@@ -712,6 +724,30 @@ function isWhyHighReadQuestion(userContent: string) {
   return /(为什么).*(阅读量|起量|爆|高)|((阅读量|起量|爆).*(为什么|原因))|(爆款规律|高阅读.*原因)/.test(
     normalized
   );
+}
+
+function extractTopicGenerationRequest(userContent: string) {
+  if (!/(选题|题目|方向|写什么)/.test(userContent)) {
+    return null;
+  }
+
+  const countMatch = userContent.match(/([1-5])\s*个?(选题|题目|方向)?/);
+  const count = countMatch ? Number(countMatch[1]) : 3;
+
+  let timeframe = "本周";
+  if (/今天|今日/.test(userContent)) timeframe = "今天";
+  else if (/本周|这周/.test(userContent)) timeframe = "本周";
+  else if (/本月|这个月/.test(userContent)) timeframe = "本月";
+
+  let goal = "公众号选题";
+  if (/视频号/.test(userContent)) goal = "视频号选题";
+  else if (/小红书/.test(userContent)) goal = "小红书选题";
+
+  return {
+    count,
+    timeframe,
+    goal,
+  };
 }
 
 function normalizeToolName(
