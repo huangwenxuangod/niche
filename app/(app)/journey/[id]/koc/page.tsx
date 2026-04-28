@@ -1,10 +1,29 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { KOCSource } from "@/lib/data";
 import { toast } from "@/lib/toast";
+
+type WxvideoSourceRow = {
+  id: string;
+  linked_koc_source_id: string | null;
+  account_name: string | null;
+  v2_name: string;
+  feed_count: number | null;
+  avg_like_count: number | null;
+  max_like_count: number | null;
+  last_fetched_at: string | null;
+};
+
+type KocListRow = KOCSource & {
+  fans_count?: number;
+  avatar_url?: string;
+  ghid?: string;
+  wxvideo?: WxvideoSourceRow | null;
+};
 
 function fmtCount(n: number): string {
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
@@ -15,20 +34,39 @@ function fmtCount(n: number): string {
 export default function KocPage() {
   const { id: journeyId } = useParams() as { id: string };
   const router = useRouter();
-  const [kocs, setKocs] = useState<(KOCSource & { fans_count?: number; avatar_url?: string; ghid?: string })[]>([]);
+  const [kocs, setKocs] = useState<KocListRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState<string | null>(null);
+  const [syncingWxvideo, setSyncingWxvideo] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [input, setInput] = useState("");
   const supabase = createClient();
 
   const fetchKocs = useCallback(async () => {
-    const { data } = await supabase
-      .from("koc_sources")
-      .select("*")
-      .eq("journey_id", journeyId)
-      .order("created_at", { ascending: false });
-    setKocs(data ?? []);
+    const [{ data: kocData }, { data: wxvideoData }] = await Promise.all([
+      supabase
+        .from("koc_sources")
+        .select("*")
+        .eq("journey_id", journeyId)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("wxvideo_sources")
+        .select(
+          "id, linked_koc_source_id, account_name, v2_name, feed_count, avg_like_count, max_like_count, last_fetched_at"
+        )
+        .eq("journey_id", journeyId),
+    ]);
+
+    const wxvideoByKocId = new Map(
+      (wxvideoData ?? []).map((item) => [item.linked_koc_source_id, item as WxvideoSourceRow])
+    );
+
+    setKocs(
+      (kocData ?? []).map((koc) => ({
+        ...(koc as KocListRow),
+        wxvideo: wxvideoByKocId.get(koc.id) ?? null,
+      }))
+    );
     setLoading(false);
   }, [journeyId, supabase]);
 
@@ -61,6 +99,32 @@ export default function KocPage() {
   async function deleteKOC(id: string) {
     await supabase.from("koc_sources").delete().eq("id", id);
     setKocs((prev) => prev.filter((k) => k.id !== id));
+  }
+
+  async function syncBoundWxvideo(kocId: string) {
+    setSyncingWxvideo(kocId);
+    try {
+      const res = await fetch(`/api/koc/${kocId}/import-bound-wxvideo`, {
+        method: "POST",
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "同步视频号失败");
+      }
+
+      await fetchKocs();
+
+      if (data.bound === false) {
+        toast("这个公众号暂时没有识别到绑定视频号。");
+      } else {
+        toast.success(`视频号同步完成，已导入 ${data.importedCount ?? 0} 条作品样本。`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "同步视频号失败");
+    } finally {
+      setSyncingWxvideo(null);
+    }
   }
 
   async function importKOC() {
@@ -174,7 +238,14 @@ export default function KocPage() {
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1 }}>
                   {k.avatar_url ? (
-                    <img src={k.avatar_url} alt="" style={{ width: 44, height: 44, borderRadius: "50%" }} />
+                    <Image
+                      src={k.avatar_url}
+                      alt=""
+                      width={44}
+                      height={44}
+                      unoptimized
+                      style={{ width: 44, height: 44, borderRadius: "50%" }}
+                    />
                   ) : (
                     <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--border)" }} />
                   )}
@@ -186,12 +257,21 @@ export default function KocPage() {
                       {k.is_manually_added && (
                         <span style={manualTagStyle}>已导入</span>
                       )}
+                      {k.wxvideo ? (
+                        <span style={wxvideoTagStyle}>已绑定视频号</span>
+                      ) : null}
                     </div>
                     <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
                       {k.fans_count !== undefined && <Stat label="粉丝数" val={fmtCount(k.fans_count)} />}
                       <Stat label="最高阅读" val={fmtCount(k.max_read_count)} />
                       <Stat label="平均阅读" val={fmtCount(k.avg_read_count)} />
                       <Stat label="文章数" val={String(k.article_count ?? 0)} />
+                      {k.wxvideo ? (
+                        <>
+                          <Stat label="视频号样本" val={String(k.wxvideo.feed_count ?? 0)} />
+                          <Stat label="视频最高喜欢" val={fmtCount(k.wxvideo.max_like_count ?? 0)} />
+                        </>
+                      ) : null}
                       {k.last_fetched_at && (
                         <div>
                           <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-tertiary)" }}>
@@ -203,6 +283,18 @@ export default function KocPage() {
                         </div>
                       )}
                     </div>
+                    {k.wxvideo ? (
+                      <div style={wxvideoHintStyle}>
+                        已发现绑定视频号「{k.wxvideo.account_name || k.wxvideo.v2_name}」
+                        {k.wxvideo.last_fetched_at
+                          ? `，最近同步于 ${new Date(k.wxvideo.last_fetched_at).toLocaleDateString()}`
+                          : ""}
+                      </div>
+                    ) : (
+                      <div style={wxvideoHintStyle}>
+                        还没有识别到绑定视频号，可以手动触发一次发现与同步。
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -216,6 +308,17 @@ export default function KocPage() {
                     }}
                   >
                     {syncing === k.id ? "同步中..." : "同步内容"}
+                  </button>
+                  <button
+                    onClick={() => syncBoundWxvideo(k.id)}
+                    disabled={syncing !== null || syncingWxvideo !== null}
+                    style={{
+                      ...deleteBtnStyle,
+                      borderColor: "rgba(90, 154, 123, 0.28)",
+                      color: "#5a9a7b",
+                    }}
+                  >
+                    {syncingWxvideo === k.id ? "同步中..." : k.wxvideo ? "刷新视频号" : "发现视频号"}
                   </button>
                   <button onClick={() => deleteKOC(k.id)} disabled={syncing !== null} style={deleteBtnStyle}>
                     删除
@@ -253,6 +356,24 @@ const manualTagStyle: React.CSSProperties = {
   background: "var(--accent-dim)",
   color: "var(--accent)",
   border: "1px solid rgba(200,150,90,0.3)",
+};
+
+const wxvideoTagStyle: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 9,
+  letterSpacing: "0.1em",
+  textTransform: "uppercase",
+  padding: "3px 8px",
+  borderRadius: 4,
+  background: "rgba(90,154,123,0.12)",
+  color: "#5a9a7b",
+  border: "1px solid rgba(90,154,123,0.28)",
+};
+
+const wxvideoHintStyle: React.CSSProperties = {
+  marginTop: 10,
+  fontSize: 11,
+  color: "var(--text-tertiary)",
 };
 
 const deleteBtnStyle: React.CSSProperties = {

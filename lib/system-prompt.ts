@@ -171,6 +171,7 @@ ${errorLog ? `⚠️ 执行错误记录：\n${errorLog}` : ""}
 6. search_knowledge_base：检索已导入的对标文章
 7. generate_topics：生成候选选题
 8. generate_full_article：生成可发布级公众号完整初稿
+9. analyze_wxvideo_data：分析已导入的视频号作品样本，提取互动规律与迁移建议
 
 【通用规则】
 - 当工具返回的数据不够时，明确说出局限，不要编造数据

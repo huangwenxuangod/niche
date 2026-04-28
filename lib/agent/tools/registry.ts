@@ -224,6 +224,7 @@ import { generateTopicsSchema, runGenerateTopics } from "./generate-topics";
 import { importKocByNameSchema, runImportKocByName } from "./import-koc-by-name";
 import { searchKnowledgeBaseSchema, runSearchKnowledgeBase } from "./search-knowledge-base";
 import { searchWechatHotArticlesSchema, runSearchWechatHotArticles } from "./search-wechat-hot-articles";
+import { analyzeWxvideoDataSchema, runAnalyzeWxvideoData } from "./analyze-wxvideo-data";
 
 // ============================================================================
 // 工具注册表
@@ -378,6 +379,23 @@ export const AGENT_TOOL_REGISTRY = {
           }) }
       ),
       runGenerateFullArticle
+    ),
+  },
+  analyze_wxvideo_data: {
+    definition: createToolDefinition(
+      "analyze_wxvideo_data",
+      "分析已导入的视频号作品样本，提取互动规律和公众号迁移建议",
+      analyzeWxvideoDataSchema,
+      { recordInput: true, recordOutput: false }
+    ),
+    execute: wrapWithMemoryLogging(
+      createToolDefinition(
+        "analyze_wxvideo_data",
+        "分析已导入的视频号作品样本，提取互动规律和公众号迁移建议",
+        analyzeWxvideoDataSchema,
+        { recordInput: true, recordOutput: false }
+      ),
+      runAnalyzeWxvideoData
     ),
   },
 } as const;

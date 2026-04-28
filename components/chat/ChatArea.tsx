@@ -751,6 +751,9 @@ function buildToolSummary(events: ToolEvent[]) {
   if (latestResult.toolName === "generate_full_article") {
     return "已生成完整稿";
   }
+  if (latestResult.toolName === "analyze_wxvideo_data") {
+    return "已完成视频号样本分析";
+  }
   if (latestResult.toolName === "generate_article_draft") {
     return "已生成骨架稿";
   }
@@ -793,7 +796,7 @@ function stageState(
 }
 
 function resolveActiveStage(toolName?: string, assistantStatus?: string | null) {
-  if (toolName === "search_hot_topics" || toolName === "search_knowledge_base" || toolName === "analyze_journey_data") {
+  if (toolName === "search_hot_topics" || toolName === "search_knowledge_base" || toolName === "analyze_journey_data" || toolName === "analyze_wxvideo_data") {
     return "retrieve";
   }
   if (toolName === "generate_topics") return "compose";
@@ -813,6 +816,8 @@ function getToolMeta(toolName?: string, assistantStatus?: string | null) {
       return { title: "检索知识库中", hint: "从已同步文章里找能支撑答案的案例。" };
     case "analyze_journey_data":
       return { title: "分析数据中", hint: "总结爆款规律、账号特征和内容偏好。" };
+    case "analyze_wxvideo_data":
+      return { title: "分析视频号中", hint: "总结视频号样本的互动规律和可迁移方向。" };
     case "generate_topics":
       return { title: "生成选题中", hint: "把检索到的信息压缩成可执行的方向。" };
     case "generate_article_draft":
