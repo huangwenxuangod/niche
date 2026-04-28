@@ -2,9 +2,7 @@ import { chat } from "@/lib/llm";
 import { tavilySearch } from "@/lib/tavily";
 
 export type HotTopicContext = {
-  niche_level1?: string;
-  niche_level2?: string;
-  niche_level3?: string;
+  platform?: string;
   keywords?: string[];
 };
 
@@ -85,7 +83,8 @@ function buildExpansionPrompt(
   journey: HotTopicContext | null,
   fallback: string[]
 ) {
-  const contentTypeHint = getContentTypeSearchHint(journey?.niche_level3);
+  const keywordSummary = formatJourneyKeywords(journey);
+  const contentTypeHint = getContentTypeSearchHint(journey);
   return `你要把一个偏泛的内容赛道词，扩成 4-6 个更适合搜索真实热点的查询。
 
 要求：
@@ -96,10 +95,8 @@ function buildExpansionPrompt(
 5. 用 JSON 数组返回，不要输出别的内容。
 
 赛道信息：
-- 一级方向：${journey?.niche_level1 || ""}
-- 二级方向：${journey?.niche_level2 || ""}
-- 内容类型：${journey?.niche_level3 || ""}
-- 旅程关键词：${(journey?.keywords ?? []).join("、")}
+- 平台：${journey?.platform || ""}
+- 旅程关键词：${keywordSummary}
 - 当前基础词：${baseQuery}
 
 内容定位提示：
@@ -145,13 +142,11 @@ async function refineHotTopics(
    {"title":"...","url":"...","reason":"..."}
 
 赛道：
-- 一级方向：${journey?.niche_level1 || ""}
-- 二级方向：${journey?.niche_level2 || ""}
-- 内容类型：${journey?.niche_level3 || ""}
-- 关键词：${(journey?.keywords ?? []).join("、")}
+- 平台：${journey?.platform || ""}
+- 关键词：${formatJourneyKeywords(journey)}
 
 内容定位提示：
-${getContentTypeSelectionHint(journey?.niche_level3)}
+${getContentTypeSelectionHint(journey)}
 
 候选结果：
 ${shortlist
@@ -200,26 +195,24 @@ ${shortlist
 
 function buildFallbackHotQueries(baseQuery: string, journey: HotTopicContext | null) {
   const normalizedQuery = baseQuery.trim();
-  const level1 = String(journey?.niche_level1 || "").trim();
-  const level2 = String(journey?.niche_level2 || "").trim();
-  const level3 = String(journey?.niche_level3 || "").trim();
+  const platformLabel = getPlatformLabel(journey?.platform);
+  const keywords = (journey?.keywords ?? []).map((item) => String(item || "").trim()).filter(Boolean);
+  const keywordPhrase = keywords.slice(0, 2).join(" ");
 
   const candidates = [
     normalizedQuery,
-    ...(journey?.keywords ?? []),
-    `${level2} ${level3}`.trim(),
-    level3,
-    level2,
-    level1,
+    ...keywords,
+    keywordPhrase,
+    platformLabel,
   ]
     .map((item) => item.trim())
     .filter(Boolean);
 
   const specificSeeds = candidates.filter((item) => !isGenericHotSeed(item));
   const primarySeed =
-    specificSeeds[0] || `${level2} ${level3}`.trim() || normalizedQuery || level2 || level1;
+    specificSeeds[0] || keywordPhrase || normalizedQuery || platformLabel;
   const secondarySeed =
-    specificSeeds.find((item) => item !== primarySeed) || level3 || level2 || level1;
+    specificSeeds.find((item) => item !== primarySeed) || keywords[1] || platformLabel;
 
   return Array.from(
     new Set(
@@ -228,7 +221,7 @@ function buildFallbackHotQueries(baseQuery: string, journey: HotTopicContext | n
         `${primarySeed} 用户体验 案例 拆解`,
         `${primarySeed} 实测 评测 新功能`,
         secondarySeed ? `${secondarySeed} 最近热议 产品` : "",
-        level2 && level3 ? `${level2} ${level3} 最近案例` : "",
+        keywordPhrase ? `${keywordPhrase} 最近案例` : "",
       ].filter(Boolean)
     )
   ).slice(0, 5);
@@ -241,9 +234,7 @@ function rerankHotTopics(
 ) {
   const seen = new Set<string>();
   const journeyTerms = [
-    String(journey?.niche_level1 || "").trim(),
-    String(journey?.niche_level2 || "").trim(),
-    String(journey?.niche_level3 || "").trim(),
+    getPlatformLabel(journey?.platform),
     ...(journey?.keywords ?? []),
     ...queries,
   ]
@@ -316,32 +307,61 @@ function isGenericHotSeed(value: string) {
   );
 }
 
-function getContentTypeSearchHint(contentType?: string) {
-  switch (contentType) {
-    case "评测型":
+function getContentTypeSearchHint(journey: HotTopicContext | null | undefined) {
+  const profile = detectContentProfile(journey);
+  switch (profile) {
+    case "review":
       return "优先发散到：新产品上线、实测对比、体验变化、替代关系、性能争议。";
-    case "教程型":
+    case "tutorial":
       return "优先发散到：新工作流、新功能用法、具体工具组合、实操步骤变化。";
-    case "观点型":
+    case "opinion":
       return "优先发散到：行业冲击、岗位变化、争议点、范式转移、立场对立。";
-    case "记录型":
+    case "journal":
       return "优先发散到：真实使用过程、踩坑经历、替代尝试、成长路径。";
     default:
       return "同时兼顾具体产品、能力变化、工作流变化和争议点。";
   }
 }
 
-function getContentTypeSelectionHint(contentType?: string) {
-  switch (contentType) {
-    case "评测型":
+function getContentTypeSelectionHint(journey: HotTopicContext | null | undefined) {
+  const profile = detectContentProfile(journey);
+  switch (profile) {
+    case "review":
       return "更偏好可以做体验对比、优缺点评测、替代判断的机会。";
-    case "教程型":
+    case "tutorial":
       return "更偏好可以转成可执行步骤、工具教程、上手方法的机会。";
-    case "观点型":
+    case "opinion":
       return "更偏好有冲突、有判断、有行业转向意味的机会。";
-    case "记录型":
+    case "journal":
       return "更偏好适合做真实经历、试用记录、踩坑复盘的机会。";
     default:
       return "优先挑选既具体又容易转成内容选题的机会。";
   }
+}
+
+function formatJourneyKeywords(journey: HotTopicContext | null | undefined) {
+  const keywords = (journey?.keywords ?? []).map((item) => String(item || "").trim()).filter(Boolean);
+  return keywords.length ? keywords.join("、") : "暂无";
+}
+
+function getPlatformLabel(platform?: string) {
+  switch (platform) {
+    case "wechat_mp":
+      return "公众号";
+    case "wechat_channels":
+      return "视频号";
+    case "xiaohongshu":
+      return "小红书";
+    default:
+      return String(platform || "").trim();
+  }
+}
+
+function detectContentProfile(journey: HotTopicContext | null | undefined) {
+  const haystack = (journey?.keywords ?? []).join(" ");
+  if (/评测|测评|对比|体验/.test(haystack)) return "review";
+  if (/教程|工作流|实操|方法|步骤/.test(haystack)) return "tutorial";
+  if (/观点|判断|趋势|分析|拆解/.test(haystack)) return "opinion";
+  if (/记录|复盘|踩坑|成长|尝试/.test(haystack)) return "journal";
+  return "general";
 }

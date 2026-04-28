@@ -20,9 +20,6 @@ type JourneyRow = {
   id: string;
   platform: string | null;
   keywords: string[] | null;
-  niche_level1: string | null;
-  niche_level2: string | null;
-  niche_level3: string | null;
 };
 
 type ConversationRow = {
@@ -67,12 +64,21 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
     return new Response("Conversation id is required", { status: 400 });
   }
 
-  const { data: conv } = await supabase
+  const { data: conv, error: convError } = await supabase
     .from("conversations")
-    .select("id, title, journey_id, journeys(id, platform, keywords, niche_level1, niche_level2, niche_level3)")
+    .select("id, title, journey_id, journeys(id, platform, keywords)")
     .eq("id", conversationId)
     .eq("user_id", user.id)
     .single();
+
+  if (convError) {
+    console.error("[messages.route] failed to load conversation", {
+      conversationId,
+      error: convError.message,
+      code: convError.code,
+    });
+    return new Response(`Conversation query failed: ${convError.message}`, { status: 500 });
+  }
 
   if (!conv) {
     return new Response("Not found", { status: 404 });
@@ -108,9 +114,6 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
   const journey = journeyRow
     ? {
         keywords: journeyRow.keywords ?? undefined,
-        niche_level1: journeyRow.niche_level1 ?? undefined,
-        niche_level2: journeyRow.niche_level2 ?? undefined,
-        niche_level3: journeyRow.niche_level3 ?? undefined,
         platform: journeyRow.platform ?? undefined,
       }
     : null;

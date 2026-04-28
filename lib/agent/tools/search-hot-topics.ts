@@ -38,7 +38,7 @@ export async function runSearchHotTopics(
   context: ToolExecutionContext
 ) {
   const query = String(
-    args.query || context.journey?.keywords?.[0] || context.journey?.niche_level2 || ""
+    args.query || context.journey?.keywords?.[0] || context.journey?.platform || ""
   );
   const maxResults = normalizeNumber(args.max_results, 5);
   const days = normalizeNumber(args.days, 3);
@@ -47,10 +47,8 @@ export async function runSearchHotTopics(
     baseQuery: query,
     journey: context.journey
       ? {
-          keywords: context.journey.keywords,
-          niche_level1: context.journey.niche_level1 ?? undefined,
-          niche_level2: context.journey.niche_level2 ?? undefined,
-          niche_level3: context.journey.niche_level3 ?? undefined,
+        keywords: context.journey.keywords,
+          platform: context.journey.platform ?? undefined,
         }
       : null,
     maxResults,
