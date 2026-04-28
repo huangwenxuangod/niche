@@ -91,6 +91,8 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const [layoutTarget, setLayoutTarget] = useState<{ id: string; content: string } | null>(null);
   const assistantBufferRef = useRef("");
   const assistantFlushTimerRef = useRef<number | null>(null);
+  const currentAssistantIdRef = useRef<string | null>(null);
+  const assistantContentRef = useRef("");
   const loadingSnapshot = buildLoadingSnapshot(toolEvents, assistantStatus);
   const latestLayoutMessage = useMemo(
     () =>
@@ -168,6 +170,8 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
     const assistantId: string = crypto.randomUUID();
     let currentAssistantId: string = assistantId;
     let assistantContent = "";
+    currentAssistantIdRef.current = assistantId;
+    assistantContentRef.current = "";
     assistantBufferRef.current = "";
     if (assistantFlushTimerRef.current !== null) {
       window.clearTimeout(assistantFlushTimerRef.current);
@@ -191,6 +195,20 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
       [assistantId]: { text: "", active: false },
     }));
     setStreaming(true);
+
+    const applyAssistantContent = (content: string, candidateIds?: string[]) => {
+      const ids = new Set(
+        [currentAssistantIdRef.current, currentAssistantId, assistantId, ...(candidateIds ?? [])].filter(
+          (value): value is string => Boolean(value)
+        )
+      );
+
+      setMessages((prev) =>
+        prev.map((message) =>
+          ids.has(message.id) ? { ...message, content } : message
+        )
+      );
+    };
 
     try {
       const res = await fetch(`/api/conversations/${conversationId}/messages`, {
@@ -236,14 +254,9 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                   assistantFlushTimerRef.current = null;
                   if (!assistantBufferRef.current) return;
                   assistantContent += assistantBufferRef.current;
+                  assistantContentRef.current = assistantContent;
                   assistantBufferRef.current = "";
-                  setMessages((prev) =>
-                    prev.map((message) =>
-                      message.id === currentAssistantId
-                        ? { ...message, content: assistantContent }
-                        : message
-                    )
-                  );
+                  applyAssistantContent(assistantContent);
                 }, 28);
               }
             } else if (parsed.type === "assistant_status" && parsed.label) {
@@ -277,20 +290,31 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                 },
               }));
             } else if (parsed.type === "assistant_message" && parsed.messageId) {
+              const previousAssistantId = currentAssistantIdRef.current ?? currentAssistantId;
               const nextId = String(parsed.messageId);
               setMessages((prev) =>
                 prev.map((message) =>
-                  message.id === currentAssistantId ? { ...message, id: nextId } : message
+                  message.id === previousAssistantId
+                    ? {
+                        ...message,
+                        id: nextId,
+                        content: message.content || assistantContentRef.current,
+                      }
+                    : message
                 )
               );
               setReasoningByMessage((prev) => {
-                const current = prev[currentAssistantId];
-                if (!current || currentAssistantId === nextId) return prev;
+                const current = prev[previousAssistantId];
+                if (!current || previousAssistantId === nextId) return prev;
                 const next = { ...prev, [nextId]: current };
-                delete next[currentAssistantId];
+                delete next[previousAssistantId];
                 return next;
               });
+              currentAssistantIdRef.current = nextId;
               currentAssistantId = nextId;
+              if (assistantContentRef.current) {
+                applyAssistantContent(assistantContentRef.current, [previousAssistantId, nextId]);
+              }
             } else if (parsed.type === "koc_recommendation_ready") {
               const payload = parsed.payload as
                 | {
@@ -360,14 +384,9 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
           }
           if (assistantBufferRef.current) {
             assistantContent += assistantBufferRef.current;
+            assistantContentRef.current = assistantContent;
             assistantBufferRef.current = "";
-            setMessages((prev) =>
-              prev.map((message) =>
-                message.id === currentAssistantId
-                  ? { ...message, content: assistantContent }
-                  : message
-              )
-            );
+            applyAssistantContent(assistantContent);
           }
           break;
         }
@@ -376,12 +395,14 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
       console.error(error);
       setMessages((prev) =>
         prev.map((message) =>
-          message.id === assistantId
+          [assistantId, currentAssistantIdRef.current].filter(Boolean).includes(message.id)
             ? { ...message, content: "抱歉，出现了一点问题，请重试。" }
             : message
         )
       );
     } finally {
+      currentAssistantIdRef.current = null;
+      assistantContentRef.current = "";
       setStreaming(false);
       setAssistantStatus(null);
     }
