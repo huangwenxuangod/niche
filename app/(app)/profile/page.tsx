@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { IdentityForm } from "./IdentityForm";
-import { getUserMemory } from "@/lib/memory";
+import { extractIdentityMemoFromUserMemory, getUserMemory } from "@/lib/memory";
 
 export default async function ProfilePage() {
   const cookieStore = await cookies();
@@ -10,13 +10,8 @@ export default async function ProfilePage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("identity_memo")
-    .eq("user_id", user.id)
-    .single();
-
   const memoryMarkdown = await getUserMemory(supabase, user.id);
+  const identityMemo = extractIdentityMemoFromUserMemory(memoryMarkdown);
 
   return (
     <div
@@ -39,7 +34,7 @@ export default async function ProfilePage() {
         用 Markdown 方式记录你的身份、赛道、目标用户和当前目标，AI 会把这些信息持续带入每次对话。
       </div>
       <IdentityForm
-        initialValue={profile?.identity_memo ?? ""}
+        initialValue={identityMemo}
         initialMemory={memoryMarkdown}
       />
     </div>

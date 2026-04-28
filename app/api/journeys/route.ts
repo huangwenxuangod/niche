@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { ensureJourneyProjectMemory } from "@/lib/memory";
 
 export async function GET() {
   const cookieStore = await cookies();
@@ -49,6 +50,8 @@ export async function POST(req: NextRequest) {
   if (error || !journey) {
     return NextResponse.json({ error: error?.message }, { status: 500 });
   }
+
+  await ensureJourneyProjectMemory(supabase, journey.id);
 
   // Create initial conversation
   const { data: conv } = await supabase

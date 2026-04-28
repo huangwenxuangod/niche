@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
-import { getUserMemory, saveUserMemory } from "@/lib/memory";
+import {
+  extractIdentityMemoFromUserMemory,
+  getUserMemory,
+  mergeIdentityMemoIntoUserMemory,
+  saveUserMemory,
+} from "@/lib/memory";
 
 export async function GET() {
   const cookieStore = await cookies();
@@ -12,16 +17,10 @@ export async function GET() {
 
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: profile } = await supabase
-    .from("user_profiles")
-    .select("identity_memo")
-    .eq("user_id", user.id)
-    .single();
-
   const markdown = await getUserMemory(supabase, user.id);
 
   return NextResponse.json({
-    identity_memo: profile?.identity_memo ?? "",
+    identity_memo: extractIdentityMemoFromUserMemory(markdown),
     memory_markdown: markdown,
   });
 }
@@ -38,19 +37,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const identityMemo = String(body.identity_memo ?? "");
   const memoryMarkdown = String(body.memory_markdown ?? "");
+  const mergedMarkdown = mergeIdentityMemoIntoUserMemory(memoryMarkdown, identityMemo);
 
-  await supabase.from("user_profiles").upsert(
-    {
-      user_id: user.id,
-      identity_memo: identityMemo,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" }
-  );
-
-  if (memoryMarkdown.trim()) {
-    await saveUserMemory(supabase, user.id, memoryMarkdown);
-  }
+  await saveUserMemory(supabase, user.id, mergedMarkdown);
 
   return NextResponse.json({ success: true });
 }

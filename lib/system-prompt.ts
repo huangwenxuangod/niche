@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getUserMemory, formatMemoryForPrompt } from "./memory";
+import {
+  ensureJourneyProjectMemory,
+  formatMemoryForPrompt,
+  formatProjectMemoryForPrompt,
+  getUserMemory,
+} from "./memory";
 import { getSessionSteps, type StepRecord } from "./agent/memory/session-memory";
 
 type PromptKoc = {
@@ -86,7 +91,7 @@ export async function buildSystemPrompt(
   supabase: SupabaseClient,
   conversationId?: string
 ): Promise<string> {
-  const [journeyRes, kocRes, viralRes, userMemory, sessionSteps] = await Promise.all([
+  const [journeyRes, kocRes, viralRes, userMemory, projectMemory, sessionSteps] = await Promise.all([
     supabase.from("journeys").select("*").eq("id", journeyId).single(),
     supabase
       .from("koc_sources")
@@ -102,6 +107,7 @@ export async function buildSystemPrompt(
       .order("read_count", { ascending: false })
       .limit(8),
     getUserMemory(supabase, userId),
+    ensureJourneyProjectMemory(supabase, journeyId),
     getSessionSteps(supabase, conversationId),
   ]);
 
@@ -123,6 +129,9 @@ export async function buildSystemPrompt(
 
 【用户记忆】（跨对话长期记忆）
 ${formatMemoryForPrompt(userMemory)}
+
+【项目记忆】（当前旅程策略卡片）
+${formatProjectMemoryForPrompt(projectMemory)}
 
 【本次对话执行历史】（情景记忆）
 已执行步骤数：${sessionSteps.length}
