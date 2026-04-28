@@ -225,6 +225,7 @@ import { importKocByNameSchema, runImportKocByName } from "./import-koc-by-name"
 import { searchKnowledgeBaseSchema, runSearchKnowledgeBase } from "./search-knowledge-base";
 import { searchWechatHotArticlesSchema, runSearchWechatHotArticles } from "./search-wechat-hot-articles";
 import { analyzeWxvideoDataSchema, runAnalyzeWxvideoData } from "./analyze-wxvideo-data";
+import { analyzePublishTimingSchema, runAnalyzePublishTiming } from "./analyze-publish-timing";
 
 // ============================================================================
 // 工具注册表
@@ -396,6 +397,23 @@ export const AGENT_TOOL_REGISTRY = {
         { recordInput: true, recordOutput: false }
       ),
       runAnalyzeWxvideoData
+    ),
+  },
+  analyze_publish_timing: {
+    definition: createToolDefinition(
+      "analyze_publish_timing",
+      "分析已导入样本的发布时间规律，给出更容易起量的发布时间段建议",
+      analyzePublishTimingSchema,
+      { recordInput: true, recordOutput: false }
+    ),
+    execute: wrapWithMemoryLogging(
+      createToolDefinition(
+        "analyze_publish_timing",
+        "分析已导入样本的发布时间规律，给出更容易起量的发布时间段建议",
+        analyzePublishTimingSchema,
+        { recordInput: true, recordOutput: false }
+      ),
+      runAnalyzePublishTiming
     ),
   },
 } as const;
