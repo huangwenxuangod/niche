@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { dajiala, type DajialaArticleListItem, type DajialaPostHistoryResult } from "./dajiala";
 import { indexKnowledgeArticlesByIds } from "@/lib/rag/llamaindex/ingest";
+import { importBoundWxvideoFromKoc } from "@/lib/wxvideo-import";
 
 type KocSourceForSync = {
   id: string;
@@ -133,6 +134,13 @@ export async function importKocForJourney(
 
   await updateKocStats(supabase, koc.id, saveResult);
   void tryIndexKnowledgeArticles(supabase, saveResult.articleIds);
+  void tryImportBoundWxvideo(supabase, {
+    id: koc.id,
+    journey_id: journeyId,
+    account_name: postHistory.mp_nickname || input,
+    account_id: ghid,
+    ghid,
+  });
 
   return {
     success: true,
@@ -194,6 +202,13 @@ export async function syncKocSourceArticles(
 
   await updateKocStats(supabase, koc.id, saveResult);
   void tryIndexKnowledgeArticles(supabase, saveResult.articleIds);
+  void tryImportBoundWxvideo(supabase, {
+    id: koc.id,
+    journey_id: koc.journey_id,
+    account_name: postHistory.mp_nickname || koc.account_name,
+    account_id: postHistory.mp_ghid || koc.ghid || koc.account_id,
+    ghid: postHistory.mp_ghid || koc.ghid || koc.account_id,
+  });
 
   return {
     success: true,
@@ -454,6 +469,26 @@ async function tryIndexKnowledgeArticles(
   } catch (error) {
     console.warn("[koc-import] Failed to index knowledge articles", {
       articleCount: articleIds.length,
+      error,
+    });
+  }
+}
+
+async function tryImportBoundWxvideo(
+  supabase: SupabaseClient,
+  koc: {
+    id: string;
+    journey_id: string;
+    account_name: string | null;
+    account_id: string | null;
+    ghid?: string | null;
+  }
+) {
+  try {
+    await importBoundWxvideoFromKoc(supabase, koc);
+  } catch (error) {
+    console.warn("[koc-import] Failed to import bound wxvideo", {
+      kocId: koc.id,
       error,
     });
   }
