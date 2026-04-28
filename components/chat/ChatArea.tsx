@@ -11,7 +11,6 @@ import {
 import {
   AppstoreOutlined,
   EditOutlined,
-  FireOutlined,
   LoadingOutlined,
   RadarChartOutlined,
   ReadOutlined,
@@ -61,7 +60,7 @@ type LoadingSnapshot = {
 };
 
 const QUICK_PROMPTS = [
-  { key: "topic", label: "给我 3 个涨粉选题", icon: <FireOutlined /> },
+  { key: "topic", label: "给我 3 个涨粉选题", icon: <EditOutlined /> },
   { key: "pattern", label: "分析对标账号增长规律", icon: <RadarChartOutlined /> },
   { key: "schedule", label: "什么时候发布更容易起量", icon: <ReadOutlined /> },
   { key: "competitor", label: "帮我拆解对标账号标题", icon: <EditOutlined /> },
@@ -93,6 +92,17 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const assistantBufferRef = useRef("");
   const assistantFlushTimerRef = useRef<number | null>(null);
   const loadingSnapshot = buildLoadingSnapshot(toolEvents, assistantStatus);
+  const latestLayoutMessage = useMemo(
+    () =>
+      [...messages]
+        .reverse()
+        .find(
+          (message) =>
+            message.role === "assistant" &&
+            extractArticleFromAssistantMessage(message.content) !== null
+        ) ?? null,
+    [messages]
+  );
 
   const bubbleItems = useMemo<BubbleItemType[]>(() => {
     const items: BubbleItemType[] = [];
@@ -509,7 +519,9 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
               <Prompts
                 items={[
                   { key: "analysis", icon: <RadarChartOutlined />, label: "增长分析" },
-                  { key: "hot", icon: <FireOutlined />, label: "增长机会搜索" },
+                  ...(latestLayoutMessage
+                    ? [{ key: "layout", icon: <EditOutlined />, label: "排版" }]
+                    : []),
                 ]}
                 styles={{
                   list: { gap: 8 },
@@ -524,8 +536,11 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                 onItemClick={({ data }) => {
                   if (data.key === "analysis") {
                     setShowAnalysis(true);
-                  } else if (data.key === "hot") {
-                    sendMessage("帮我搜索当前赛道最值得跟进的增长机会，列出 3 条");
+                  } else if (data.key === "layout" && latestLayoutMessage) {
+                    setLayoutTarget({
+                      id: latestLayoutMessage.id,
+                      content: latestLayoutMessage.content,
+                    });
                   }
                 }}
               />

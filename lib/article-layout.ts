@@ -43,13 +43,15 @@ export function extractArticleFromAssistantMessage(content: string): ExtractedAr
   const summary = captureSection(content, "公众号摘要", "备选标题");
   const body = sanitizeArticlePreviewMarkdown(captureBody(content));
 
-  if (!title || !body) return null;
+  if (title && body) {
+    return {
+      title: title.trim(),
+      summary: summary.trim(),
+      bodyMarkdown: body.trim(),
+    };
+  }
 
-  return {
-    title: title.trim(),
-    summary: summary.trim(),
-    bodyMarkdown: body.trim(),
-  };
+  return extractArticleFromRenderedMarkdown(content);
 }
 
 export function renderWechatHtml(markdown: string) {
@@ -190,6 +192,48 @@ function captureBody(content: string) {
     )
   );
   return match?.[1] ?? "";
+}
+
+function extractArticleFromRenderedMarkdown(content: string): ExtractedArticle | null {
+  const normalized = content.replace(/\r\n/g, "\n").trim();
+  if (!normalized.startsWith("# ")) {
+    return null;
+  }
+
+  const lines = normalized.split("\n");
+  const title = lines[0]?.replace(/^#\s+/, "").trim();
+  if (!title) {
+    return null;
+  }
+
+  let cursor = 1;
+  while (cursor < lines.length && !lines[cursor].trim()) {
+    cursor += 1;
+  }
+
+  let summary = "";
+  if (cursor < lines.length && lines[cursor].trim().startsWith(">")) {
+    summary = lines[cursor].trim().replace(/^>\s*/, "").trim();
+    cursor += 1;
+  }
+
+  const remaining = lines.slice(cursor).join("\n");
+  const body = sanitizeArticlePreviewMarkdown(
+    remaining
+      .replace(/^##\s+备选标题[\s\S]*?(?=\n##\s+参考说明|\n#\s|\n##\s|$)/m, "")
+      .replace(/^##\s+参考说明[\s\S]*?(?=\n#\s|\n##\s|$)/m, "")
+      .trim()
+  );
+
+  if (!body) {
+    return null;
+  }
+
+  return {
+    title,
+    summary,
+    bodyMarkdown: body,
+  };
 }
 
 function formatDefaultBlock(block: string): string[] {
