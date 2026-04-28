@@ -56,12 +56,7 @@ export async function runGenerateFullArticle(
     throw new Error("topic_title is required");
   }
 
-  const [userMemory, knowledge] = await Promise.all([
-    getUserMemory(context.supabase, context.userId),
-    searchJourneyKnowledge(context.supabase, context.journeyId, topicTitle, 5),
-  ]);
-
-  const semanticReferences = await retrieveSemanticCompetitorContent(
+  const semanticPromise = retrieveSemanticCompetitorContent(
     context.supabase,
     {
       journeyId: context.journeyId,
@@ -72,6 +67,12 @@ export async function runGenerateFullArticle(
     console.warn("[generate-full-article] semantic retrieval failed:", error);
     return [];
   });
+
+  const [userMemory, knowledge, semanticReferences] = await Promise.all([
+    getUserMemory(context.supabase, context.userId),
+    searchJourneyKnowledge(context.supabase, context.journeyId, topicTitle, 5),
+    semanticPromise,
+  ]);
 
   const references = knowledge.articles
     .map((item) => `- ${item.title} | ${item.account_name} | 阅读 ${item.read_count} | 摘要：${item.excerpt || "无"}`)

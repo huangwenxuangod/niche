@@ -26,6 +26,18 @@ export async function searchJourneyKnowledge(
   const accountNames = Array.from(
     new Set((options?.accountNames ?? []).map((name) => name.trim()).filter(Boolean))
   );
+  const semanticPromise = keyword
+    ? searchSemanticKnowledge(supabase, {
+        journeyId,
+        query: keyword,
+        sourceType: "competitor_account",
+        topK: limit,
+        minSimilarity: 0.25,
+      }).catch((error) => {
+        console.warn("[knowledge-base] semantic fallback failed", error);
+        return [];
+      })
+    : Promise.resolve([]);
 
   let matchedKocIds: string[] = [];
 
@@ -110,38 +122,28 @@ export async function searchJourneyKnowledge(
     };
   }
 
-  try {
-    const semanticResults = await searchSemanticKnowledge(supabase, {
-      journeyId,
-      query: keyword,
-      sourceType: "competitor_account",
-      topK: limit,
-      minSimilarity: 0.25,
-    });
+  const semanticResults = await semanticPromise;
 
-    for (const item of semanticResults) {
-      if (merged.has(item.source_id)) continue;
-      if (
-        accountNames.length > 0 &&
-        !accountNames.some((name) => item.account_name?.includes(name))
-      ) {
-        continue;
-      }
-
-      merged.set(item.source_id, {
-        id: item.source_id,
-        koc_source_id: null,
-        title: item.article_title ?? "未命名文章",
-        digest: null,
-        content: item.chunk_text,
-        read_count: item.read_count,
-        publish_time: item.publish_time,
-        url: null,
-        koc_sources: item.account_name ? { account_name: item.account_name } : null,
-      });
+  for (const item of semanticResults) {
+    if (merged.has(item.source_id)) continue;
+    if (
+      accountNames.length > 0 &&
+      !accountNames.some((name) => item.account_name?.includes(name))
+    ) {
+      continue;
     }
-  } catch (error) {
-    console.warn("[knowledge-base] semantic fallback failed", error);
+
+    merged.set(item.source_id, {
+      id: item.source_id,
+      koc_source_id: null,
+      title: item.article_title ?? "未命名文章",
+      digest: null,
+      content: item.chunk_text,
+      read_count: item.read_count,
+      publish_time: item.publish_time,
+      url: null,
+      koc_sources: item.account_name ? { account_name: item.account_name } : null,
+    });
   }
 
   const hybridArticles = Array.from(merged.values())

@@ -48,19 +48,23 @@ export async function runAnalyzeJourneyData(
   context: ToolExecutionContext
 ) {
   const focus = String(args.focus || "viral_patterns");
-  const { data: kocs } = await context.supabase
-    .from("koc_sources")
-    .select("account_name, max_read_count, avg_read_count")
-    .eq("journey_id", context.journeyId)
-    .order("max_read_count", { ascending: false })
-    .limit(10);
+  const [kocsRes, articlesRes] = await Promise.all([
+    context.supabase
+      .from("koc_sources")
+      .select("account_name, max_read_count, avg_read_count")
+      .eq("journey_id", context.journeyId)
+      .order("max_read_count", { ascending: false })
+      .limit(10),
+    context.supabase
+      .from("knowledge_articles")
+      .select("title, read_count, is_viral, publish_time")
+      .eq("journey_id", context.journeyId)
+      .order("read_count", { ascending: false })
+      .limit(12),
+  ]);
 
-  const { data: articles } = await context.supabase
-    .from("knowledge_articles")
-    .select("title, read_count, is_viral, publish_time")
-    .eq("journey_id", context.journeyId)
-    .order("read_count", { ascending: false })
-    .limit(12);
+  const kocs = kocsRes.data;
+  const articles = articlesRes.data;
 
   const titles = ((articles ?? []) as AnalyzedArticle[]).map((item) => item.title || "");
   const titlePatterns = summarizeTitlePatterns(titles);

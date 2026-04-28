@@ -31,14 +31,19 @@ export async function searchHotTopicCandidates(params: {
   const days = params.days ?? 3;
   const queries = await expandHotQueries(params.baseQuery, params.journey);
   const results = await tavilySearch(queries, {
-    max_results: Math.max(4, Math.min(6, maxResults)),
+    max_results: Math.max(3, Math.min(5, maxResults)),
     days,
   });
   const reranked = rerankHotTopics(results, params.journey, queries).slice(
     0,
-    Math.max(8, maxResults * 2)
+    Math.max(5, maxResults * 2)
   );
-  const refined: RefinedHotTopic[] = await refineHotTopics(reranked, params.journey, maxResults);
+  const refined: RefinedHotTopic[] = reranked.slice(0, maxResults).map((item) => ({
+    title: item.title,
+    url: item.url,
+    published_date: item.published_date,
+    excerpt: item.content ? item.content.slice(0, 200) : "",
+  }));
 
   return {
     query: queries[0] || params.baseQuery,
@@ -54,6 +59,10 @@ export async function searchHotTopicCandidates(params: {
 
 async function expandHotQueries(baseQuery: string, journey: HotTopicContext | null) {
   const fallback = buildFallbackHotQueries(baseQuery, journey);
+  const normalizedBase = normalizeSearchSeed(baseQuery);
+  if (normalizedBase && !isGenericHotSeed(normalizedBase)) {
+    return Array.from(new Set([normalizedBase, ...fallback])).slice(0, 2);
+  }
 
   try {
     const prompt = buildExpansionPrompt(baseQuery, journey, fallback);
@@ -69,10 +78,12 @@ async function expandHotQueries(baseQuery: string, journey: HotTopicContext | nu
     const cleaned = parsed
       .map((item) => String(item || "").trim())
       .filter(Boolean)
-      .filter((item) => item.length >= 4)
-      .slice(0, 6);
+      .map((item) => normalizeSearchSeed(item))
+      .filter((item) => item.length >= 2)
+      .filter((item) => !isGenericHotSeed(item))
+      .slice(0, 2);
 
-    return cleaned.length ? Array.from(new Set([...cleaned, ...fallback])).slice(0, 6) : fallback;
+    return cleaned.length ? Array.from(new Set([...cleaned, ...fallback])).slice(0, 2) : fallback;
   } catch {
     return fallback;
   }
@@ -85,14 +96,14 @@ function buildExpansionPrompt(
 ) {
   const keywordSummary = formatJourneyKeywords(journey);
   const contentTypeHint = getContentTypeSearchHint(journey);
-  return `你要把一个偏泛的内容赛道词，扩成 4-6 个更适合搜索真实热点的查询。
+  return `你要把一个偏泛的内容赛道词，收敛成 1-2 个更适合搜索真实热点的关键词短语。
 
 要求：
-1. 不要只重复赛道名本身。
-2. 优先输出“具体产品 / 具体事件 / 具体能力变化 / 具体岗位冲击 / 具体争议点”。
-3. 每个查询都要像用户真的会拿去搜网页热点，而不是抽象概念。
-4. 适当发散，但仍然要和赛道高度相关。
-5. 用 JSON 数组返回，不要输出别的内容。
+1. 每个结果都必须是 2-5 个词组成的短关键词，不要写完整句子。
+2. 优先保留“具体产品名 / 具体工具名 / 具体能力词 / 具体动作词”。
+3. 禁止混入平台词、增长词、运营词、泛泛形容词，除非它们是搜索必要词。
+4. 如果基础词已经足够具体，就直接返回更短的关键词版本，不要扩写。
+5. 最多返回 2 个关键词短语，用 JSON 数组返回，不要输出别的内容。
 
 赛道信息：
 - 平台：${journey?.platform || ""}
@@ -103,11 +114,10 @@ function buildExpansionPrompt(
 ${contentTypeHint}
 
 示例：
-- 如果赛道是“AI设计”，好的查询会更像：
-  - "Claude Code 设计工作流 争议"
-  - "GPT image 2 设计师 替代"
-  - "Figma AI 新功能 用户体验"
-  - "AI设计 工作流 设计师 失业 焦虑"
+- 输入 "微信公众号 接入GPTs插件 AI工具账号 涨粉方法"
+  输出 ["GPTs 插件", "公众号 AI 工具"]
+- 输入 "AI设计 最近趋势"
+  输出 ["Figma AI", "GPT image 2"]
 
 你也可以参考这些基础查询作为保底：
 ${fallback.map((item) => `- ${item}`).join("\n")}
@@ -115,95 +125,16 @@ ${fallback.map((item) => `- ${item}`).join("\n")}
 只返回 JSON 数组。`;
 }
 
-async function refineHotTopics(
-  candidates: HotTopicItem[],
-  journey: HotTopicContext | null,
-  maxResults: number
-) {
-  if (!candidates.length) return [];
-
-  const shortlist = candidates.slice(0, Math.max(6, maxResults * 2));
-  const fallback: RefinedHotTopic[] = shortlist.slice(0, maxResults).map((item) => ({
-    title: item.title,
-    url: item.url,
-    published_date: item.published_date,
-    excerpt: item.content ? item.content.slice(0, 200) : "",
-  }));
-
-  try {
-    const prompt = `你是一个内容增长教练。请从下面候选热点中挑出最值得跟进的 ${maxResults} 个“增长机会”。
-
-要求：
-1. 不是简单挑最热门，而是挑最适合当前赛道和内容定位的。
-2. 优先选择“具体变化、具体产品、具体争议、具体新功能、具体工作流变化”。
-3. 避免过于泛的科普、企业介绍、无明显内容角度的材料。
-4. 对每条入选结果，给一句不超过 32 字的中文理由，说明它为什么值得跟进。
-5. 用 JSON 数组返回，每项格式：
-   {"title":"...","url":"...","reason":"..."}
-
-赛道：
-- 平台：${journey?.platform || ""}
-- 关键词：${formatJourneyKeywords(journey)}
-
-内容定位提示：
-${getContentTypeSelectionHint(journey)}
-
-候选结果：
-${shortlist
-  .map(
-    (item, index) =>
-      `${index + 1}. ${item.title}\nURL: ${item.url}\n摘要: ${(item.content || "").slice(0, 220)}`
-  )
-  .join("\n\n")}
-
-只返回 JSON 数组。`;
-
-    const reply = await chat({
-      systemPrompt: "你是一个热点机会筛选助手。",
-      userContent: prompt,
-    });
-    const match = reply.match(/\[[\s\S]*\]/);
-    if (!match) return fallback;
-    const parsed = JSON.parse(match[0]);
-    if (!Array.isArray(parsed)) return fallback;
-
-    const byUrl = new Map(shortlist.map((item) => [item.url, item]));
-    const selected: RefinedHotTopic[] = parsed
-      .map((entry) => {
-        const url = String(entry?.url || "").trim();
-        const title = String(entry?.title || "").trim();
-        const reason = String(entry?.reason || "").trim();
-        const hit =
-          (url && byUrl.get(url)) ||
-          shortlist.find((item) => normalizeText(item.title) === normalizeText(title));
-        if (!hit) return null;
-        return {
-          title: hit.title,
-          url: hit.url,
-          published_date: hit.published_date,
-          excerpt: reason || (hit.content ? hit.content.slice(0, 200) : ""),
-        };
-      })
-      .filter((item): item is RefinedHotTopic => Boolean(item))
-      .slice(0, maxResults);
-
-    return selected.length ? selected : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 function buildFallbackHotQueries(baseQuery: string, journey: HotTopicContext | null) {
-  const normalizedQuery = baseQuery.trim();
+  const normalizedQuery = normalizeSearchSeed(baseQuery);
   const platformLabel = getPlatformLabel(journey?.platform);
   const keywords = (journey?.keywords ?? []).map((item) => String(item || "").trim()).filter(Boolean);
-  const keywordPhrase = keywords.slice(0, 2).join(" ");
+  const keywordPhrase = normalizeSearchSeed(keywords.slice(0, 2).join(" "));
 
   const candidates = [
     normalizedQuery,
-    ...keywords,
+    ...keywords.map((item) => normalizeSearchSeed(item)),
     keywordPhrase,
-    platformLabel,
   ]
     .map((item) => item.trim())
     .filter(Boolean);
@@ -217,14 +148,13 @@ function buildFallbackHotQueries(baseQuery: string, journey: HotTopicContext | n
   return Array.from(
     new Set(
       [
-        `${primarySeed} 最新产品发布 趋势`,
-        `${primarySeed} 用户体验 案例 拆解`,
-        `${primarySeed} 实测 评测 新功能`,
-        secondarySeed ? `${secondarySeed} 最近热议 产品` : "",
-        keywordPhrase ? `${keywordPhrase} 最近案例` : "",
+        primarySeed,
+        secondarySeed,
       ].filter(Boolean)
     )
-  ).slice(0, 5);
+  )
+    .filter((item) => item.length >= 2)
+    .slice(0, 2);
 }
 
 function rerankHotTopics(
@@ -234,7 +164,6 @@ function rerankHotTopics(
 ) {
   const seen = new Set<string>();
   const journeyTerms = [
-    getPlatformLabel(journey?.platform),
     ...(journey?.keywords ?? []),
     ...queries,
   ]
@@ -273,6 +202,10 @@ function scoreHotTopic(
     score += 2;
   }
 
+  if (/(公众号|微信公众平台|gpts|gpts插件|插件|agent|ai工具|自动化)/i.test(item.title)) {
+    score += 2;
+  }
+
   if (item.published_date) {
     const published = new Date(item.published_date).getTime();
     if (!Number.isNaN(published)) {
@@ -297,8 +230,12 @@ function normalizeTopicKey(value: string) {
   return value.toLowerCase().replace(/^https?:\/\//, "").replace(/[?#].*$/, "").trim();
 }
 
-function normalizeText(value: string) {
-  return value.toLowerCase().replace(/\s+/g, "").trim();
+function normalizeSearchSeed(value: string) {
+  return value
+    .replace(/[，。！？、,.!?]/g, " ")
+    .replace(/\b(为什么|怎么|如何|有哪些|最近|热点|趋势|增长|涨粉|方法|技巧|运营|账号)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isGenericHotSeed(value: string) {
@@ -320,22 +257,6 @@ function getContentTypeSearchHint(journey: HotTopicContext | null | undefined) {
       return "优先发散到：真实使用过程、踩坑经历、替代尝试、成长路径。";
     default:
       return "同时兼顾具体产品、能力变化、工作流变化和争议点。";
-  }
-}
-
-function getContentTypeSelectionHint(journey: HotTopicContext | null | undefined) {
-  const profile = detectContentProfile(journey);
-  switch (profile) {
-    case "review":
-      return "更偏好可以做体验对比、优缺点评测、替代判断的机会。";
-    case "tutorial":
-      return "更偏好可以转成可执行步骤、工具教程、上手方法的机会。";
-    case "opinion":
-      return "更偏好有冲突、有判断、有行业转向意味的机会。";
-    case "journal":
-      return "更偏好适合做真实经历、试用记录、踩坑复盘的机会。";
-    default:
-      return "优先挑选既具体又容易转成内容选题的机会。";
   }
 }
 
