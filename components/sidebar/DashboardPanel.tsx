@@ -14,6 +14,10 @@ export function DashboardPanel({ journeyId }: { journeyId: string }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!journeyId) {
+      setLoading(false);
+      return;
+    }
     fetch(`/api/wechat/dashboard?journey_id=${journeyId}`)
       .then((res) => res.json())
       .then((d: WechatDashboardData) => {

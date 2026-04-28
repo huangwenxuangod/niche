@@ -10,6 +10,12 @@ interface Props {
 
 export default async function ChatPage({ params }: Props) {
   const { conversationId } = await params;
+
+  if (!conversationId || conversationId === "undefined") {
+    console.error("[ChatPage] Invalid conversationId:", conversationId);
+    notFound();
+  }
+
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
 
