@@ -61,20 +61,28 @@ export async function runGenerateTopics(
       .limit(8),
   ]);
 
-  const references = (topArticlesRes.data ?? [])
-    .map((item: { title: string; read_count: number | null }) => `- ${item.title} | 阅读 ${item.read_count ?? 0}`)
+  const compactMemory = compactUserMemory(userMemory);
+  const topArticles = (topArticlesRes.data ?? []).slice(0, 5);
+  const references = topArticles
+    .map(
+      (item: { title: string; read_count: number | null }) =>
+        `- ${trimText(item.title, 36)} | 阅读 ${item.read_count ?? 0}`
+    )
     .join("\n");
 
   const text = await chat({
-    systemPrompt: "你是一个选题策划助手，只输出 JSON，不要任何额外解释。",
-    userContent: `请基于以下信息，生成 ${count} 个适合当前用户的${goal}。
+    systemPrompt:
+      "你是一个选题策划助手。只输出合法 JSON，不要 markdown，不要解释，不要思考过程。",
+    userContent: `请生成 ${count} 个适合当前用户的${goal}。
 
 时间范围：${timeframe}
+平台：${context.journey?.platform || "公众号"}
+赛道关键词：${(context.journey?.keywords ?? []).join("、") || "暂无"}
 
 【用户记忆】
-${userMemory || "暂无"}
+${compactMemory || "暂无"}
 
-【知识库中的高阅读文章】
+【高阅读参考标题】
 ${references || "暂无"}
 
 返回 JSON：
@@ -95,7 +103,7 @@ ${references || "暂无"}
   const parsed = safeParseJson<TopicToolResult>(text);
   if (parsed?.topics?.length) return parsed;
 
-  return { topics: [] };
+  return { topics: buildDeterministicTopics({ count, timeframe, topArticles, journeyKeywords: context.journey?.keywords ?? [] }) };
 }
 
 function safeParseJson<T>(text: string) {
@@ -106,4 +114,53 @@ function safeParseJson<T>(text: string) {
   } catch {
     return null;
   }
+}
+
+function compactUserMemory(memory: string) {
+  return trimText(
+    memory
+      .replace(/^#.*$/gm, "")
+      .replace(/\n{2,}/g, "\n")
+      .trim(),
+    600
+  );
+}
+
+function trimText(text: string, maxLength: number) {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength).trim()}...`;
+}
+
+function buildDeterministicTopics(params: {
+  count: number;
+  timeframe: string;
+  topArticles: Array<{ title: string; read_count: number | null }>;
+  journeyKeywords: string[];
+}): TopicToolResult["topics"] {
+  const baseKeyword =
+    params.journeyKeywords.find((item) => item && item.trim())?.trim() || "AI工具";
+  const articleTitles = params.topArticles.map((item) => item.title).filter(Boolean);
+  const templates = [
+    {
+      title: `${params.timeframe}可做：${baseKeyword}最值得试的3种实操用法`,
+      angle: `从真实使用场景切入，讲清楚 ${baseKeyword} 在内容生产或效率提升里的具体价值`,
+    },
+    {
+      title: `实测复盘：${baseKeyword}怎么帮普通人更快做出结果`,
+      angle: `用实测和案例拆解 ${baseKeyword} 的具体收益，避免空泛介绍`,
+    },
+    {
+      title: `${baseKeyword}现在最容易出圈的5个内容切口`,
+      angle: `从选题角度整理 ${baseKeyword} 当前更容易被点击、收藏和转发的方向`,
+    },
+  ];
+
+  return templates.slice(0, params.count).map((item, index) => ({
+    index: index + 1,
+    title: item.title,
+    angle: item.angle,
+    why_fit_user: `贴合当前旅程关键词“${baseKeyword}”，更容易和你已有的内容方向保持一致。`,
+    why_now: `这类内容在${params.timeframe}更容易结合近期工具更新、真实案例或效率需求切入。`,
+    reference_titles: articleTitles.slice(0, 2),
+  }));
 }

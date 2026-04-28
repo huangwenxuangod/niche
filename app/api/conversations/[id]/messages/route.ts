@@ -808,6 +808,41 @@ function buildDeterministicFallbackAnswer(
     ].join("\n\n");
   }
 
+  const latestGeneratedTopics = findLatestToolPayloadFromMessages<{
+    topics?: Array<{
+      index?: number;
+      title?: string;
+      angle?: string;
+      why_fit_user?: string;
+      why_now?: string;
+      reference_titles?: string[];
+    }>;
+  }>(llmMessages, "generate_topics");
+
+  if (latestGeneratedTopics?.topics?.length) {
+    const topics = latestGeneratedTopics.topics.slice(0, 3);
+    return [
+      "这轮我已经先帮你整理出一版可直接往下写的选题方向。",
+      topics
+        .map((topic, index) => {
+          const references = Array.isArray(topic.reference_titles)
+            ? topic.reference_titles.slice(0, 2)
+            : [];
+          return [
+            `### ${topic.index || index + 1}. ${topic.title || "未命名选题"}`,
+            topic.angle ? `切入角度：${topic.angle}` : "",
+            topic.why_fit_user ? `为什么适合你：${topic.why_fit_user}` : "",
+            topic.why_now ? `为什么现在值得写：${topic.why_now}` : "",
+            references.length ? `参考标题：${references.join(" / ")}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
+        })
+        .join("\n\n"),
+      "你可以直接回复“第一个可以”或“我选第二个”，我会继续往成稿方向推进。",
+    ].join("\n\n");
+  }
+
   const latestAnalyze = findLatestToolPayloadFromMessages<{
     patterns?: string[];
     top_articles?: Array<{ title?: string; read_count?: number }>;
@@ -879,10 +914,13 @@ function shouldSkipFinalGeneration(
   }
 
   const latestHotTopics = findLatestToolPayloadFromMessages(llmMessages, "search_hot_topics");
+  const latestGeneratedTopics = findLatestToolPayloadFromMessages(llmMessages, "generate_topics");
   const latestAnalyze = findLatestToolPayloadFromMessages(llmMessages, "analyze_journey_data");
   const latestKnowledge = findLatestToolPayloadFromMessages(llmMessages, "search_knowledge_base");
 
-  return Boolean(latestHotTopics || latestAnalyze || latestKnowledge);
+  return Boolean(
+    latestHotTopics || latestGeneratedTopics || latestAnalyze || latestKnowledge
+  );
 }
 
 function findLatestToolPayloadFromMessages<T>(
