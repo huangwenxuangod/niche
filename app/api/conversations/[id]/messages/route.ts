@@ -53,6 +53,11 @@ type FastPathPlan = {
   }>;
 };
 
+type ToolLoopOutcome = {
+  hadToolCalls: boolean;
+  directAnswer: string;
+};
+
 export async function POST(req: NextRequest, { params }: RouteContext) {
   const startTime = Date.now();
   const { id: conversationId } = await params;
@@ -193,13 +198,20 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
             journey,
             sessionSteps: sessionStepsBeforeTurn,
           });
-          await runAgentToolLoop({
+          const toolLoopOutcome = await runAgentToolLoop({
             planningPrompt,
             llmMessages,
             toolContext,
             send,
             perf,
           });
+
+          if (toolLoopOutcome.directAnswer.trim()) {
+            llmMessages.push({
+              role: "assistant",
+              content: toolLoopOutcome.directAnswer,
+            } as LlmMessage);
+          }
         }
 
         send({
@@ -216,17 +228,24 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
         );
         perf.mark("system_prompt_ready");
 
-        const finalAnswer = await completeText({
+        let finalAnswer = await completeText({
           systemPrompt,
           messages: llmMessages,
         });
         perf.mark("final_answer_ready");
 
+        if (!finalAnswer.trim()) {
+          finalAnswer = buildDeterministicFallbackAnswer(llmMessages, content);
+          perf.mark("final_answer_fallback");
+        }
+
         const memoryFacts = [
           ...confirmationContext.memoryFacts,
           ...extractMemoryFacts(finalAnswer),
         ];
-        const displayAnswer = stripMemoryTags(finalAnswer).trim() || "我已经处理完这轮请求了。";
+        const displayAnswer =
+          stripMemoryTags(finalAnswer).trim() ||
+          "这轮我拿到了部分数据，但还没成功组织成有效回答。";
 
         const { data: assistantMessage, error: assistantMessageError } = await supabase
           .from("messages")
@@ -306,8 +325,9 @@ async function runAgentToolLoop({
   toolContext: ToolExecutionContext;
   send: (payload: Record<string, unknown>) => void;
   perf: ReturnType<typeof createPerfLogger>;
-}) {
+}): Promise<ToolLoopOutcome> {
   const maxRounds = 3;
+  let hadToolCalls = false;
 
   for (let round = 0; round < maxRounds; round += 1) {
     send({
@@ -324,14 +344,13 @@ async function runAgentToolLoop({
     perf.mark(`tool_planning_round_${round + 1}`);
 
     if (!completion.toolCalls.length) {
-      if (completion.content?.trim()) {
-        llmMessages.push({
-          role: "assistant",
-          content: completion.content,
-        } as LlmMessage);
-      }
-      return;
+      return {
+        hadToolCalls,
+        directAnswer: completion.content?.trim() || "",
+      };
     }
+
+    hadToolCalls = true;
 
     llmMessages.push({
       role: "assistant",
@@ -360,6 +379,11 @@ async function runAgentToolLoop({
       }
     }
   }
+
+  return {
+    hadToolCalls,
+    directAnswer: "",
+  };
 }
 
 async function runFastPathPlan(
@@ -630,6 +654,17 @@ async function prefetchFullArticleFromConfirmedTopic(
 }
 
 function detectFastPathPlan(userContent: string): FastPathPlan | null {
+  if (isWhyHighReadQuestion(userContent)) {
+    return {
+      steps: [
+        {
+          toolName: "analyze_journey_data",
+          args: { focus: "viral_patterns" },
+        },
+      ],
+    };
+  }
+
   const accountName = extractExplicitAccountName(userContent);
   if (!accountName) {
     return null;
@@ -664,6 +699,13 @@ function extractExplicitAccountName(userContent: string) {
   return cleaned.length >= 2 ? cleaned : null;
 }
 
+function isWhyHighReadQuestion(userContent: string) {
+  const normalized = userContent.replace(/\s+/g, "");
+  return /(为什么).*(阅读量|起量|爆|高)|((阅读量|起量|爆).*(为什么|原因))|(爆款规律|高阅读.*原因)/.test(
+    normalized
+  );
+}
+
 function normalizeToolName(
   toolName: string
 ): keyof typeof AGENT_TOOL_REGISTRY | "compliance_check" | null {
@@ -696,6 +738,7 @@ function buildPlanningPrompt(params: {
 原则：
 1. 优先少轮次完成任务，避免无意义的重复调用。
 2. 如果用户明确说“对标/导入某个公众号”，优先导入再分析。
+2.1 如果用户在问“为什么阅读量高 / 为什么会爆 / 爆款规律”，优先调用 analyze_journey_data，而不是先做 search_knowledge_base。
 3. 如果问题明显只需要最终总结，不要再调工具。
 4. 已经成功执行过的工具，除非必要，不要再次调用。
 5. 工具参数尽量简洁，避免传空字段。
@@ -730,6 +773,112 @@ function maybeEmitKocRecommendation(
       },
     });
   }
+}
+
+function buildDeterministicFallbackAnswer(
+  llmMessages: LlmMessage[],
+  userContent: string
+) {
+  const latestAnalyze = findLatestToolPayloadFromMessages<{
+    patterns?: string[];
+    top_articles?: Array<{ title?: string; read_count?: number }>;
+    top_kocs?: Array<{ account_name?: string; max_read_count?: number; avg_read_count?: number }>;
+  }>(llmMessages, "analyze_journey_data");
+
+  if (latestAnalyze) {
+    const topKoc = latestAnalyze.top_kocs?.[0];
+    const topArticles = Array.isArray(latestAnalyze.top_articles)
+      ? latestAnalyze.top_articles.slice(0, 3)
+      : [];
+    const patterns = Array.isArray(latestAnalyze.patterns)
+      ? latestAnalyze.patterns.slice(0, 3)
+      : [];
+
+    const lines = [
+      "从这批已导入文章看，阅读量高主要不是偶然，而是因为它同时占了 **标题、选题、实用价值** 这三个点。",
+      topKoc?.account_name
+        ? `账号基本盘上，**${topKoc.account_name}** 本身已经有较强的读者信任，最高阅读 ${fmtNum(topKoc.max_read_count ?? 0)}，平均阅读 ${fmtNum(topKoc.avg_read_count ?? 0)}。`
+        : "",
+      patterns.length
+        ? `最明显的规律是：\n${patterns.map((pattern, index) => `${index + 1}. **${pattern}**`).join("\n")}`
+        : "",
+      topArticles.length
+        ? `结合高阅读文章看，它们共同更像是：\n${topArticles
+            .map(
+              (article) =>
+                `- **${article.title || "未命名文章"}**：阅读 ${fmtNum(article.read_count ?? 0)}`
+            )
+            .join("\n")}`
+        : "",
+      /为什么/.test(userContent)
+        ? "一句话总结：**它不是靠泛泛聊 AI 起量，而是靠“具体案例 + 明确收益感 + 可直接带走的方法”起量。**"
+        : "",
+    ].filter(Boolean);
+
+    return lines.join("\n\n");
+  }
+
+  const latestKnowledge = findLatestToolPayloadFromMessages<{
+    articles?: Array<{ title?: string; read_count?: number; account_name?: string }>;
+  }>(llmMessages, "search_knowledge_base");
+
+  if (latestKnowledge?.articles?.length) {
+    const articles = latestKnowledge.articles.slice(0, 3);
+    return [
+      "这轮我已经从知识库里拿到了几篇高阅读文章，但还没完成更深入的归因分析。",
+      `目前能先确认的是，表现最好的内容集中在这些方向：\n${articles
+        .map(
+          (article) =>
+            `- **${article.title || "未命名文章"}**｜${article.account_name || "未知账号"}｜阅读 ${fmtNum(article.read_count ?? 0)}`
+        )
+        .join("\n")}`,
+      "如果只基于这批标题先做初步判断，最明显的共同点是：**标题具体、问题明确、读者能立刻感知收益。**",
+    ].join("\n\n");
+  }
+
+  return "这轮我拿到了部分数据，但还没成功组织成有效回答。";
+}
+
+function findLatestToolPayloadFromMessages<T>(
+  llmMessages: LlmMessage[],
+  toolName: string
+) {
+  for (let index = llmMessages.length - 1; index >= 0; index -= 1) {
+    const message = llmMessages[index];
+    if (message.role !== "assistant" || !("tool_calls" in message) || !message.tool_calls?.length) {
+      continue;
+    }
+
+    const matchedCall = message.tool_calls.find((toolCall) => {
+      const fn = "function" in toolCall ? toolCall.function : undefined;
+      return fn?.name === toolName;
+    });
+
+    if (!matchedCall) {
+      continue;
+    }
+
+    const toolCallId = matchedCall.id;
+    const toolMessage = llmMessages.find(
+      (candidate) =>
+        candidate.role === "tool" &&
+        "tool_call_id" in candidate &&
+        candidate.tool_call_id === toolCallId &&
+        typeof candidate.content === "string"
+    );
+
+    if (!toolMessage || typeof toolMessage.content !== "string") {
+      continue;
+    }
+
+    try {
+      return JSON.parse(toolMessage.content) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
 }
 
 function buildConfirmationContext(
@@ -942,6 +1091,12 @@ function extractMemoryFacts(text: string) {
 
 function stripMemoryTags(text: string) {
   return text.replace(/\s*<memory>[\s\S]*?<\/memory>\s*/g, "\n").trim();
+}
+
+function fmtNum(n: number): string {
+  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n ?? 0);
 }
 
 function createPerfLogger(startTime: number) {

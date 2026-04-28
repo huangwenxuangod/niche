@@ -100,7 +100,9 @@ export async function searchJourneyKnowledge(
     };
   });
 
-  if (articles.length >= limit || !keyword) {
+  const enoughKeywordHits = articles.length >= Math.min(limit, 3);
+
+  if (enoughKeywordHits || !keyword) {
     return {
       query: keyword,
       total: articles.length,
