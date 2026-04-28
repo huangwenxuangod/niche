@@ -48,7 +48,7 @@ type ConfirmationContext = {
 
 type FastPathPlan = {
   steps: Array<{
-    toolName: keyof typeof AGENT_TOOL_REGISTRY | "compliance_check";
+    toolName: keyof typeof AGENT_TOOL_REGISTRY;
     args: Record<string, unknown>;
   }>;
 };
@@ -220,12 +220,12 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
           elapsed: perf.elapsed(),
         });
 
-        const deterministicFallback = buildDeterministicFallbackAnswer(llmMessages, content);
+        const toolBasedAnswer = buildToolBasedAnswer(llmMessages, content);
         let finalAnswer = "";
 
-        if (shouldSkipFinalGeneration(llmMessages, deterministicFallback)) {
-          finalAnswer = deterministicFallback;
-          perf.mark("final_answer_skipped_to_deterministic");
+        if (toolBasedAnswer.trim()) {
+          finalAnswer = toolBasedAnswer;
+          perf.mark("final_answer_from_tool_result");
         } else {
           const systemPrompt = await buildSystemPrompt(
             conv.journey_id,
@@ -242,7 +242,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
           perf.mark("final_answer_ready");
 
           if (!finalAnswer.trim()) {
-            finalAnswer = deterministicFallback;
+            finalAnswer = buildFallbackMessage(content);
             perf.mark("final_answer_fallback");
           }
         }
@@ -426,7 +426,7 @@ async function executeToolAndAppend({
   toolContext,
   send,
 }: {
-  toolName: keyof typeof AGENT_TOOL_REGISTRY | "compliance_check";
+  toolName: keyof typeof AGENT_TOOL_REGISTRY;
   rawArgs: unknown;
   toolCallId: string;
   llmMessages: LlmMessage[];
@@ -492,14 +492,10 @@ async function executeToolAndAppend({
 }
 
 async function executeTool(
-  toolName: keyof typeof AGENT_TOOL_REGISTRY | "compliance_check",
+  toolName: keyof typeof AGENT_TOOL_REGISTRY,
   rawArgs: unknown,
   context: ToolExecutionContext
 ) {
-  if (toolName === "compliance_check") {
-    return runInlineComplianceCheck(rawArgs);
-  }
-
   const registryEntry = AGENT_TOOL_REGISTRY[toolName];
   if (!registryEntry?.execute) {
     throw new Error(`Unsupported tool: ${toolName}`);
@@ -779,11 +775,7 @@ function extractTopicGenerationRequest(userContent: string) {
 
 function normalizeToolName(
   toolName: string
-): keyof typeof AGENT_TOOL_REGISTRY | "compliance_check" | null {
-  if (toolName === "compliance_check") {
-    return toolName;
-  }
-
+): keyof typeof AGENT_TOOL_REGISTRY | null {
   if (toolName in AGENT_TOOL_REGISTRY) {
     return toolName as keyof typeof AGENT_TOOL_REGISTRY;
   }
@@ -846,10 +838,36 @@ function maybeEmitKocRecommendation(
   }
 }
 
-function buildDeterministicFallbackAnswer(
+function buildToolBasedAnswer(
   llmMessages: LlmMessage[],
   userContent: string
 ) {
+  const latestFullArticle = findLatestToolPayloadFromMessages<{
+    title?: string;
+    summary?: string;
+    title_options?: string[];
+    article_markdown?: string;
+    reference_note?: string;
+  }>(llmMessages, "generate_full_article");
+
+  if (latestFullArticle?.article_markdown?.trim()) {
+    const titleOptions = Array.isArray(latestFullArticle.title_options)
+      ? latestFullArticle.title_options.slice(0, 5)
+      : [];
+
+    return [
+      latestFullArticle.title ? `# ${latestFullArticle.title}` : "",
+      latestFullArticle.summary ? `> ${latestFullArticle.summary}` : "",
+      titleOptions.length
+        ? `## 备选标题\n${titleOptions.map((item, index) => `${index + 1}. ${item}`).join("\n")}`
+        : "",
+      latestFullArticle.reference_note ? `## 参考说明\n${latestFullArticle.reference_note}` : "",
+      latestFullArticle.article_markdown,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
   const latestHotTopics = findLatestToolPayloadFromMessages<{
     query?: string;
     topics?: Array<{ title?: string; excerpt?: string; url?: string }>;
@@ -963,27 +981,14 @@ function buildDeterministicFallbackAnswer(
     ].join("\n\n");
   }
 
-  return "这轮我拿到了部分数据，但还没成功组织成有效回答。";
+  return "";
 }
 
-function shouldSkipFinalGeneration(
-  llmMessages: LlmMessage[],
-  deterministicFallback: string
-) {
-  if (
-    deterministicFallback === "这轮我拿到了部分数据，但还没成功组织成有效回答。"
-  ) {
-    return false;
+function buildFallbackMessage(userContent: string) {
+  if (/(写稿|成稿|完整稿|文章)/.test(userContent)) {
+    return "这轮写稿结果没有成功整理出来，请重新触发一次写稿。";
   }
-
-  const latestHotTopics = findLatestToolPayloadFromMessages(llmMessages, "search_hot_topics");
-  const latestGeneratedTopics = findLatestToolPayloadFromMessages(llmMessages, "generate_topics");
-  const latestAnalyze = findLatestToolPayloadFromMessages(llmMessages, "analyze_journey_data");
-  const latestKnowledge = findLatestToolPayloadFromMessages(llmMessages, "search_knowledge_base");
-
-  return Boolean(
-    latestHotTopics || latestGeneratedTopics || latestAnalyze || latestKnowledge
-  );
+  return "这轮我拿到了部分数据，但还没成功组织成有效回答。";
 }
 
 function findLatestToolPayloadFromMessages<T>(
@@ -1133,33 +1138,6 @@ function resolveSelectionIndex(normalizedText: string) {
   return null;
 }
 
-function runInlineComplianceCheck(rawArgs: unknown) {
-  const args = typeof rawArgs === "object" && rawArgs !== null
-    ? (rawArgs as Record<string, unknown>)
-    : {};
-
-  const title = String(args.title ?? "");
-  const summary = String(args.summary ?? "");
-  const articleMarkdown = String(args.article_markdown ?? "");
-  const joined = `${title}\n${summary}\n${articleMarkdown}`;
-
-  const hitRules = [
-    { pattern: /包过|稳赚|暴富|躺赚|保证/, reason: "存在明显夸大承诺" },
-    { pattern: /最权威|唯一真相|100%/, reason: "存在绝对化表达" },
-    { pattern: /内幕|灰产|代刷|刷量/, reason: "存在高风险违规表达" },
-    { pattern: /医疗|治愈|药到病除/, reason: "涉及医疗高风险表述" },
-  ].filter((rule) => rule.pattern.test(joined));
-
-  return {
-    risk_level: hitRules.length >= 2 ? "high" : hitRules.length === 1 ? "medium" : "low",
-    issues: hitRules.map((rule) => rule.reason),
-    suggestion:
-      hitRules.length > 0
-        ? "建议删掉绝对化承诺和高风险词，改成更克制、经验型的表达。"
-        : "当前内容整体风险较低，发布前再检查标题是否过度刺激即可。",
-  };
-}
-
 function safeParseArgs(raw: string) {
   try {
     return JSON.parse(raw || "{}");
@@ -1200,8 +1178,6 @@ function getToolLabel(toolName: string) {
       return "生成选题";
     case "generate_full_article":
       return "生成完整稿";
-    case "compliance_check":
-      return "合规检查";
     default:
       return toolName;
   }

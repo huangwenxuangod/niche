@@ -7,13 +7,11 @@
  * 3. 错误自动捕获并记录，支持重试和复盘
  */
 
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { toOpenAiTool } from "./helpers";
 import type { ToolExecutionContext } from "./types";
 import {
   recordStep,
-  type StepType,
 } from "@/lib/agent/memory/session-memory";
 
 // ============================================================================
@@ -226,7 +224,6 @@ import { generateTopicsSchema, runGenerateTopics } from "./generate-topics";
 import { importKocByNameSchema, runImportKocByName } from "./import-koc-by-name";
 import { searchKnowledgeBaseSchema, runSearchKnowledgeBase } from "./search-knowledge-base";
 import { searchWechatHotArticlesSchema, runSearchWechatHotArticles } from "./search-wechat-hot-articles";
-import { complianceCheckSchema } from "./compliance-check";
 
 // ============================================================================
 // 工具注册表
@@ -382,16 +379,6 @@ export const AGENT_TOOL_REGISTRY = {
       ),
       runGenerateFullArticle
     ),
-  },
-  compliance_check: {
-    definition: createToolDefinition(
-      "compliance_check",
-      "检查内容合规和限流风险",
-      complianceCheckSchema,
-      { recordInput: true, recordOutput: false }
-    ),
-    // compliance_check 在 route.ts 中硬编码处理
-    execute: null as unknown as (args: unknown, context: unknown) => Promise<unknown>,
   },
 } as const;
 

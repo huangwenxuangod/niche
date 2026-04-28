@@ -739,10 +739,6 @@ function buildToolSummary(events: ToolEvent[]) {
   if (latestResult.toolName === "generate_article_draft") {
     return "已生成骨架稿";
   }
-  if (latestResult.toolName === "compliance_check") {
-    return "已完成合规检查";
-  }
-
   return `已完成${latestResult.label}`;
 }
 
@@ -751,10 +747,7 @@ function buildLoadingSnapshot(events: ToolEvent[], assistantStatus: string | nul
   const latestToolName = activeToolEvent?.toolName;
   const activeStage = resolveActiveStage(latestToolName, assistantStatus);
   const meta = getToolMeta(latestToolName, assistantStatus);
-  const includeReview = latestToolName === "compliance_check";
-  const order = includeReview
-    ? ["understand", "retrieve", "compose", "generate", "review", "stream"]
-    : ["understand", "retrieve", "compose", "generate", "stream"];
+  const order = ["understand", "retrieve", "compose", "generate", "stream"];
 
   const steps: LoadingStep[] = [
     { key: "understand", label: "理解问题", state: stageState("understand", activeStage, order) },
@@ -762,10 +755,6 @@ function buildLoadingSnapshot(events: ToolEvent[], assistantStatus: string | nul
     { key: "compose", label: "组织答案", state: stageState("compose", activeStage, order) },
     { key: "generate", label: "生成内容", state: stageState("generate", activeStage, order) },
   ];
-
-  if (includeReview) {
-    steps.push({ key: "review", label: "风控检查", state: stageState("review", activeStage, order) });
-  }
 
   steps.push({ key: "stream", label: "输出结果", state: stageState("stream", activeStage, order) });
 
@@ -794,7 +783,6 @@ function resolveActiveStage(toolName?: string, assistantStatus?: string | null) 
   }
   if (toolName === "generate_topics") return "compose";
   if (toolName === "generate_article_draft" || toolName === "generate_full_article" || toolName === "revise_full_article") return "generate";
-  if (toolName === "compliance_check") return "review";
   if (assistantStatus === "整合分析结果中") return "compose";
   if (assistantStatus === "输出答案中") return "stream";
   if (assistantStatus === "组织回答中") return "compose";
@@ -818,8 +806,6 @@ function getToolMeta(toolName?: string, assistantStatus?: string | null) {
       return { title: "生成完整稿中", hint: "把结构扩成可读、可发的长文正文。" };
     case "revise_full_article":
       return { title: "修改完整稿中", hint: "按你的要求调整语气、结构和表达。" };
-    case "compliance_check":
-      return { title: "风控检查中", hint: "检查标题、摘要、正文和 CTA 的风险点。" };
     default:
       if (assistantStatus === "整合分析结果中") return { title: "整合分析结果中", hint: "结合检索到的数据和分析结果生成回答。" };
       if (assistantStatus === "输出答案中") return { title: "输出答案中", hint: "先把核心结论流式发出来。" };

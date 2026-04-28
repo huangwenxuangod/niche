@@ -171,7 +171,6 @@ ${errorLog ? `⚠️ 执行错误记录：\n${errorLog}` : ""}
 6. search_knowledge_base：检索已导入的对标文章
 7. generate_topics：生成候选选题
 8. generate_full_article：生成可发布级公众号完整初稿
-9. compliance_check：检查内容合规和限流风险
 
 【通用规则】
 - 当工具返回的数据不够时，明确说出局限，不要编造数据
