@@ -673,6 +673,21 @@ function detectFastPathPlan(userContent: string): FastPathPlan | null {
     };
   }
 
+  if (isGenericGrowthQuestion(userContent) && !hasExplicitSearchEntity(userContent)) {
+    return {
+      steps: [
+        {
+          toolName: "analyze_journey_data",
+          args: { focus: "viral_patterns" },
+        },
+        {
+          toolName: "generate_topics",
+          args: { count: 3, timeframe: "本周", goal: "增长选题" },
+        },
+      ],
+    };
+  }
+
   const topicRequest = extractTopicGenerationRequest(userContent);
   if (topicRequest) {
     return {
@@ -723,6 +738,18 @@ function isWhyHighReadQuestion(userContent: string) {
   const normalized = userContent.replace(/\s+/g, "");
   return /(为什么).*(阅读量|起量|爆|高)|((阅读量|起量|爆).*(为什么|原因))|(爆款规律|高阅读.*原因)/.test(
     normalized
+  );
+}
+
+function isGenericGrowthQuestion(userContent: string) {
+  return /(增长机会|涨粉|增长策略|增长逻辑|增长方向|怎么增长|怎么涨粉|怎么做增长|破局)/.test(
+    userContent.replace(/\s+/g, "")
+  );
+}
+
+function hasExplicitSearchEntity(userContent: string) {
+  return /(DeepSeek|Claude|Cursor|GPTs|Dify|Coze|Manus|Midjourney|Lovable|Figma AI|火山引擎|豆包|数字生命卡兹克)/i.test(
+    userContent
   );
 }
 

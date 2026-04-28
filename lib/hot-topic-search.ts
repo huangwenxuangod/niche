@@ -67,34 +67,35 @@ function buildFocusedHotQuery(baseQuery: string, journey: HotTopicContext | null
     .filter(Boolean)
     .filter((item) => !isGenericStopWord(item));
 
-  const domain = pickPrimaryDomainPhrase(queryKeywords, journeyKeywords, journey);
+  const domain = pickPrimaryDomainPhrase(queryKeywords, journeyKeywords);
   const suffix = pickIntentSuffix(intent, journey, domain);
   const query = [domain, suffix].filter(Boolean).join(" ").trim();
 
-  return query || fallbackHotQuery(journeyKeywords, journey);
+  return query || fallbackHotQuery(journeyKeywords);
 }
 
 function pickPrimaryDomainPhrase(
   queryKeywords: string[],
-  journeyKeywords: string[],
-  journey: HotTopicContext | null
+  journeyKeywords: string[]
 ) {
   const merged = [
     ...collapseKeywordPhrases(queryKeywords),
     ...collapseKeywordPhrases(journeyKeywords),
   ].filter(Boolean);
 
-  const specific = merged.filter((item) => !isGenericHotSeed(item));
+  const specific = merged
+    .map(normalizeDomainPhrase)
+    .filter((item) => item && !isGenericHotSeed(item));
   if (specific.length) {
     return specific[0];
   }
 
-  const platformLabel = getPlatformLabel(journey?.platform);
-  if (platformLabel) {
-    return platformLabel === "公众号" ? "AI工具公众号" : platformLabel;
+  const keywordOnly = normalizeDomainPhrase(journeyKeywords[0] || "");
+  if (keywordOnly && !isGenericHotSeed(keywordOnly)) {
+    return keywordOnly;
   }
 
-  return "AI工具公众号";
+  return "AI工具";
 }
 
 function pickIntentSuffix(
@@ -102,8 +103,12 @@ function pickIntentSuffix(
   journey: HotTopicContext | null,
   domain: string
 ) {
-  if (intent === "growth") return "增长案例";
-  if (intent === "monetization") return "变现案例";
+  if (!hasConcreteEntity(domain)) {
+    return "";
+  }
+
+  if (intent === "growth") return "案例";
+  if (intent === "monetization") return "变现";
   if (intent === "controversy") return "争议";
   if (intent === "feature") return "新功能";
 
@@ -114,20 +119,16 @@ function pickIntentSuffix(
   return "案例";
 }
 
-function fallbackHotQuery(journeyKeywords: string[], journey: HotTopicContext | null) {
+function fallbackHotQuery(journeyKeywords: string[]) {
   const firstKeyword = collapseKeywordPhrases(journeyKeywords).find(
     (item) => item && !isGenericHotSeed(item)
   );
   if (firstKeyword) {
-    return `${firstKeyword} 案例`;
+    const normalized = normalizeDomainPhrase(firstKeyword);
+    return hasConcreteEntity(normalized) ? `${normalized} 案例` : normalized;
   }
 
-  const platformLabel = getPlatformLabel(journey?.platform);
-  if (platformLabel === "公众号") {
-    return "AI工具公众号 案例";
-  }
-
-  return `${platformLabel || "AI工具"} 案例`.trim();
+  return normalizeDomainPhrase(journeyKeywords[0] || "") || "AI工具";
 }
 
 function rerankHotTopics(
@@ -223,11 +224,11 @@ function collapseKeywordPhrases(keywords: string[]) {
 
   const phrases: string[] = [];
   const matchedEntities = joined.match(
-    /(Claude Code|Claude|GPTs插件|GPTs|DeepSeek|Manus|Cursor|Coze|Dify|Lovable|Figma AI|Midjourney|公众号|微信公众平台|AI工具公众号|AI工具)/gi
+    /(Claude Code|Claude|GPTs插件|GPTs|DeepSeek|Manus|Cursor|Coze|Dify|Lovable|Figma AI|Midjourney|AI工具公众号|AI工具)/gi
   );
 
   if (matchedEntities?.length) {
-    phrases.push(...matchedEntities.map((item) => item.trim()));
+    phrases.push(...matchedEntities.map((item) => normalizeDomainPhrase(item)));
   }
 
   const compact = joined
@@ -236,10 +237,26 @@ function collapseKeywordPhrases(keywords: string[]) {
     .filter((item) => !isGenericStopWord(item));
 
   if (compact.length) {
-    phrases.push(compact.slice(0, 3).join(" "));
+    phrases.push(normalizeDomainPhrase(compact.slice(0, 3).join(" ")));
   }
 
   return Array.from(new Set(phrases.map((item) => item.trim()).filter(Boolean)));
+}
+
+function normalizeDomainPhrase(value: string) {
+  return value
+    .replace(/微信公众平台|微信公众号|公众号/gi, "")
+    .replace(/AI工具公众号/gi, "AI工具")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasConcreteEntity(value: string) {
+  const normalized = normalizeDomainPhrase(value);
+  if (!normalized) return false;
+  if (isGenericHotSeed(normalized)) return false;
+  if (/^(AI工具|AI|内容创作|效率提升)$/.test(normalized)) return false;
+  return normalized.length >= 4 || /[A-Z][a-z]+|[A-Z]{2,}|[0-9]/.test(normalized);
 }
 
 function isGenericStopWord(value: string) {
@@ -256,19 +273,6 @@ function isGenericHotSeed(value: string) {
 
 function normalizeTopicKey(value: string) {
   return value.toLowerCase().replace(/^https?:\/\//, "").replace(/[?#].*$/, "").trim();
-}
-
-function getPlatformLabel(platform?: string) {
-  switch (platform) {
-    case "wechat_mp":
-      return "公众号";
-    case "wechat_channels":
-      return "视频号";
-    case "xiaohongshu":
-      return "小红书";
-    default:
-      return String(platform || "").trim();
-  }
 }
 
 function detectContentProfile(journey: HotTopicContext | null | undefined) {
