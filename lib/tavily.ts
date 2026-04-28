@@ -21,7 +21,17 @@ export async function tavilySearch(
     throw new Error("TAVILY_API_KEY not configured");
   }
 
-  const queries = Array.isArray(query) ? query : [query];
+  const queries = Array.from(
+    new Set(
+      (Array.isArray(query) ? query : [query])
+        .map((item) => String(item || "").trim())
+        .filter(Boolean)
+    )
+  ).slice(0, 3);
+
+  if (!queries.length) {
+    return [];
+  }
   const settled = await Promise.allSettled(
     queries.map(async (q) => {
       let res: Response;

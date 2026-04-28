@@ -220,23 +220,31 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
           elapsed: perf.elapsed(),
         });
 
-        const systemPrompt = await buildSystemPrompt(
-          conv.journey_id,
-          user.id,
-          supabase,
-          conversationId
-        );
-        perf.mark("system_prompt_ready");
+        const deterministicFallback = buildDeterministicFallbackAnswer(llmMessages, content);
+        let finalAnswer = "";
 
-        let finalAnswer = await completeText({
-          systemPrompt,
-          messages: llmMessages,
-        });
-        perf.mark("final_answer_ready");
+        if (shouldSkipFinalGeneration(llmMessages, deterministicFallback)) {
+          finalAnswer = deterministicFallback;
+          perf.mark("final_answer_skipped_to_deterministic");
+        } else {
+          const systemPrompt = await buildSystemPrompt(
+            conv.journey_id,
+            user.id,
+            supabase,
+            conversationId
+          );
+          perf.mark("system_prompt_ready");
 
-        if (!finalAnswer.trim()) {
-          finalAnswer = buildDeterministicFallbackAnswer(llmMessages, content);
-          perf.mark("final_answer_fallback");
+          finalAnswer = await completeText({
+            systemPrompt,
+            messages: llmMessages,
+          });
+          perf.mark("final_answer_ready");
+
+          if (!finalAnswer.trim()) {
+            finalAnswer = deterministicFallback;
+            perf.mark("final_answer_fallback");
+          }
         }
 
         const memoryFacts = [
@@ -779,6 +787,27 @@ function buildDeterministicFallbackAnswer(
   llmMessages: LlmMessage[],
   userContent: string
 ) {
+  const latestHotTopics = findLatestToolPayloadFromMessages<{
+    query?: string;
+    topics?: Array<{ title?: string; excerpt?: string; url?: string }>;
+  }>(llmMessages, "search_hot_topics");
+
+  if (latestHotTopics?.topics?.length) {
+    const topics = latestHotTopics.topics.slice(0, 3);
+    return [
+      `我先按 **${latestHotTopics.query || "当前赛道"}** 这个收敛关键词帮你搜了一轮外部热点。`,
+      `目前更值得跟进的是这 ${topics.length} 个方向：\n${topics
+        .map(
+          (topic, index) =>
+            `${index + 1}. **${topic.title || "未命名热点"}**\n${topic.excerpt ? `   - 看点：${topic.excerpt}` : ""}${topic.url ? `\n   - 链接：${topic.url}` : ""}`
+        )
+        .join("\n")}`,
+      /增长|涨粉|机会|破局/.test(userContent)
+        ? "如果只从增长机会看，优先级最高的是：**能直接提升内容生产效率、能形成案例感、能讲出具体结果的 AI 工具实战题。** 这类内容最容易同时带来点击和转发。 "
+        : "如果你愿意，我下一步可以直接把这 3 个热点继续收敛成适合你账号的选题。 ",
+    ].join("\n\n");
+  }
+
   const latestAnalyze = findLatestToolPayloadFromMessages<{
     patterns?: string[];
     top_articles?: Array<{ title?: string; read_count?: number }>;
@@ -837,6 +866,23 @@ function buildDeterministicFallbackAnswer(
   }
 
   return "这轮我拿到了部分数据，但还没成功组织成有效回答。";
+}
+
+function shouldSkipFinalGeneration(
+  llmMessages: LlmMessage[],
+  deterministicFallback: string
+) {
+  if (
+    deterministicFallback === "这轮我拿到了部分数据，但还没成功组织成有效回答。"
+  ) {
+    return false;
+  }
+
+  const latestHotTopics = findLatestToolPayloadFromMessages(llmMessages, "search_hot_topics");
+  const latestAnalyze = findLatestToolPayloadFromMessages(llmMessages, "analyze_journey_data");
+  const latestKnowledge = findLatestToolPayloadFromMessages(llmMessages, "search_knowledge_base");
+
+  return Boolean(latestHotTopics || latestAnalyze || latestKnowledge);
 }
 
 function findLatestToolPayloadFromMessages<T>(

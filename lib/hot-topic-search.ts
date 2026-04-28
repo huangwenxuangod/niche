@@ -1,4 +1,3 @@
-import { chat } from "@/lib/llm";
 import { tavilySearch } from "@/lib/tavily";
 
 export type HotTopicContext = {
@@ -29,12 +28,12 @@ export async function searchHotTopicCandidates(params: {
 }) {
   const maxResults = params.maxResults ?? 5;
   const days = params.days ?? 3;
-  const queries = await expandHotQueries(params.baseQuery, params.journey);
-  const results = await tavilySearch(queries, {
+  const query = buildFocusedHotQuery(params.baseQuery, params.journey);
+  const results = await tavilySearch(query, {
     max_results: Math.max(3, Math.min(5, maxResults)),
     days,
   });
-  const reranked = rerankHotTopics(results, params.journey, queries).slice(
+  const reranked = rerankHotTopics(results, params.journey, query).slice(
     0,
     Math.max(5, maxResults * 2)
   );
@@ -46,8 +45,7 @@ export async function searchHotTopicCandidates(params: {
   }));
 
   return {
-    query: queries[0] || params.baseQuery,
-    queries,
+    query,
     topics: refined.map((item) => ({
       title: item.title,
       url: item.url,
@@ -57,119 +55,93 @@ export async function searchHotTopicCandidates(params: {
   };
 }
 
-async function expandHotQueries(baseQuery: string, journey: HotTopicContext | null) {
-  const fallback = buildFallbackHotQueries(baseQuery, journey);
-  const normalizedBase = normalizeSearchSeed(baseQuery);
-  if (normalizedBase && !isGenericHotSeed(normalizedBase)) {
-    return Array.from(new Set([normalizedBase, ...fallback])).slice(0, 2);
-  }
-
-  try {
-    const prompt = buildExpansionPrompt(baseQuery, journey, fallback);
-    const reply = await chat({
-      systemPrompt: "你是一个增长情报搜索助手。你负责把泛化赛道词扩成适合搜索真实热点的具体查询词。",
-      userContent: prompt,
-    });
-    const match = reply.match(/\[[\s\S]*\]/);
-    if (!match) return fallback;
-    const parsed = JSON.parse(match[0]);
-    if (!Array.isArray(parsed)) return fallback;
-
-    const cleaned = parsed
-      .map((item) => String(item || "").trim())
-      .filter(Boolean)
-      .map((item) => normalizeSearchSeed(item))
-      .filter((item) => item.length >= 2)
-      .filter((item) => !isGenericHotSeed(item))
-      .slice(0, 2);
-
-    return cleaned.length ? Array.from(new Set([...cleaned, ...fallback])).slice(0, 2) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function buildExpansionPrompt(
-  baseQuery: string,
-  journey: HotTopicContext | null,
-  fallback: string[]
-) {
-  const keywordSummary = formatJourneyKeywords(journey);
-  const contentTypeHint = getContentTypeSearchHint(journey);
-  return `你要把一个偏泛的内容赛道词，收敛成 1-2 个更适合搜索真实热点的关键词短语。
-
-要求：
-1. 每个结果都必须是 2-5 个词组成的短关键词，不要写完整句子。
-2. 优先保留“具体产品名 / 具体工具名 / 具体能力词 / 具体动作词”。
-3. 禁止混入平台词、增长词、运营词、泛泛形容词，除非它们是搜索必要词。
-4. 如果基础词已经足够具体，就直接返回更短的关键词版本，不要扩写。
-5. 最多返回 2 个关键词短语，用 JSON 数组返回，不要输出别的内容。
-
-赛道信息：
-- 平台：${journey?.platform || ""}
-- 旅程关键词：${keywordSummary}
-- 当前基础词：${baseQuery}
-
-内容定位提示：
-${contentTypeHint}
-
-示例：
-- 输入 "微信公众号 接入GPTs插件 AI工具账号 涨粉方法"
-  输出 ["GPTs 插件", "公众号 AI 工具"]
-- 输入 "AI设计 最近趋势"
-  输出 ["Figma AI", "GPT image 2"]
-
-你也可以参考这些基础查询作为保底：
-${fallback.map((item) => `- ${item}`).join("\n")}
-
-只返回 JSON 数组。`;
-}
-
-function buildFallbackHotQueries(baseQuery: string, journey: HotTopicContext | null) {
-  const normalizedQuery = normalizeSearchSeed(baseQuery);
-  const platformLabel = getPlatformLabel(journey?.platform);
-  const keywords = (journey?.keywords ?? []).map((item) => String(item || "").trim()).filter(Boolean);
-  const keywordPhrase = normalizeSearchSeed(keywords.slice(0, 2).join(" "));
-
-  const candidates = [
-    normalizedQuery,
-    ...keywords.map((item) => normalizeSearchSeed(item)),
-    keywordPhrase,
-  ]
+function buildFocusedHotQuery(baseQuery: string, journey: HotTopicContext | null) {
+  const intent = detectHotIntent(baseQuery);
+  const journeyKeywords = (journey?.keywords ?? [])
+    .map((item) => sanitizeKeyword(item))
+    .filter(Boolean)
+    .filter((item) => !isGenericHotSeed(item));
+  const queryKeywords = sanitizeKeyword(baseQuery)
+    .split(/\s+/)
     .map((item) => item.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((item) => !isGenericStopWord(item));
 
-  const specificSeeds = candidates.filter((item) => !isGenericHotSeed(item));
-  const primarySeed =
-    specificSeeds[0] || keywordPhrase || normalizedQuery || platformLabel;
-  const secondarySeed =
-    specificSeeds.find((item) => item !== primarySeed) || keywords[1] || platformLabel;
+  const domain = pickPrimaryDomainPhrase(queryKeywords, journeyKeywords, journey);
+  const suffix = pickIntentSuffix(intent, journey, domain);
+  const query = [domain, suffix].filter(Boolean).join(" ").trim();
 
-  return Array.from(
-    new Set(
-      [
-        primarySeed,
-        secondarySeed,
-      ].filter(Boolean)
-    )
-  )
-    .filter((item) => item.length >= 2)
-    .slice(0, 2);
+  return query || fallbackHotQuery(journeyKeywords, journey);
+}
+
+function pickPrimaryDomainPhrase(
+  queryKeywords: string[],
+  journeyKeywords: string[],
+  journey: HotTopicContext | null
+) {
+  const merged = [
+    ...collapseKeywordPhrases(queryKeywords),
+    ...collapseKeywordPhrases(journeyKeywords),
+  ].filter(Boolean);
+
+  const specific = merged.filter((item) => !isGenericHotSeed(item));
+  if (specific.length) {
+    return specific[0];
+  }
+
+  const platformLabel = getPlatformLabel(journey?.platform);
+  if (platformLabel) {
+    return platformLabel === "公众号" ? "AI工具公众号" : platformLabel;
+  }
+
+  return "AI工具公众号";
+}
+
+function pickIntentSuffix(
+  intent: HotIntent,
+  journey: HotTopicContext | null,
+  domain: string
+) {
+  if (intent === "growth") return "增长案例";
+  if (intent === "monetization") return "变现案例";
+  if (intent === "controversy") return "争议";
+  if (intent === "feature") return "新功能";
+
+  const profile = detectContentProfile(journey);
+  if (profile === "review") return domain.includes("AI") ? "实测" : "测评";
+  if (profile === "tutorial") return "工作流";
+  if (profile === "opinion") return "趋势";
+  return "案例";
+}
+
+function fallbackHotQuery(journeyKeywords: string[], journey: HotTopicContext | null) {
+  const firstKeyword = collapseKeywordPhrases(journeyKeywords).find(
+    (item) => item && !isGenericHotSeed(item)
+  );
+  if (firstKeyword) {
+    return `${firstKeyword} 案例`;
+  }
+
+  const platformLabel = getPlatformLabel(journey?.platform);
+  if (platformLabel === "公众号") {
+    return "AI工具公众号 案例";
+  }
+
+  return `${platformLabel || "AI工具"} 案例`.trim();
 }
 
 function rerankHotTopics(
   results: HotTopicItem[],
   journey: HotTopicContext | null,
-  queries: string[]
+  query: string
 ) {
   const seen = new Set<string>();
   const journeyTerms = [
     ...(journey?.keywords ?? []),
-    ...queries,
+    ...query.split(/\s+/),
   ]
-    .flatMap((item) => item.split(/\s+/))
-    .map((item) => item.trim())
-    .filter((item) => item.length >= 2 && !isGenericHotSeed(item));
+    .map((item) => String(item || "").trim())
+    .filter((item) => item.length >= 2 && !isGenericStopWord(item));
 
   return results
     .filter((item) => {
@@ -198,11 +170,11 @@ function scoreHotTopic(
     }
   }
 
-  if (/(发布|上线|实测|评测|案例|趋势|新功能|体验|拆解|替代|工作流|争议)/.test(item.title)) {
+  if (/(发布|上线|实测|评测|案例|趋势|新功能|体验|拆解|替代|工作流|争议|增长)/.test(item.title)) {
     score += 2;
   }
 
-  if (/(公众号|微信公众平台|gpts|gpts插件|插件|agent|ai工具|自动化)/i.test(item.title)) {
+  if (/(公众号|微信公众平台|gpts|插件|agent|ai工具|自动化)/i.test(item.title)) {
     score += 2;
   }
 
@@ -226,43 +198,64 @@ function scoreHotTopic(
   return score;
 }
 
-function normalizeTopicKey(value: string) {
-  return value.toLowerCase().replace(/^https?:\/\//, "").replace(/[?#].*$/, "").trim();
+function detectHotIntent(value: string): HotIntent {
+  const text = value.toLowerCase();
+  if (/增长|涨粉|获客|拉新|破局/.test(text)) return "growth";
+  if (/变现|转化|付费|客单价/.test(text)) return "monetization";
+  if (/争议|同质化|抄袭|合规|风险/.test(text)) return "controversy";
+  if (/热点|趋势|最近|最新|新功能|发布|上线/.test(text)) return "feature";
+  return "general";
 }
 
-function normalizeSearchSeed(value: string) {
+function sanitizeKeyword(value: string) {
   return value
-    .replace(/[，。！？、,.!?]/g, " ")
-    .replace(/\b(为什么|怎么|如何|有哪些|最近|热点|趋势|增长|涨粉|方法|技巧|运营|账号)\b/gi, " ")
+    .replace(/[0-9]{4}/g, " ")
+    .replace(/[，。！？、,.!?/|\\()[\]{}:;"'`~\-+_=<>]/g, " ")
+    .replace(/(增长机会|增长策略|增长逻辑|增长路径|涨粉方法|涨粉技巧|热点趋势|运营方法|运营技巧|实测玩法|破局方法|案例拆解)/gi, " ")
+    .replace(/\b(growth|trend|trends|case|cases|hot|latest)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function isGenericHotSeed(value: string) {
-  return /^(AI|科技|互联网|产品|内容|体验|运营|公众号|小红书|社媒|增长)$|^(AI产品体验|内容创作|产品体验)$/i.test(
+function collapseKeywordPhrases(keywords: string[]) {
+  const joined = keywords.join(" ").trim();
+  if (!joined) return [];
+
+  const phrases: string[] = [];
+  const matchedEntities = joined.match(
+    /(Claude Code|Claude|GPTs插件|GPTs|DeepSeek|Manus|Cursor|Coze|Dify|Lovable|Figma AI|Midjourney|公众号|微信公众平台|AI工具公众号|AI工具)/gi
+  );
+
+  if (matchedEntities?.length) {
+    phrases.push(...matchedEntities.map((item) => item.trim()));
+  }
+
+  const compact = joined
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((item) => !isGenericStopWord(item));
+
+  if (compact.length) {
+    phrases.push(compact.slice(0, 3).join(" "));
+  }
+
+  return Array.from(new Set(phrases.map((item) => item.trim()).filter(Boolean)));
+}
+
+function isGenericStopWord(value: string) {
+  return /(为什么|怎么|如何|有哪些|最近|最新|热点|趋势|增长|机会|涨粉|方法|技巧|运营|账号|内容|阅读量|高|低|微信|一个|哪些|什么|一下|一下子)/i.test(
     value.trim()
   );
 }
 
-function getContentTypeSearchHint(journey: HotTopicContext | null | undefined) {
-  const profile = detectContentProfile(journey);
-  switch (profile) {
-    case "review":
-      return "优先发散到：新产品上线、实测对比、体验变化、替代关系、性能争议。";
-    case "tutorial":
-      return "优先发散到：新工作流、新功能用法、具体工具组合、实操步骤变化。";
-    case "opinion":
-      return "优先发散到：行业冲击、岗位变化、争议点、范式转移、立场对立。";
-    case "journal":
-      return "优先发散到：真实使用过程、踩坑经历、替代尝试、成长路径。";
-    default:
-      return "同时兼顾具体产品、能力变化、工作流变化和争议点。";
-  }
+function isGenericHotSeed(value: string) {
+  return /^(AI|科技|互联网|产品|内容|体验|运营|小红书|社媒|增长|公众号|微信|AI工具|AI工具公众号)$|^(AI产品体验|内容创作|产品体验)$/i.test(
+    value.trim()
+  );
 }
 
-function formatJourneyKeywords(journey: HotTopicContext | null | undefined) {
-  const keywords = (journey?.keywords ?? []).map((item) => String(item || "").trim()).filter(Boolean);
-  return keywords.length ? keywords.join("、") : "暂无";
+function normalizeTopicKey(value: string) {
+  return value.toLowerCase().replace(/^https?:\/\//, "").replace(/[?#].*$/, "").trim();
 }
 
 function getPlatformLabel(platform?: string) {
@@ -286,3 +279,10 @@ function detectContentProfile(journey: HotTopicContext | null | undefined) {
   if (/记录|复盘|踩坑|成长|尝试/.test(haystack)) return "journal";
   return "general";
 }
+
+type HotIntent =
+  | "growth"
+  | "monetization"
+  | "controversy"
+  | "feature"
+  | "general";

@@ -12,7 +12,7 @@ export const searchHotTopicsSchema = z.object({
 export const searchHotTopicsToolDefinition: AgentToolDefinition<typeof searchHotTopicsSchema> = {
   name: "search_hot_topics",
   description: `
-【功能】搜索当前赛道近几天热点
+【功能】使用一个收敛后的关键词，搜索当前赛道近几天热点
 
 【触发关键词】热点、趋势、最近、这周、这月、该写什么、选题
 
