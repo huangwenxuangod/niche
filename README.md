@@ -24,41 +24,38 @@ Niche 是一个面向冷启动 KOC 的 AI 内容增长教练。
 
 ## 当前工程架构
 
-当前项目已经开始从”自研单体 Agent”迁移到 **LangChain 生态链路**：
+当前项目采用 **OpenClaw 记忆驱动架构**，核心特征：
 
-- `lib/agent/models.ts`
-  - 统一模型初始化，兼容当前 Ark / OpenAI SDK 风格调用
-- `lib/agent/tools/*`
-  - 核心工具开始从聊天主路由拆出，逐步脱离 `route.ts`
-- `lib/agent/runtime.ts`
-  - LangChain 流式处理和工具调用执行层
-- `lib/agent/chains/*`
-  - 增长分析结果卡、项目脑更新、本轮结论已经开始走 LangChain 结构化输出
-- `lib/agent/graphs/owned-wechat-analysis.ts`
-  - `增长分析` 已作为第一条 LangGraph 试点 workflow 落地
+- **记忆即状态** - Agent 的所有执行状态都在记忆中，不在变量里
+- **工具即记忆生产者** - 每次工具执行自动记录到 `session_memory`
+- **规划-执行分离** - `lib/agent/runtime/planning.ts` 提供规划框架
+- **四层记忆** - 工作记忆 → 情景记忆 → 长期记忆 → 技能记忆
 
-当前迁移状态：
+**核心文件**：
 
-- `chat / streamChat / completeWithTools` 已开始走 LangChain 兼容 runtime
-- 主聊天 UI 与现有 API 路由仍保持兼容，不做大爆破重构
-- LangSmith tracing 环境位已接入，配置后可直接追踪主链和增长分析链
+- `lib/agent/tools/registry.ts`
+  - 工具注册表 + `wrapWithMemoryLogging` 自动记忆包装器
+- `lib/agent/memory/session-memory.ts`
+  - 情景记忆核心，记录 thought/plan/tool_call/observation/reflection
+- `lib/agent/runtime/planning.ts`
+  - OpenClaw 风格规划阶段框架
+- `lib/llm.ts`
+  - 豆包 LLM 客户端（OpenAI 兼容），流式输出 + 深度思考支持
+- `lib/system-prompt.ts`
+  - 系统提示词构建，注入 KOC 情报 + 四层记忆 + 热点信息
 
 ## Agent 工具
 
-当前聊天接口支持以下工具：
+当前聊天接口支持 8 个工具：
 
-- `search_hot_topics`
-  作用：搜索当前赛道最值得跟进的增长机会
-- `analyze_journey_data`
-  作用：分析当前旅程下已有对标账号和高表现文章，拆解增长规律
-- `search_knowledge_base`
-  作用：从 Supabase 里的 `knowledge_articles` 检索对标内容、标题和案例
-- `generate_topics`
-  作用：基于赛道、知识库和用户记忆生成候选选题
-- `generate_full_article`
-  作用：生成可发布级公众号完整初稿
-- `compliance_check`
-  作用：检查标题、摘要、正文的合规风险
+- `search_hot_topics` — 搜索当前赛道最值得跟进的增长机会
+- `search_wechat_hot_articles` — 用关键词搜索公众号爆文，找优质账号样本
+- `import_koc_by_name` — 导入明确账号名的对标账号到知识库
+- `analyze_journey_data` — 分析当前旅程下已有对标账号和高表现文章，拆解增长规律
+- `search_knowledge_base` — 从知识库检索对标内容、标题和案例
+- `generate_topics` — 基于赛道、知识库和用户记忆生成候选选题
+- `generate_full_article` — 生成可发布级公众号完整初稿
+- `compliance_check` — 检查标题、摘要、正文的合规风险
 
 ## 深度思考支持
 
@@ -69,7 +66,7 @@ Niche 是一个面向冷启动 KOC 的 AI 内容增长教练。
 - 流式输出已启用，有效降低深度思考场景下的超时风险
 - 模型可根据任务复杂度自主判断是否启用深度思考（auto 模式）
 
-当前实现基于 LangChain 的流式处理（`lib/agent/runtime.ts`），会自动处理模型的深度思考响应。
+当前实现基于 `lib/llm.ts` 的 OpenAI 兼容流式处理，会自动处理模型的深度思考响应。
 
 ## 对标内容库说明
 
@@ -97,50 +94,37 @@ Niche 是一个面向冷启动 KOC 的 AI 内容增长教练。
 
 ## 记忆层说明
 
-当前记忆层采用”Supabase 数据库 + Prompt 注入”的方案：
+当前记忆层采用 **四层架构**：
 
-- **用户全局记忆**：存储在 `user_memories` 表（跨旅程共享）
-- **旅程记忆**：存储在 `journey_memories` 表（项目级）
-- **项目记忆**：存储在 `journey_project_memories` 表（结构化策略卡片）
+### 1. 工作记忆（Working Memory）
+- 当前对话的 `messages` 数组
+- 临时上下文，对话结束即释放
 
-当前会自动沉淀的内容：
+### 2. 情景记忆（Session/Episodic Memory）
+- 存储在 `session_memory` 表，按 `conversation_id` 分组
+- **核心设计**：每次工具执行自动记录，不可遗漏
+- 步骤类型：`thought` | `plan` | `tool_call` | `tool_result` | `observation` | `reflection`
+- 支持从记忆中恢复对话状态
 
+### 3. 长期记忆（Long-term Memory）
+- **用户全局记忆**：`user_memories` 表（跨旅程共享）
+- **旅程记忆**：`journey_memories` 表（项目级）
+- **项目记忆**：`journey_project_memories` 表（结构化策略卡片）
+- `lib/memory.ts` 提供统一操作接口
+
+### 4. 技能记忆（Skill Memory）
+- 从情景记忆中提取工具使用模式
+- 加速相似任务（规划中）
+
+**自动沉淀的内容**：
 - 用户填写的”我是谁”
-- 聊天中明确表达的风格偏好
-- 聊天中明确表达的选题偏好
-- 对选题的确认
-- 明确正负反馈
+- 聊天中明确表达的风格偏好、选题偏好
+- 对选题的确认、明确正负反馈
 
-当前接入方式：
-
-- 聊天前会读取用户记忆和旅程记忆
-- 两份记忆会直接拼进 system prompt
-- “我是谁”页面可以直接查看和编辑用户记忆
-
-**架构特点**：
-- `lib/memory.ts` 作为跨层模块，提供统一的记忆操作接口
-- 被 `/api/memory/*` 路由、`system-prompt.ts`、消息路由等多处调用
-- 支持结构化项目记忆（策略卡片），用于记录项目进度和决策
-
-### 项目级记忆
-
-除基础记忆外，当前还有一层 **结构化项目脑**：
-
-- `journey_project_memories`
-  - 项目档案卡
-  - 旅程策略状态
-  - 本轮结论
-
-这层记忆会在：
-
-- 用户明确确认定位 / 目标 / 平台策略时更新
-- 生成选题、完整稿、合规检查、增长分析等关键节点后更新
-
-它的作用不是替代聊天记忆，而是让系统更清楚：
-
-- 这个项目是什么
-- 当前做到哪一步
-- 下一步最该做什么
+**接入方式**：
+- 聊天前读取四层记忆，拼进 system prompt
+- “我是谁”页面可直接查看和编辑用户记忆
+- 工具执行自动记录到情景记忆，无需手动处理
 
 ## 技术栈
 
@@ -148,7 +132,7 @@ Niche 是一个面向冷启动 KOC 的 AI 内容增长教练。
 - React 19
 - Supabase
 - OpenAI SDK 兼容接口
-- LangChain / LangGraph / LangSmith
+- OpenClaw 记忆驱动架构
 - 大佳拉 API
 - Tavily Search
 - 微信官方 API + 固定 IP 转发网关
@@ -162,6 +146,7 @@ app/
     journeys/
     koc/
     wechat/
+    debug/
   (app)/
   (auth)/
 components/
@@ -169,9 +154,8 @@ components/
   sidebar/
 lib/
   agent/
-    chains/
-    graphs/
-    models.ts
+    memory/
+    runtime/
     retrievers/
     schemas/
     tools/
@@ -219,7 +203,8 @@ http://localhost:3000
 ```bash
 # Supabase
 NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
 
 # LLM / API
 OPENAI_API_KEY=
@@ -233,20 +218,15 @@ TAVILY_API_KEY=
 WECHAT_CREDENTIALS_SECRET=
 WECHAT_GATEWAY_URL=
 WECHAT_GATEWAY_TOKEN=
-
-# LangSmith（可选）
-LANGSMITH_TRACING=true
-LANGSMITH_API_KEY=
 ```
 
 说明：
 
-- `OPENAI_API_KEY` 和 `ARK_MODEL_ID` 当前用于兼容 OpenAI SDK 的模型调用（连接火山引擎 Ark / 豆包）
+- `OPENAI_API_KEY` 和 `ARK_MODEL_ID` 用于兼容 OpenAI SDK 的模型调用（连接火山引擎 Ark / 豆包）
 - `DAJIALA_API_KEY` 用于导入公众号文章数据，建立对标内容库
 - `TAVILY_API_KEY` 用于增长机会搜索
 - `WECHAT_CREDENTIALS_SECRET` 用于加密保存公众号配置
 - `WECHAT_GATEWAY_URL` / `WECHAT_GATEWAY_TOKEN` 用于通过固定 IP 网关调用微信官方 API
-- `LANGSMITH_TRACING` / `LANGSMITH_API_KEY` 用于启用 LangSmith 追踪（可选）
 
 ## 关键接口
 
@@ -258,8 +238,6 @@ LANGSMITH_API_KEY=
   作用：同步已存在对标账号的文章（当前默认只同步 3 篇）
 - `POST /api/conversations/:id/messages`
   作用：Agent 聊天主入口，返回 SSE 流
-- `POST /api/wechat/owned-analysis`
-  作用：增长分析入口，导入自己的公众号内容并生成结构化结果卡
 - `POST /api/wechat/publish`
   作用：保存到公众号草稿箱
 
@@ -267,12 +245,12 @@ LANGSMITH_API_KEY=
 
 ## 当前实现边界
 
-当前版本优先保证”增长体验闭环”而不是”架构炫技”：
+当前版本优先保证”增长体验闭环”：
 
-- 已经有单 Agent + 多工具 + 半自动执行
-- 已经支持导入对标账号、增长分析、内容生成、风险检查、排版、发布草稿
-- 已经支持基于 Supabase 的对标内容检索（向量 RAG + 混合检索）
-- 已经开始接入 LangChain 生态，并将增长分析作为第一条 LangGraph 试点链路
+- 单 Agent + 8 个工具 + 自动记忆记录
+- 支持导入对标账号、内容生成、风险检查、排版、发布草稿
+- 支持基于 Supabase 的对标内容检索（向量 RAG + 混合检索）
+- 采用 OpenClaw 记忆驱动架构（四层记忆 + 规划-执行分离）
 - 还没有做完整的多 Agent 调度
 - 还没有做完整的跨平台社媒发布矩阵
 

@@ -30,7 +30,7 @@ Niche 当前定位为一个面向冷启动 KOC 的 AI 内容增长教练：通�
 | `PUT` | `/api/wechat/config` | 更新公众号官方配置 |
 | `GET` | `/api/article-layout?message_id=...` | 获取某条消息的排版草稿 |
 | `POST` | `/api/article-layout` | 生成或保存文章排版草稿 |
-| `POST` | `/api/wechat/owned-analysis` | 执行增长分析：导入自己的公众号内容并输出结构化结果卡 |
+| `GET` | `/api/debug/embedding-probe` | RAG 向量诊断接口 |
 | `GET` | `/auth/callback` | Supabase 登录回调，交换 session |
 
 ## 1. 获取旅程列表
@@ -230,22 +230,48 @@ Niche 当前定位为一个面向冷启动 KOC 的 AI 内容增长教练：通�
 Content-Type: text/event-stream
 ```
 
-流式数据格式：
+流式数据格式（NDJSON，每行一个 JSON 对象）：
 
 ```text
-data: {"text":"第一段内容"}
+data: {“type”:”text”,”content”:”第一段内容”}
 
-data: {"text":"第二段内容"}
+data: {“type”:”reasoning_start”}
+
+data: {“type”:”reasoning_chunk”,”content”:”思考过程...”}
+
+data: {“type”:”reasoning_end”}
+
+data: {“type”:”text”,”content”:”第二段内容”}
+
+data: {“type”:”assistant_status”,”status”:”正在分析数据...”}
+
+data: {“type”:”tool_call”,”tool”:”search_hot_topics”,”args”:{“query”:”AI产品”}}
+
+data: {“type”:”tool_result”,”tool”:”search_hot_topics”,”result”:{...}}
 
 data: [DONE]
 ```
 
+### 事件类型说明
+
+| 事件类型 | 字段 | 说明 |
+|----------|------|------|
+| `text` | `content` | 普通文本内容 |
+| `reasoning_start` | - | 深度思考开始 |
+| `reasoning_chunk` | `content` | 深度思考过程片段 |
+| `reasoning_end` | - | 深度思考结束 |
+| `assistant_status` | `status` | 助手当前状态标签 |
+| `koc_recommendation_ready` | `accounts` | KOC 推荐数据 |
+| `tool_call` | `tool`, `args` | 工具调用意图 |
+| `tool_result` | `tool`, `result` | 工具执行结果 |
+
 ### 行为说明
 
 - 会先将用户消息写入 `messages`
-- 会读取当前会话最近最多 20 条消息作为上下文
-- 如果用户问题命中“选题 / 热点 / 趋势”等关键词，会额外搜索 Tavily 热点结果
-- AI 回复结束后，会把完整回复再次写入 `messages`
+- 会读取当前会话最近最多 24 条消息作为上下文
+- 构建系统提示词时注入 KOC 情报、热点信息、四层记忆
+- AI 回复结束后，把完整回复写入 `messages`
+- 工具调用自动记录到 `session_memory` 表
 - 如果是首次对话，会自动用回复前 40 个字符生成对话标题
 
 ### 失败响应
@@ -465,67 +491,7 @@ KOC 搜索能力已下线，不再调用按条收费的公众号搜索接口。
 
 - 预览区会对正文做额外净化，避免把风控文本、尾巴提示语、破损 `:::cta` 等脏内容带进公众号预览
 
-## 14. 增长分析
-
-### `POST /api/wechat/owned-analysis`
-
-执行“增长分析”主链路。
-
-### 请求体
-
-```json
-{
-  "journey_id": "uuid",
-  "account_name": "我的公众号名称",
-  "app_id": "可选",
-  "app_secret": "可选"
-}
-```
-
-### 行为说明
-
-- `account_name` 是主输入，用于导入自己的公众号内容主体
-- `app_id / app_secret` 是增强输入，用于尽量补公众号官方表现数据
-- 如果官方接口不可用，增长分析不会直接失败，而会降级为“内容主体分析”
-- 自己的公众号内容与竞品内容分开存储，不会混入 `knowledge_articles`
-
-### 成功响应 `200`
-
-```json
-{
-  "success": true,
-  "job_id": "uuid",
-  "report_id": "uuid",
-  "article_count": 3,
-  "metric_count": 0,
-  "analysis_meta": {
-    "source_mode": "content_only",
-    "official_config_present": true,
-    "official_metrics_enabled": false,
-    "warnings": [
-      "公众号官方接口暂时不可用，当前结果以内容主体分析为主。"
-    ]
-  },
-  "report": {
-    "summary": {},
-    "content_overview": {},
-    "top_articles": [],
-    "competitor_gap": {},
-    "next_actions": [],
-    "message_for_chat": "..."
-  }
-}
-```
-
-### 结果说明
-
-- `analysis_meta.source_mode`
-  - `content_only`：仅使用公众号内容主体分析
-  - `mixed`：内容主体 + 官方数据增强
-- `warnings`
-  - 用于说明当前分析的降级原因或数据来源说明
-
-## 15. 登录回调
+## 14. 登录回调
 
 ### `GET /auth/callback`
 
@@ -544,12 +510,29 @@ Supabase 邮箱登录或 OAuth 回调接口，用来把 `code` 交换成 session
 
 - `302` 或框架对应的重定向响应
 
+## 15. RAG 向量诊断
+
+### `GET /api/debug/embedding-probe`
+
+用于诊断 RAG 知识库的向量检索是否正常运作。返回当前 embedding 模型状态、知识库统计和最近索引记录。
+
+### 成功响应 `200`
+
+```json
+{
+  "model": "doubao-embedding-vision-251215",
+  "dimensions": 1024,
+  "total_chunks": 150,
+  "recent_articles": ["article_id_1", "article_id_2"]
+}
+```
+
 ## 典型调用流程
 
 ### 旅程初始化流程
 
 1. `POST /api/journeys` 创建旅程
-2. `POST /api/koc/:ghid/import` 导入账号和文章
+2. `POST /api/koc/import` 导入账号和文章
 3. `POST /api/journeys/:id/create-conversation` 获取对话
 4. `POST /api/conversations/:id/messages` 开始聊天
 

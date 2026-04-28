@@ -23,25 +23,24 @@
 
 为保证文档叙事与当前代码状态一致，当前工程层已经明确采用：
 
-- **LangChain 作为统一工程生态层**
-  - 统一模型层
-  - 工具层拆分
-  - 结构化输出 schema
-  - retriever 抽象
-  - LangSmith tracing / eval 接入位
-- **LangGraph 先试点“增长分析”**
-  - 自己公众号内容导入
-  - 官方数据增强
-  - 自己 vs 对标结果卡
-  - 状态降级说明
-- **项目级记忆采用双层实现**
-  - Markdown 记忆继续保留
-  - 结构化项目脑（项目档案卡 / 旅程策略状态 / 本轮结论）已接入
+- **OpenClaw 记忆驱动架构**
+  - 记忆即状态：Agent 所有执行状态在记忆中，不在变量里
+  - 工具即记忆生产者：每次工具执行自动记录到 `session_memory`
+  - 规划-执行分离：`lib/agent/runtime/planning.ts` 提供规划框架
+- **四层记忆体系**
+  - 工作记忆（messages 数组）
+  - 情景记忆（`session_memory`：工具执行自动记录）
+  - 长期记忆（`user_memories` + `journey_memories` + `journey_project_memories`）
+  - 技能记忆（从情景记忆提取模式，规划中）
+- **OpenAI SDK 兼容层**
+  - 连接火山引擎 Ark / 豆包 API
+  - 流式输出 + 深度思考支持
+  - 8 个核心 Agent 工具
 
 也就是说：
 
-> 对外仍然可以使用“五层高阶 Agent 架构”表述；  
-> 对内当前已经开始落到“LangChain 生态 + LangGraph 关键链路试点”的工程实现。
+> 对外仍然可以使用”五层高阶 Agent 架构”表述；  
+> 对内当前采用”OpenClaw 记忆驱动 + OpenAI SDK 兼容”的工程实现。
 
 ## 二、产品定位与用户洞察
 ### 2.1 产品定位
@@ -128,7 +127,7 @@
 - 结构化输出
 - 关键链路 workflow 化
 
-当前“增长分析”已经作为第一条 LangGraph workflow 试点落地。
+当前”增长分析”已通过情景记忆 + 工具调用实现。
 
 ### 3.5 第五层：迭代层（Iteration Layer）
 **核心能力：自我进化、数据闭环、持续优化**
@@ -204,7 +203,7 @@
 
 ## 六、核心技术方案（精准写清Supabase+ToolCalling+RAG）
 ### 6.1 核心技术栈
-Next.js + Supabase + LangChain + LangGraph + LangSmith + 大模型 API + Tavily + 大佳拉 + 微信网关
+Next.js + Supabase + OpenAI SDK + 大模型 API + Tavily + 大佳拉 + 微信网关
 
 ### 6.2 知识库与检索实现（多模态 RAG）
 
@@ -235,7 +234,7 @@ Next.js + Supabase + LangChain + LangGraph + LangSmith + 大模型 API + Tavily 
 采用**标准化结构化工具调用**，并将关键复杂链路逐步 workflow 化：
 
 - 聊天主链：LangChain 统一模型 / tools / structured output
-- 增长分析：LangGraph workflow 试点
+- 增长分析：情景记忆驱动的数据分析
 - 项目脑更新：结构化提取 + 本轮结论
 
 固定最优执行链路：

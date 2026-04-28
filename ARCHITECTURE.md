@@ -27,8 +27,8 @@ graph TB
 
     subgraph "Agent 工具系统"
         TOOLS[tools/ 工具注册表]
-        RUNTIME[runtime.ts 流式处理]
-        CHAINS[chains/ LangChain 链]
+        MEMORY[memory/ 情景记忆]
+        PLANNING[runtime/planning.ts 规划框架]
     end
 
     subgraph "数据层"
@@ -57,18 +57,18 @@ graph TB
     MEMORY --> MEMORY_SYS
 
     LLM --> RUNTIME
-    AGENT --> RUNTIME
     AGENT --> TOOLS
     AGENT --> SYSTEM
-    AGENT --> CHAINS
+    AGENT --> MEMORY
+    AGENT --> PLANNING
 
     SYSTEM --> MEMORY_SYS
 
-    RUNTIME --> ARK
     TOOLS --> KB
     TOOLS --> DJLLA
     TOOLS --> TIKHUB
     TOOLS --> TAVILY
+    TOOLS --> MEMORY
 
     MEMORY_SYS --> SUPABASE
     KB --> SUPABASE
@@ -180,16 +180,13 @@ erDiagram
     journeys ||--o{ wechat_publish_configs : configures
 
     conversations ||--o{ messages : contains
-    conversations ||--o{ tool_calls : logs
+    conversations ||--o{ session_memory : records
 
     koc_sources ||--o{ knowledge_articles : contributes
 
     users ||--o{ wechat_publish_configs : configures
     wechat_publish_configs ||--o{ wechat_publish_jobs : creates
     wechat_publish_jobs ||--o{ article_layout_drafts : uses
-
-    users ||--o{ owned_wechat_sync_jobs : creates
-    users ||--o{ owned_wechat_analysis_reports : has
 ```
 
 ## 五、关键模块详细关系
@@ -397,9 +394,7 @@ erDiagram
 | 技术 | 版本 | 用途 |
 |------|------|------|
 | Node.js | - | 运行时 |
-| LangChain | 1.3.4 | Agent 框架 |
-| LangGraph | 1.2.9 | 工作流编排 |
-| OpenAI SDK | - | API 客户端 |
+| OpenAI SDK | - | API 客户端（火山引擎 Ark 兼容） |
 | Zod | 4.3.6 | Schema 验证 |
 
 ### 数据与基础设施
@@ -411,13 +406,11 @@ erDiagram
 | 大佳啦 API | 微信公众号数据 |
 | TikHub API | 微信数据补充 |
 | Tavily API | 网络搜索 |
-| LangSmith | 可观测性 |
 
 ### 微信生态
 | 组件 | 说明 |
 |------|------|
 | wechat-publish.ts | 微信草稿箱发布 |
-| wechat-owned-analysis.ts | 自有公众号分析 |
 | article-layout.ts | Markdown → 微信 HTML |
 | wechat-gateway/ | 可选的微信 API 代理 |
 
@@ -688,8 +681,6 @@ graph TB
         LAYOUT["文章排版<br/>article-layout"]
         DRAFT_SAVE["草稿保存"]
         WC_PUBLISH["微信草稿箱发布"]
-        DATA_SYNC["自有账号同步<br/>owned_wechat_sync"]
-        ANALYSIS["公众号分析<br/>owned_wechat_analysis"]
     end
 
     subgraph "数据闭环"
@@ -728,10 +719,8 @@ graph TB
 
     LAYOUT --> DRAFT_SAVE
     DRAFT_SAVE --> WC_PUBLISH
-    WC_PUBLISH --> DATA_SYNC
-    DATA_SYNC --> ANALYSIS
 
-    ANALYSIS --> FEEDBACK
+    WC_PUBLISH --> FEEDBACK
     CHAT --> MEM_CAPTURE
     MEM_CAPTURE --> MEM_UPDATE
     FEEDBACK --> MEM_UPDATE
@@ -751,7 +740,7 @@ graph LR
     subgraph "数据层"
         G3["3. 知识库 RAG<br/><br/>文章索引<br/>文档分块<br/>Ark 向量化<br/>混合检索"]
         G4["4. 热点搜索<br/><br/>Tavily 搜索<br/>大佳啦热点<br/>TikHub 补充<br/>时间/赛道过滤"]
-        G5["5. 数据分析<br/><br/>爆款规律分析<br/>KOC 账号分析<br/>自有账号分析<br/>增长分析链"]
+        G5["5. 数据分析<br/><br/>爆款规律分析<br/>KOC 账号分析<br/>知识库检索"]
     end
 
     subgraph "生产层"
@@ -936,8 +925,8 @@ graph LR
 
     subgraph "Agent 执行层"
         TOOLS["Agent 工具<br/>lib/agent/tools/"]
-        RUNTIME["执行运行时<br/>runtime.ts"]
-        CHAINS["LangChain 链<br/>lib/agent/chains/"]
+        MEMORY["情景记忆<br/>lib/agent/memory/"]
+        PLANNING["规划框架<br/>lib/agent/runtime/planning.ts"]
     end
 
     subgraph "LLM 层"
@@ -971,9 +960,9 @@ graph LR
     SEARCH --> TOOLS
     MEM --> TOOLS
 
-    TOOLS --> RUNTIME
-    RUNTIME --> CHAINS
-    RUNTIME --> MODEL
+    TOOLS --> MEMORY
+    TOOLS --> MODEL
+    PLANNING --> TOOLS
     MODEL --> DEEP
 
     CHAINS --> TOPICS
@@ -1007,9 +996,15 @@ API → ReadableStream → SSE Events → UI 实时更新
 Schema → Definition → Execution → Result
 ```
 
-### 4. 记忆系统
+### 4. 记忆系统（四层架构）
 ```
-用户记忆 + 旅程记忆 + 项目记忆 → 动态注入系统提示词
+工作记忆（messages）
+    ↓
+情景记忆（session_memory：工具执行记录）
+    ↓
+长期记忆（user_memories + journey_memories + journey_project_memories）
+    ↓
+技能记忆（工具使用模式提取）
 ```
 
 ### 5. RLS 行级安全
@@ -1027,7 +1022,7 @@ Supabase RLS → 用户数据隔离
 | 模块 | 技术成熟度 | 风险等级 | 说明 |
 |------|------------|----------|------|
 | **LLM 调用** | ✅ 成熟 | 低 | 火山引擎 Ark API 稳定，已实现流式输出 |
-| **Agent 工具系统** | ✅ 成熟 | 低 | LangChain 1.3.4 + 工具注册表已实现 |
+| **Agent 工具系统** | ✅ 成熟 | 低 | OpenClaw 记忆驱动架构 + 8 个工具已实现 |
 | **RAG 知识库** | ✅ 成熟 | 低 | pgvector + Ark Embeddings 已部署 |
 | **记忆系统** | ✅ 成熟 | 低 | 三层记忆架构已实现 |
 | **KOC 导入** | ✅ 成熟 | 中 | 大佳啦/TikHub API 依赖第三方 |
@@ -1066,8 +1061,8 @@ Week 1-4: 基础架构
 
 Week 5-8: AI 核心能力
 ├── 豆包 LLM 客户端集成
-├── LangChain Agent 工具系统
-├── 6 个核心工具实现
+├── OpenClaw 记忆驱动架构
+├── 8 个核心工具实现
 └── SSE 流式对话
 
 Week 9-12: 知识库与记忆
@@ -1088,7 +1083,7 @@ Week 13-16: 产品完善
 
 Week 17-20: 增强功能
 ├── 深度思考优化
-├── LangSmith 可观测性
+├── session_memory 情景记忆追踪
 ├── 合规检查强化
 └── 数据闭环完善
 ```
@@ -1138,7 +1133,7 @@ Supabase Pro          $25      数据库 + RLS + pgvector
 火山引擎 Ark           $50      LLM + Embedding (按量)
 Next.js 部署 (Vercel) $20      前端托管
 API 调用              $30      大佳啦 + Tavily + TikHub
-监控与日志            $10      LangSmith + 日志服务
+监控与日志            $10      日志服务
 ────────────────────────────────────────────────────
 合计                  ~$135/月
 ```
@@ -1291,18 +1286,18 @@ API 服务
 | **定位** | AI 编辑器 | 内容策略合伙人 |
 | **KOC 情报** | ❌ 无 | ✅ 大佳啦导入 + 自动分析 |
 | **RAG 知识库** | ❌ 无 | ✅ 向量检索 + 混合搜索 |
-| **记忆系统** | ❌ 无 | ✅ 三层记忆 + 自动捕获 |
+| **记忆系统** | ❌ 无 | ✅ 四层记忆 + 自动捕获 |
 | **多平台** | 专注公众号 | ✅ 公众号 + 视频号 + 小红书 |
-| **可观测性** | ❌ 无 | ✅ LangSmith 追踪 |
+| **可观测性** | ❌ 无 | ✅ session_memory 情景记忆追踪 |
 | **自托管** | SaaS only | ✅ 支持私有化部署 |
 
 #### 独特护城河
 
 ```
 技术护城河
-├── LangChain Agent 工具编排 (竞品无)
+├── OpenClaw 记忆驱动架构 (竞品无)
 ├── pgvector + Ark Embeddings RAG (竞品无)
-├── 三层记忆系统 (竞品无)
+├── 四层记忆系统 (竞品无)
 └── 旅程式项目管理体系 (首创)
 
 数据护城河

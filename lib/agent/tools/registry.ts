@@ -221,7 +221,6 @@ export const SUMMARY_MEMORY_CONFIG: ToolMemoryConfig = {
 
 import { searchHotTopicsSchema, runSearchHotTopics } from "./search-hot-topics";
 import { analyzeJourneyDataSchema, runAnalyzeJourneyData } from "./analyze-journey-data";
-import { analyzeMyAccountSchema, runAnalyzeMyAccount } from "./analyze-my-account";
 import { generateFullArticleSchema, runGenerateFullArticle } from "./generate-full-article";
 import { generateTopicsSchema, runGenerateTopics } from "./generate-topics";
 import { importKocByNameSchema, runImportKocByName } from "./import-koc-by-name";
@@ -298,13 +297,6 @@ export const AGENT_TOOL_REGISTRY = {
           }) }
       ),
       runImportKocByName
-    ),
-  },
-  analyze_my_account: {
-    definition: createToolDefinition("analyze_my_account", "分析用户自己的公众号", analyzeMyAccountSchema),
-    execute: wrapWithMemoryLogging(
-      createToolDefinition("analyze_my_account", "分析用户自己的公众号", analyzeMyAccountSchema),
-      runAnalyzeMyAccount
     ),
   },
   analyze_journey_data: {

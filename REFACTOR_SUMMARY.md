@@ -41,30 +41,55 @@
 | **错误处理** | 立即报错 | 基于记忆重新规划 |
 | **可观测性** | 只能看日志 | 直接查询情景记忆 |
 
+## 已完成的清理工作
+
+### 删除的废弃文件
+
+以下文件已从代码库中移除，不再维护：
+
+- `lib/agent/models.ts` — LangChain 模型工厂
+- `lib/agent/tracing.ts` — LangSmith 追踪配置
+- `lib/agent/runtime.ts` — 旧运行时（已替换为 `runtime/planning.ts`）
+- `lib/agent/chains/growth-analysis.ts` — 增长分析链
+- `lib/agent/chains/recommend-koc-from-hot-articles.ts` — 爆文推荐链
+- `lib/agent/graphs/owned-wechat-analysis.ts` — 自有号分析 LangGraph
+- `lib/agent/reasoning-probe.ts` — 推理探测
+- `lib/agent/tools/analyze-my-account.ts` — 自有号分析工具
+- `lib/wechat-owned-analysis.ts` — 微信自有号分析
+- `app/api/debug/reasoning-probe/route.ts` — 推理探测 API
+- `app/api/journeys/[id]/hot-articles/route.ts` — 热文 API
+- `app/api/wechat/owned-analysis/route.ts` — 增长分析 API
+- `scripts/run-reasoning-probe.ts` — 推理探测脚本
+
+### 文档同步
+
+所有项目文档已同步更新，删除对上述废弃文件的引用：
+- `CLAUDE.md` — 重写为 OpenClaw 架构指南
+- `README.md` — 更新架构描述和工具列表
+- `API_DOCS.md` — 删除废弃接口，更新流式格式
+- `ARCHITECTURE.md` — 更新架构图和技术栈
+- `AGENTS.md` — 已合并到 `CLAUDE.md`
+
 ## 下一步待完成
 
 ### 高优先级
 
-1. **修复 TypeScript 类型错误**
-   - `lib/agent/tools/registry.ts` 中的类型问题
-   - 主要是 `wrapWithMemoryLogging` 的返回类型
-
-2. **应用数据库迁移**
+1. **应用数据库迁移**
    ```bash
    supabase db push
    ```
 
-3. **验证工具自动记录**
+2. **验证工具自动记录**
    - 调用任意工具
    - 检查 `session_memory` 表是否有记录
 
 ### 中优先级
 
-4. **完善 planning.ts**
+3. **完善 planning.ts**
    - 实现具体的 LLM 调用
    - 添加计划解析逻辑
 
-5. **添加技能记忆**
+4. **添加技能记忆**
    - 从情景记忆提取模式
    - 加速相似任务
 

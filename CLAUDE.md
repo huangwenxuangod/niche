@@ -1,14 +1,10 @@
-@AGENTS.md
-
-# CLAUDE.md - 项目说明
-
-这是 Niche 项目的主要说明文件。
+# CLAUDE.md - Niche 项目开发者指南
 
 ## 快速开始
 
 ```bash
-npm install
-npm run dev
+bun install
+bun dev
 ```
 
 ## 项目简介
@@ -16,12 +12,10 @@ npm run dev
 Niche 是一个 AI 驱动的内容创作助手，帮助微信公众号创作者：
 - 跟踪细分赛道 KOC（大佳啦数据源）
 - 搜索热点趋势（Tavily + 大佳啦）
-- 分析爆款规律 & 自有账号诊断
+- 分析爆款规律
 - 生成选题和初稿
 - 文章排版 & 一键发布到微信草稿箱
-- 记录创作偏好（用户记忆 + 旅程记忆）
-
-详细文档请查看 `memory/project_niche.md`。
+- 记录创作偏好（四层记忆系统）
 
 ## 技术栈
 
@@ -31,13 +25,12 @@ Niche 是一个 AI 驱动的内容创作助手，帮助微信公众号创作者�
 - Tailwind CSS 4
 
 **AI/LLM**：
-- OpenAI SDK (连接火山引擎 Ark / 豆包 API)
-- **LangChain 1.3.4** + LangGraph 1.2.9（Agent 工具编排）
-- LangSmith（可观测性/追踪）
+- OpenAI SDK（连接火山引擎 Ark / 豆包 API）
 - Anthropic SDK 0.90.0
+- 火山引擎豆包深度思考模型
 
 **数据库 & 认证**：
-- Supabase (PostgreSQL + RLS)
+- Supabase (PostgreSQL + RLS + pgvector)
 - @supabase/ssr (Server Components 兼容)
 
 **UI 组件库**：
@@ -71,7 +64,7 @@ Niche 是一个 AI 驱动的内容创作助手，帮助微信公众号创作者�
 **数据流程**：
 
 ```
-knowledge_articles / owned_articles
+knowledge_articles
     ↓
 documents.ts: SentenceSplitter (420/60)
     ↓
@@ -108,75 +101,114 @@ niche/
 ├── app/                          # Next.js App Router
 │   ├── (app)/                    # 已认证页面（带侧边栏布局）
 │   │   ├── chat/[conversationId]/ # 对话页面
+│   │   ├── journey/[id]/dashboard/ # 数据复盘页面
 │   │   ├── journey/[id]/koc/     # KOC 管理页面
-│   │   ├── journey/new/          # 创建新旅程
 │   │   ├── profile/              # 用户个人资料
-│   │   └── layout.tsx            # 侧边栏布局
+│   │   ├── layout.tsx            # 侧边栏布局
+│   │   └── page.tsx              # 首页（自动创建旅程并重定向到对话）
 │   ├── (auth)/                   # 登录/注册页面
 │   │   └── login/
 │   ├── api/                      # API 路由
 │   │   ├── conversations/[id]/messages/ # Agent 对话核心（SSE 流式）
-│   │   ├── journeys/            # 旅程管理
+│   │   ├── journeys/             # 旅程管理
 │   │   ├── koc/                  # KOC 导入/同步
-│   │   ├── wechat/               # 微信发布/分析
+│   │   ├── wechat/               # 微信发布/配置/数据
 │   │   ├── memory/               # 记忆系统
-│   │   └── article-layout/       # 文章排版
+│   │   ├── article-layout/       # 文章排版
+│   │   └── debug/embedding-probe/ # RAG 向量诊断
 │   └── layout.tsx                # 根布局
 ├── components/                   # React 组件
-│   ├── chat/                     # 聊天 UI（ChatArea、模态框等）
-│   ├── sidebar/                  # 侧边栏（Sidebar、KOCListPanel）
+│   ├── chat/                     # 聊天 UI（ChatArea、ArticleLayoutPanel 等）
+│   ├── sidebar/                  # 侧边栏（Sidebar、KOCListPanel、DashboardPanel）
 │   └── providers/                # Ant Design 主题 Provider
 ├── lib/                          # 共享库代码
-│   ├── agent/                    # **Agent 工具系统（LangChain 架构）**
-│   │   ├── models.ts             # LangChain 模型工厂
-│   │   ├── tracing.ts            # LangSmith 追踪配置
-│   │   ├── chains/               # LangChain 链式调用
+│   ├── agent/                    # **Agent 系统（OpenClaw 记忆驱动架构）**
+│   │   ├── memory/               # 记忆模块
+│   │   │   ├── session-memory.ts # 情景记忆核心（工具执行自动记录）
+│   │   │   └── index.ts          # 记忆模块统一导出
+│   │   ├── runtime/              # 运行时
+│   │   │   └── planning.ts       # 规划阶段框架
+│   │   ├── retrievers/           # 数据检索器
+│   │   │   ├── competitor-content.ts
+│   │   │   ├── hot-topics.ts
+│   │   │   ├── owned-content.ts
+│   │   │   └── semantic-knowledge.ts
 │   │   ├── schemas/              # Zod schema 定义
 │   │   └── tools/                # Agent 工具定义和实现
+│   │       ├── registry.ts       # 工具注册表 + 自动记忆包装器
+│   │       ├── helpers.ts        # 工具定义类型转换
+│   │       ├── types.ts          # 工具执行上下文类型
+│   │       ├── search-hot-topics.ts
+│   │       ├── search-wechat-hot-articles.ts
+│   │       ├── import-koc-by-name.ts
+│   │       ├── analyze-journey-data.ts
+│   │       ├── search-knowledge-base.ts
+│   │       ├── generate-topics.ts
+│   │       ├── generate-full-article.ts
+│   │       └── compliance-check.ts
 │   ├── llm.ts                    # 豆包 LLM 客户端（OpenAI 兼容）
 │   ├── system-prompt.ts          # 系统提示词构建
-│   ├── memory.ts                 # 记忆系统（用户记忆 + 旅程记忆）
+│   ├── memory.ts                 # 长期记忆系统（用户/旅程/项目记忆）
 │   ├── knowledge-base.ts         # 知识库搜索
 │   ├── hot-topic-search.ts       # 热点话题搜索
 │   ├── dajiala.ts                # 大佳啦 API 客户端
 │   ├── wechat-publish.ts         # 微信发布（草稿箱、图片上传）
-│   ├── wechat-owned-analysis.ts  # 自有公众号分析
 │   ├── article-layout.ts         # 文章排版引擎（Markdown → 微信 HTML）
 │   ├── koc-import.ts             # KOC 导入逻辑
 │   ├── data.ts                   # 静态数据（赛道树、内容类型等）
 │   └── supabase/                 # Supabase 客户端配置
+├── supabase/migrations/          # 数据库迁移文件（16 个）
 └── wechat-gateway/               # 微信 API 代理网关（独立 Node.js 服务）
 ```
 
-## Agent 工具系统（LangChain 架构）
+## Agent 工具系统（OpenClaw 记忆驱动架构）
+
+### 核心设计原则
+
+1. **记忆即状态** - Agent 的所有执行状态都在记忆中，不在变量里
+2. **工具即记忆生产者** - 每次工具执行必须自动记录到情景记忆
+3. **规划-执行分离** - 先想明白再干，不是边干边想
+4. **错误是可恢复的** - 基于记忆重新规划，不是立即失败
 
 ### 核心文件
 
 | 文件 | 说明 |
 |------|------|
-| `lib/agent/models.ts` | LangChain 模型工厂（主模型、结构化输出、快速提取） |
-| `lib/agent/tracing.ts` | LangSmith 追踪配置 |
-| `lib/agent/runtime.ts` | LangChain 流式处理和工具调用执行层 |
-| `lib/agent/tools/registry.ts` | Agent 工具注册表 |
-| `lib/agent/tools/helpers.ts` | 工具定义类型转换（Zod → OpenAI Tool） |
+| `lib/agent/tools/registry.ts` | 工具注册表 + 记忆感知包装器（`wrapWithMemoryLogging`） |
+| `lib/agent/memory/session-memory.ts` | 情景记忆核心（步骤类型：thought/plan/tool_call/observation/reflection） |
+| `lib/agent/runtime/planning.ts` | OpenClaw 风格规划阶段框架 |
+| `lib/agent/tools/helpers.ts` | Zod Schema → OpenAI Tool 转换 |
 | `lib/agent/tools/types.ts` | 工具执行上下文类型 |
 
-### 可用工具
+### 可用工具（8 个）
 
 | 工具名称 | 功能描述 |
 |----------|----------|
 | `search_hot_topics` | 搜索当前赛道近 N 天热点（Tavily + 大佳啦） |
+| `search_wechat_hot_articles` | 用关键词搜索公众号爆文，找优质账号样本 |
+| `import_koc_by_name` | 导入明确账号名的对标账号到知识库 |
 | `analyze_journey_data` | 分析旅程下 KOC 和爆款文章，提取规律 |
 | `search_knowledge_base` | 从知识库检索已导入文章 |
 | `generate_topics` | 基于赛道、知识库和记忆生成候选选题 |
 | `generate_full_article` | 生成可发布级公众号完整初稿 |
 | `compliance_check` | 检查标题、摘要、正文的合规风险 |
 
-### LangChain 链
+### 工具记忆配置
 
-- `lib/agent/chains/growth-analysis.ts` - 增长分析链（结构化输出）
+每个工具在注册时声明记忆配置：
 
-### 深度思考（Deep Thinking）
+```typescript
+export interface ToolMemoryConfig {
+  recordInput: boolean;    // 是否记录输入
+  recordOutput: boolean;   // 是否记录输出
+  recordError: boolean;    // 是否记录错误
+  extractMemory?: (result: unknown) => Record<string, unknown> | null;
+}
+```
+
+工具执行时自动通过 `wrapWithMemoryLogging` 记录到 `session_memory` 表。
+
+## 深度思考（Deep Thinking）
 
 项目支持火山引擎豆包模型的深度思考能力：
 
@@ -186,14 +218,14 @@ niche/
 
 **当前实现**：
 
-- 基于 LangChain 的流式处理（`lib/agent/runtime.ts`）
-- 模型可根据任务复杂度自主判断是否启用深度思考（auto 模式）
+- 基于 `lib/llm.ts` 的 OpenAI 兼容流式处理
+- SSE 返回的事件类型：`reasoning_start` → `reasoning_chunk` → `reasoning_end`
 
 **工作流程**：
 
 1. 用户发送消息 → API 路由接收
 2. 构建系统提示词（注入记忆 + KOC 情报）
-3. LangChain 流式调用 LLM
+3. 流式调用 LLM（`streamChat`）
 4. 模型输出思维链（reasoning_content）+ 最终回答
 5. SSE 流式返回给前端
 
@@ -203,13 +235,44 @@ niche/
 
 **工作流程**：
 1. 构建系统提示词（注入 KOC 情报 + 热点 + 记忆）
-2. 流式调用 LLM（SSE）
+2. 流式调用 LLM（SSE，NDJSON 多事件类型）
 3. 处理工具调用（通过 `AGENT_TOOL_REGISTRY`）
-4. 捕获记忆并保存到 Supabase
+4. 工具执行自动记录到 `session_memory`
+5. 捕获记忆并保存到 Supabase
 
-## 记忆系统
+**SSE 事件类型**：
 
-使用 `lib/memory.ts` 提供的函数：
+| 事件类型 | 说明 |
+|----------|------|
+| `text` | 普通文本内容 |
+| `reasoning_start` / `reasoning_chunk` / `reasoning_end` | 深度思考过程 |
+| `assistant_status` | 助手状态标签 |
+| `koc_recommendation_ready` | KOC 推荐数据就绪 |
+| `tool_call` / `tool_result` | 工具调用及结果 |
+
+## 记忆系统（四层架构）
+
+### 1. 工作记忆（Working Memory）
+- 当前对话的 messages 数组
+- 临时上下文，对话结束即释放
+
+### 2. 情景记忆（Session/Episodic Memory）
+- 存储在 `session_memory` 表
+- 按 conversation_id 分组
+- 记录每次工具调用、结果、观察、反思
+- 支持从记忆中恢复对话状态
+
+**核心 API**（`lib/agent/memory/session-memory.ts`）：
+
+| 函数 | 功能 |
+|------|------|
+| `recordStep` | 记录一个步骤到情景记忆 |
+| `getSessionSteps` | 获取某个对话的所有步骤 |
+
+**步骤类型**：`thought` | `plan` | `tool_call` | `tool_result` | `observation` | `reflection`
+
+### 3. 长期记忆（Long-term Memory）
+- 使用 `lib/memory.ts` 提供的函数：
 
 | 函数 | 功能 |
 |------|------|
@@ -218,13 +281,33 @@ niche/
 | `getJourneyProjectMemory` / `saveJourneyProjectMemory` | 项目记忆（策略卡片） |
 | `appendJourneyMemory` | 追加旅程记忆 |
 | `captureMessageMemory` | 捕获消息中的记忆 |
+| `compactAndSaveMemory` | 合并新事实到现有记忆文档 |
+
+### 4. 技能记忆（Skill Memory）
+- 从情景记忆中提取工具使用模式
+- 加速相似任务（规划中）
+
+**记忆注入流程**：
+
+```
+buildSystemPrompt
+    ├── getUserMemory          → 用户全局记忆
+    ├── getJourneyMemory       → 当前旅程记忆
+    ├── getJourneyProjectMemory → 项目策略卡片
+    ├── getSessionSteps        → 情景记忆摘要
+    ├── KOC 情报（top 12）
+    ├── 爆款文章（top 8）
+    └── 热点信息
+           ↓
+      完整 system prompt → LLM
+```
 
 ## 开发注意事项
 
 1. **使用 Server Components 优先**：Next.js 16 中默认是 Server Components
-2. **SSE 流式响应**：对话使用 Server-Sent Events，参考现有实现
+2. **SSE 流式响应**：对话使用 Server-Sent Events，返回 NDJSON 多事件类型
 3. **Supabase RLS**：数据库使用行级安全策略，确保权限正确
-4. **LangChain 集成**：新工具优先使用 LangChain 模式，支持结构化输出和追踪
+4. **OpenClaw 记忆驱动**：新工具自动记录到 `session_memory`，无需手动处理
 5. **Ant Design X**：聊天 UI 使用 `@ant-design/x` 组件（Bubble、Conversations、Sender 等）
 6. **CSS 变量设计系统**：颜色/字体通过 `globals.css` 中的 CSS 变量定义
 7. **微信发布链路**：文章排版 → 草稿保存 → 微信草稿箱发布
@@ -232,29 +315,76 @@ niche/
 ## 环境变量
 
 ```env
+# LLM / API
 OPENAI_API_KEY=                      # 火山引擎 Ark / 豆包 API Key
 ARK_MODEL_ID=                        # 火山引擎模型端点
-LANGSMITH_TRACING=true               # 启用 LangSmith 追踪（可选）
-LANGSMITH_API_KEY=                   # LangSmith API Key（可选）
+
+# 数据源
+DAJIALA_API_KEY=                     # 大佳啦 API Key
+TAVILY_API_KEY=                      # Tavily API Key
+
+# 微信
+WECHAT_CREDENTIALS_SECRET=            # 微信凭证加密密钥
+WECHAT_GATEWAY_URL=                   # 微信网关地址（可选）
+WECHAT_GATEWAY_TOKEN=                 # 微信网关 Token（可选）
+
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=            # Supabase URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY=       # Supabase 匿名 Key
+SUPABASE_SERVICE_ROLE_KEY=           # Supabase Service Role Key
 ```
 
-更多环境变量说明请参考 README.md。
+更多环境变量说明请参考 `.env.example`。
 
 ## 常见任务
 
 ### 添加新的 Agent 工具
 
 1. 在 `lib/agent/tools/` 创建工具文件
-2. 定义 Zod schema 和工具定义
-3. 实现 `run{ToolName}` 函数
-4. 在 `lib/agent/tools/registry.ts` 注册工具
+2. 定义 Zod schema 和工具定义：
 
-### 添加新的 LangChain 链
+```typescript
+import { z } from "zod";
+import { createToolDefinition } from "./registry";
+import type { ToolExecutionContext } from "./types";
 
-1. 在 `lib/agent/chains/` 创建链文件
-2. 使用 `getStructuredOutputModel()` 创建结构化输出模型
-3. 使用 `buildAgentRunConfig()` 配置追踪
-4. 调用 `model.invoke()` 执行
+export const myToolSchema = z.object({
+  param1: z.string().describe("参数说明"),
+  param2: z.number().optional().describe("可选参数"),
+});
+
+export async function runMyTool(
+  args: z.infer<typeof myToolSchema>,
+  context: ToolExecutionContext
+) {
+  // 实现工具逻辑
+  return { result: "..." };
+}
+```
+
+3. 在 `lib/agent/tools/registry.ts` 注册工具：
+
+```typescript
+import { myToolSchema, runMyTool } from "./my-tool";
+
+export const AGENT_TOOL_REGISTRY = {
+  // ... 其他工具
+  my_tool: {
+    definition: createToolDefinition(
+      "my_tool",
+      "工具功能描述",
+      myToolSchema,
+      { recordInput: true, recordOutput: true }
+    ),
+    execute: wrapWithMemoryLogging(
+      createToolDefinition("my_tool", "工具功能描述", myToolSchema),
+      runMyTool
+    ),
+  },
+} as const;
+```
+
+工具会自动记录到 `session_memory`，无需额外代码。
 
 ### 修改系统提示词
 
@@ -262,4 +392,12 @@ LANGSMITH_API_KEY=                   # LangSmith API Key（可选）
 
 ### 记忆系统操作
 
-使用 `lib/memory.ts` 提供的函数。
+使用 `lib/memory.ts` 提供的函数，或直接使用 `lib/agent/memory/session-memory.ts` 记录情景记忆步骤。
+
+### 数据库迁移
+
+```bash
+supabase db push
+```
+
+当前最新迁移：`016_add_session_memory.sql`
