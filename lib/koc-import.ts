@@ -132,7 +132,7 @@ export async function importKocForJourney(
   });
 
   await updateKocStats(supabase, koc.id, saveResult);
-  await tryIndexKnowledgeArticles(supabase, saveResult.articleIds);
+  void tryIndexKnowledgeArticles(supabase, saveResult.articleIds);
 
   return {
     success: true,
@@ -193,7 +193,7 @@ export async function syncKocSourceArticles(
   });
 
   await updateKocStats(supabase, koc.id, saveResult);
-  await tryIndexKnowledgeArticles(supabase, saveResult.articleIds);
+  void tryIndexKnowledgeArticles(supabase, saveResult.articleIds);
 
   return {
     success: true,
@@ -222,94 +222,107 @@ async function saveArticlesToKnowledgeBase({
   discoveryKeyword?: string;
   discoveryReason?: string;
 }): Promise<ArticleSaveResult> {
+  const results = await Promise.all(
+    articles.slice(0, limit).map(async (article) => {
+      let readCount = 0;
+      let likeCount = 0;
+      let lookingCount = 0;
+      let shareCount = 0;
+      let collectCount = 0;
+      let commentCount = 0;
+      let content = "";
+      let contentHtml = "";
+
+      if (article.url) {
+        const [statsRes, detailRes] = await Promise.allSettled([
+          dajiala.getArticleStats(article.url),
+          dajiala.getArticleDetail(article.url),
+        ]);
+
+        if (statsRes.status === "fulfilled") {
+          readCount = statsRes.value.read || 0;
+          likeCount = statsRes.value.zan || 0;
+          lookingCount = statsRes.value.looking || 0;
+          shareCount = statsRes.value.share_num || 0;
+          collectCount = statsRes.value.collect_num || 0;
+          commentCount = statsRes.value.comment_count || 0;
+        } else {
+          console.warn("[koc-import] Failed to fetch article stats:", article.url, statsRes.reason);
+        }
+
+        if (detailRes.status === "fulfilled") {
+          const detail = detailRes.value;
+          if (detail.code && detail.code !== 0) {
+            console.warn("[koc-import] Article detail returned non-zero code:", {
+              url: article.url,
+              code: detail.code,
+              msg: detail.msg,
+            });
+          }
+          content = detail.content || stripHtml(detail.content_multi_text || "");
+          contentHtml = detail.content_multi_text || "";
+        } else {
+          console.warn("[koc-import] Failed to fetch article detail:", article.url, detailRes.reason);
+        }
+      }
+
+      const payload: ArticlePayload = {
+        journey_id: journeyId,
+        koc_source_id: kocId,
+        title: article.title || "",
+        url: article.url || null,
+        source_url: article.source_url,
+        content,
+        content_html: contentHtml,
+        digest: article.digest,
+        author: article.author,
+        read_count: readCount,
+        likes_count: likeCount,
+        looking_count: lookingCount,
+        share_count: shareCount,
+        collect_count: collectCount,
+        comment_count: commentCount,
+        copyright_stat: article.copyright_stat,
+        is_original: article.copyright_stat === 1 || article.original === 1,
+        cover_url: normalizeImageUrl(article.cover_url),
+        ip_wording: article.ip_wording,
+        item_show_type: article.item_show_type,
+        real_item_show_type: article.real_item_show_type,
+        idx: article.idx,
+        msg_daily_idx: article.msg_daily_idx,
+        alias: article.alias,
+        video_page_infos: article.video_page_infos,
+        publish_time: article.post_time
+          ? new Date(article.post_time * 1000).toISOString()
+          : null,
+        create_time: article.create_time
+          ? new Date(article.create_time * 1000).toISOString()
+          : null,
+        is_viral: readCount >= viralThreshold,
+        source_type: sourceType,
+        discovery_keyword: discoveryKeyword,
+        discovery_reason: discoveryReason,
+      };
+
+      const articleId = await saveKnowledgeArticle(supabase, payload);
+
+      return {
+        articleId,
+        readCount,
+      };
+    })
+  );
+
   let totalReads = 0;
   let maxReads = 0;
   let savedCount = 0;
   const articleIds: string[] = [];
 
-  for (const article of articles.slice(0, limit)) {
-    let readCount = 0;
-    let likeCount = 0;
-    let lookingCount = 0;
-    let shareCount = 0;
-    let collectCount = 0;
-    let commentCount = 0;
-    let content = "";
-    let contentHtml = "";
-
-    if (article.url) {
-      try {
-        const stats = await dajiala.getArticleStats(article.url);
-        readCount = stats.read || 0;
-        likeCount = stats.zan || 0;
-        lookingCount = stats.looking || 0;
-        shareCount = stats.share_num || 0;
-        collectCount = stats.collect_num || 0;
-        commentCount = stats.comment_count || 0;
-      } catch (err) {
-        console.warn("[koc-import] Failed to fetch article stats:", article.url, err);
-      }
-
-      try {
-        const detail = await dajiala.getArticleDetail(article.url);
-        if (detail.code && detail.code !== 0) {
-          console.warn("[koc-import] Article detail returned non-zero code:", {
-            url: article.url,
-            code: detail.code,
-            msg: detail.msg,
-          });
-        }
-        content = detail.content || stripHtml(detail.content_multi_text || "");
-        contentHtml = detail.content_multi_text || "";
-      } catch (err) {
-        console.warn("[koc-import] Failed to fetch article detail:", article.url, err);
-      }
-    }
-
-    const payload: ArticlePayload = {
-      journey_id: journeyId,
-      koc_source_id: kocId,
-      title: article.title || "",
-      url: article.url || null,
-      source_url: article.source_url,
-      content,
-      content_html: contentHtml,
-      digest: article.digest,
-      author: article.author,
-      read_count: readCount,
-      likes_count: likeCount,
-      looking_count: lookingCount,
-      share_count: shareCount,
-      collect_count: collectCount,
-      comment_count: commentCount,
-      copyright_stat: article.copyright_stat,
-      is_original: article.copyright_stat === 1 || article.original === 1,
-      cover_url: normalizeImageUrl(article.cover_url),
-      ip_wording: article.ip_wording,
-      item_show_type: article.item_show_type,
-      real_item_show_type: article.real_item_show_type,
-      idx: article.idx,
-      msg_daily_idx: article.msg_daily_idx,
-      alias: article.alias,
-      video_page_infos: article.video_page_infos,
-      publish_time: article.post_time
-        ? new Date(article.post_time * 1000).toISOString()
-        : null,
-      create_time: article.create_time
-        ? new Date(article.create_time * 1000).toISOString()
-        : null,
-      is_viral: readCount >= viralThreshold,
-      source_type: sourceType,
-      discovery_keyword: discoveryKeyword,
-      discovery_reason: discoveryReason,
-    };
-
-    const articleId = await saveKnowledgeArticle(supabase, payload);
-
-    savedCount++;
-    articleIds.push(articleId);
-    totalReads += readCount;
-    maxReads = Math.max(maxReads, readCount);
+  for (const result of results) {
+    savedCount += 1;
+    articleIds.push(result.articleId);
+    totalReads += result.readCount;
+    maxReads = Math.max(maxReads, result.readCount);
   }
 
   return {

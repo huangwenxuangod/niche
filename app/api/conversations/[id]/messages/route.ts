@@ -2,13 +2,13 @@ import { NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { buildSystemPrompt } from "@/lib/system-prompt";
-import { completeWithTools, type LlmMessage } from "@/lib/llm";
+import { completeText, completeWithTools, type LlmMessage } from "@/lib/llm";
 import {
   appendJourneyProjectMemoryItems,
   compactAndSaveJourneyProjectMemory,
   compactAndSaveUserMemory,
 } from "@/lib/memory";
-import { buildConversationText, getSessionSteps, recordStep } from "@/lib/agent/memory";
+import { buildConversationText, getSessionSteps, recordStep, type StepRecord } from "@/lib/agent/memory";
 import { AGENT_TOOL_REGISTRY, AGENT_TOOLS } from "@/lib/agent/tools/registry";
 import type { ToolExecutionContext } from "@/lib/agent/tools/types";
 
@@ -30,6 +30,7 @@ type ConversationRow = {
 };
 
 type ToolEventPayload = Record<string, unknown> | undefined;
+
 type GeneratedTopic = {
   index?: number;
   title?: string;
@@ -45,96 +46,21 @@ type ConfirmationContext = {
   memoryFacts: string[];
 };
 
+type FastPathPlan = {
+  steps: Array<{
+    toolName: keyof typeof AGENT_TOOL_REGISTRY | "compliance_check";
+    args: Record<string, unknown>;
+  }>;
+};
+
 export async function POST(req: NextRequest, { params }: RouteContext) {
   const startTime = Date.now();
   const { id: conversationId } = await params;
   const { content } = await req.json();
 
-  const cookieStore = await cookies();
-  const supabase = createClient(cookieStore);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
   if (!conversationId || conversationId === "undefined") {
     return new Response("Conversation id is required", { status: 400 });
   }
-
-  const { data: conv, error: convError } = await supabase
-    .from("conversations")
-    .select("id, title, journey_id, journeys(id, platform, keywords)")
-    .eq("id", conversationId)
-    .eq("user_id", user.id)
-    .single();
-
-  if (convError) {
-    console.error("[messages.route] failed to load conversation", {
-      conversationId,
-      error: convError.message,
-      code: convError.code,
-    });
-    return new Response(`Conversation query failed: ${convError.message}`, { status: 500 });
-  }
-
-  if (!conv) {
-    return new Response("Not found", { status: 404 });
-  }
-
-  await supabase.from("messages").insert({
-    conversation_id: conversationId,
-    role: "user",
-    content,
-  });
-
-  const { data: history } = await supabase
-    .from("messages")
-    .select("role, content")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true })
-    .limit(24);
-
-  const sessionStepsBeforeTurn = await getSessionSteps(supabase, conversationId);
-
-  const systemPrompt = await buildSystemPrompt(
-    conv.journey_id,
-    user.id,
-    supabase,
-    conversationId
-  );
-
-  const conversation = conv as ConversationRow;
-  const conversationJourney = conversation.journeys;
-  const journeyRow = Array.isArray(conversationJourney)
-    ? (conversationJourney[0] ?? null)
-    : (conversationJourney ?? null);
-  const journey = journeyRow
-    ? {
-        keywords: journeyRow.keywords ?? undefined,
-        platform: journeyRow.platform ?? undefined,
-      }
-    : null;
-
-  const llmMessages: LlmMessage[] = (history ?? []).map((message) => ({
-    role: message.role as "user" | "assistant",
-    content: message.content,
-  }));
-
-  const confirmationContext = buildConfirmationContext(
-    content,
-    sessionStepsBeforeTurn
-  );
-
-  const toolContext: ToolExecutionContext = {
-    journeyId: conv.journey_id,
-    userId: user.id,
-    supabase,
-    journey,
-    conversationId,
-  };
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -142,28 +68,159 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       const send = (payload: Record<string, unknown>) => {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
       };
+      const perf = createPerfLogger(startTime);
 
       send({
         type: "assistant_status",
         label: "理解问题中",
-        elapsed: Date.now() - startTime,
+        elapsed: perf.elapsed(),
       });
 
       try {
+        const cookieStore = await cookies();
+        const supabase = createClient(cookieStore);
+
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+        perf.mark("auth_ready");
+
+        if (authError || !user) {
+          throw new Error(authError?.message || "Unauthorized");
+        }
+
+        const { data: conv, error: convError } = await supabase
+          .from("conversations")
+          .select("id, title, journey_id, journeys(id, platform, keywords)")
+          .eq("id", conversationId)
+          .eq("user_id", user.id)
+          .single();
+        perf.mark("conversation_loaded");
+
+        if (convError) {
+          throw new Error(`Conversation query failed: ${convError.message}`);
+        }
+
+        if (!conv) {
+          throw new Error("Conversation not found");
+        }
+
+        await supabase.from("messages").insert({
+          conversation_id: conversationId,
+          role: "user",
+          content,
+        });
+        perf.mark("user_message_saved");
+
+        send({
+          type: "assistant_status",
+          label: "整理上下文中",
+          elapsed: perf.elapsed(),
+        });
+
+        const [historyRes, sessionStepsBeforeTurn] = await Promise.all([
+          supabase
+            .from("messages")
+            .select("role, content")
+            .eq("conversation_id", conversationId)
+            .order("created_at", { ascending: true })
+            .limit(24),
+          getSessionSteps(supabase, conversationId),
+        ]);
+        perf.mark("context_loaded");
+
+        const conversation = conv as ConversationRow;
+        const conversationJourney = conversation.journeys;
+        const journeyRow = Array.isArray(conversationJourney)
+          ? (conversationJourney[0] ?? null)
+          : (conversationJourney ?? null);
+        const journey = journeyRow
+          ? {
+              keywords: journeyRow.keywords ?? undefined,
+              platform: journeyRow.platform ?? undefined,
+            }
+          : null;
+
+        const llmMessages: LlmMessage[] = (historyRes.data ?? []).map((message) => ({
+          role: message.role as "user" | "assistant",
+          content: message.content,
+        }));
+
+        const confirmationContext = buildConfirmationContext(
+          content,
+          sessionStepsBeforeTurn
+        );
+
+        const toolContext: ToolExecutionContext = {
+          journeyId: conv.journey_id,
+          userId: user.id,
+          supabase,
+          journey,
+          conversationId,
+        };
+
         await applyDeterministicMemoryUpdates(
           supabase,
           conv.journey_id,
           conversationId,
           confirmationContext
         );
+        perf.mark("deterministic_memory_updates");
 
-        const finalAnswer = await runAgentLoop({
-          systemPrompt,
-          llmMessages,
-          toolContext,
-          confirmationContext,
-          send,
+        hydrateMessagesWithConfirmation(llmMessages, confirmationContext);
+
+        if (confirmationContext.selectedTopic) {
+          await prefetchFullArticleFromConfirmedTopic(
+            confirmationContext.selectedTopic,
+            llmMessages,
+            toolContext,
+            send
+          );
+          perf.mark("confirmed_topic_prefetch");
+        }
+
+        const fastPath = detectFastPathPlan(content);
+        if (fastPath) {
+          send({
+            type: "assistant_status",
+            label: "执行快捷流程中",
+            elapsed: perf.elapsed(),
+          });
+          await runFastPathPlan(fastPath, llmMessages, toolContext, send, perf);
+        } else {
+          const planningPrompt = buildPlanningPrompt({
+            journey,
+            sessionSteps: sessionStepsBeforeTurn,
+          });
+          await runAgentToolLoop({
+            planningPrompt,
+            llmMessages,
+            toolContext,
+            send,
+            perf,
+          });
+        }
+
+        send({
+          type: "assistant_status",
+          label: "组织回答中",
+          elapsed: perf.elapsed(),
         });
+
+        const systemPrompt = await buildSystemPrompt(
+          conv.journey_id,
+          user.id,
+          supabase,
+          conversationId
+        );
+        perf.mark("system_prompt_ready");
+
+        const finalAnswer = await completeText({
+          systemPrompt,
+          messages: llmMessages,
+        });
+        perf.mark("final_answer_ready");
 
         const memoryFacts = [
           ...confirmationContext.memoryFacts,
@@ -171,7 +228,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
         ];
         const displayAnswer = stripMemoryTags(finalAnswer).trim() || "我已经处理完这轮请求了。";
 
-        const { data: assistantMessage } = await supabase
+        const { data: assistantMessage, error: assistantMessageError } = await supabase
           .from("messages")
           .insert({
             conversation_id: conversationId,
@@ -181,43 +238,43 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
           .select("id")
           .single();
 
+        if (assistantMessageError) {
+          throw new Error(`Save assistant message failed: ${assistantMessageError.message}`);
+        }
+
+        perf.mark("assistant_message_saved");
+
         if (assistantMessage?.id) {
           send({ type: "assistant_message", messageId: assistantMessage.id });
         }
 
-        send({ type: "assistant_status", label: "输出答案中" });
-        await streamText(send, displayAnswer);
-
-        await recordStep(supabase, conversationId, {
-          id: crypto.randomUUID(),
-          type: "reflection",
-          content: {
-            answerPreview: displayAnswer.slice(0, 240),
-            memoryFacts,
-          },
+        send({
+          type: "assistant_status",
+          label: "输出答案中",
+          elapsed: perf.elapsed(),
         });
 
-        const sessionSteps = await getSessionSteps(supabase, conversationId);
-        const sessionTranscript = buildConversationText(sessionSteps);
-        const memoryTranscript = [
-          `用户：${String(content).trim()}`,
-          `助手：${displayAnswer}`,
-          memoryFacts.length
-            ? `已确认记忆：\n${memoryFacts.map((fact) => `- ${fact}`).join("\n")}`
-            : "",
-          sessionTranscript,
-        ]
-          .filter(Boolean)
-          .join("\n\n");
+        await streamText(send, displayAnswer);
+        perf.mark("answer_streamed");
 
-        await Promise.allSettled([
-          compactAndSaveUserMemory(supabase, user.id, memoryTranscript),
-          compactAndSaveJourneyProjectMemory(supabase, conv.journey_id, memoryTranscript),
-        ]);
-
-        send({ type: "assistant_status", label: "已完成" });
+        send({
+          type: "assistant_status",
+          label: "已完成",
+          elapsed: perf.elapsed(),
+        });
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+
+        void finalizeTurnMemory({
+          supabase,
+          conversationId,
+          userId: user.id,
+          journeyId: conv.journey_id,
+          userContent: String(content).trim(),
+          displayAnswer,
+          memoryFacts,
+        });
       } catch (error) {
+        console.error("[messages.route] request failed", error);
         send({
           type: "error",
           message: error instanceof Error ? error.message : "Unknown error",
@@ -237,46 +294,43 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
   });
 }
 
-async function runAgentLoop({
-  systemPrompt,
+async function runAgentToolLoop({
+  planningPrompt,
   llmMessages,
   toolContext,
-  confirmationContext,
   send,
+  perf,
 }: {
-  systemPrompt: string;
+  planningPrompt: string;
   llmMessages: LlmMessage[];
   toolContext: ToolExecutionContext;
-  confirmationContext: ConfirmationContext;
   send: (payload: Record<string, unknown>) => void;
+  perf: ReturnType<typeof createPerfLogger>;
 }) {
-  hydrateMessagesWithConfirmation(llmMessages, confirmationContext);
-
-  if (confirmationContext.selectedTopic) {
-    await prefetchFullArticleFromConfirmedTopic(
-      confirmationContext.selectedTopic,
-      llmMessages,
-      toolContext,
-      send
-    );
-  }
-
   const maxRounds = 3;
 
   for (let round = 0; round < maxRounds; round += 1) {
     send({
       type: "assistant_status",
       label: round === 0 ? "整理上下文中" : "整合分析结果中",
+      elapsed: perf.elapsed(),
     });
 
     const completion = await completeWithTools({
-      systemPrompt,
+      systemPrompt: planningPrompt,
       messages: llmMessages,
       tools: AGENT_TOOLS,
     });
+    perf.mark(`tool_planning_round_${round + 1}`);
 
     if (!completion.toolCalls.length) {
-      return completion.content || "我已经处理完这轮请求了。";
+      if (completion.content?.trim()) {
+        llmMessages.push({
+          role: "assistant",
+          content: completion.content,
+        } as LlmMessage);
+      }
+      return;
     }
 
     llmMessages.push({
@@ -286,72 +340,127 @@ async function runAgentLoop({
     } as LlmMessage);
 
     for (const toolCall of completion.toolCalls) {
-      const toolName = toolCall.function.name;
+      const toolName = normalizeToolName(toolCall.function.name);
+      if (!toolName) {
+        continue;
+      }
       const rawArgs = safeParseArgs(toolCall.function.arguments);
-      const label = getToolLabel(toolName);
-
-      send({
-        type: "tool_start",
+      const result = await executeToolAndAppend({
         toolName,
-        label,
+        rawArgs,
+        toolCallId: toolCall.id,
+        llmMessages,
+        toolContext,
+        send,
       });
+      perf.mark(`tool_${toolName}`);
 
-      try {
-        const result = await executeTool(toolName, rawArgs, toolContext);
-
-        send({
-          type: "tool_result",
-          toolName,
-          label,
-          payload: sanitizePayload(result),
-        });
-
-        if (
-          toolName === "search_wechat_hot_articles" &&
-          result &&
-          typeof result === "object" &&
-          Array.isArray((result as { articles?: unknown[] }).articles)
-        ) {
-          send({
-            type: "koc_recommendation_ready",
-            payload: {
-              keyword:
-                typeof (result as { keyword?: unknown }).keyword === "string"
-                  ? (result as { keyword: string }).keyword
-                  : "",
-              articles: (result as { articles: unknown[] }).articles,
-            },
-          });
-        }
-
-        llmMessages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: JSON.stringify(result),
-        } as LlmMessage);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown tool error";
-        send({
-          type: "tool_error",
-          toolName,
-          label,
-          error: message,
-        });
-
-        llmMessages.push({
-          role: "tool",
-          tool_call_id: toolCall.id,
-          content: JSON.stringify({ error: message }),
-        } as LlmMessage);
+      if (toolName === "search_wechat_hot_articles") {
+        maybeEmitKocRecommendation(send, result);
       }
     }
   }
+}
 
-  return "这轮任务已经完成了主要检索和分析，但我暂时没有整理出稳定的最终回答。";
+async function runFastPathPlan(
+  plan: FastPathPlan,
+  llmMessages: LlmMessage[],
+  toolContext: ToolExecutionContext,
+  send: (payload: Record<string, unknown>) => void,
+  perf: ReturnType<typeof createPerfLogger>
+) {
+  for (const step of plan.steps) {
+    const result = await executeToolAndAppend({
+      toolName: step.toolName,
+      rawArgs: step.args,
+      toolCallId: `fast-${crypto.randomUUID()}`,
+      llmMessages,
+      toolContext,
+      send,
+    });
+    perf.mark(`fast_tool_${step.toolName}`);
+
+    if (step.toolName === "search_wechat_hot_articles") {
+      maybeEmitKocRecommendation(send, result);
+    }
+  }
+}
+
+async function executeToolAndAppend({
+  toolName,
+  rawArgs,
+  toolCallId,
+  llmMessages,
+  toolContext,
+  send,
+}: {
+  toolName: keyof typeof AGENT_TOOL_REGISTRY | "compliance_check";
+  rawArgs: unknown;
+  toolCallId: string;
+  llmMessages: LlmMessage[];
+  toolContext: ToolExecutionContext;
+  send: (payload: Record<string, unknown>) => void;
+}) {
+  const label = getToolLabel(toolName);
+  send({
+    type: "tool_start",
+    toolName,
+    label,
+  });
+
+  try {
+    const result = await executeTool(toolName, rawArgs, toolContext);
+
+    send({
+      type: "tool_result",
+      toolName,
+      label,
+      payload: sanitizePayload(result),
+    });
+
+    llmMessages.push({
+      role: "assistant",
+      content: "",
+      tool_calls: [
+        {
+          id: toolCallId,
+          type: "function",
+          function: {
+            name: toolName,
+            arguments: JSON.stringify(rawArgs),
+          },
+        },
+      ],
+    } as LlmMessage);
+
+    llmMessages.push({
+      role: "tool",
+      tool_call_id: toolCallId,
+      content: JSON.stringify(result),
+    } as LlmMessage);
+
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown tool error";
+    send({
+      type: "tool_error",
+      toolName,
+      label,
+      error: message,
+    });
+
+    llmMessages.push({
+      role: "tool",
+      tool_call_id: toolCallId,
+      content: JSON.stringify({ error: message }),
+    } as LlmMessage);
+
+    return { error: message };
+  }
 }
 
 async function executeTool(
-  toolName: string,
+  toolName: keyof typeof AGENT_TOOL_REGISTRY | "compliance_check",
   rawArgs: unknown,
   context: ToolExecutionContext
 ) {
@@ -359,12 +468,61 @@ async function executeTool(
     return runInlineComplianceCheck(rawArgs);
   }
 
-  const registryEntry = AGENT_TOOL_REGISTRY[toolName as keyof typeof AGENT_TOOL_REGISTRY];
+  const registryEntry = AGENT_TOOL_REGISTRY[toolName];
   if (!registryEntry?.execute) {
     throw new Error(`Unsupported tool: ${toolName}`);
   }
 
   return registryEntry.execute(rawArgs, context);
+}
+
+async function finalizeTurnMemory({
+  supabase,
+  conversationId,
+  userId,
+  journeyId,
+  userContent,
+  displayAnswer,
+  memoryFacts,
+}: {
+  supabase: ToolExecutionContext["supabase"];
+  conversationId: string;
+  userId: string;
+  journeyId: string;
+  userContent: string;
+  displayAnswer: string;
+  memoryFacts: string[];
+}) {
+  try {
+    await recordStep(supabase, conversationId, {
+      id: crypto.randomUUID(),
+      type: "reflection",
+      content: {
+        answerPreview: displayAnswer.slice(0, 240),
+        memoryFacts,
+      },
+    });
+
+    const sessionSteps = await getSessionSteps(supabase, conversationId);
+    const sessionTranscript = buildConversationText(sessionSteps);
+    const memoryTranscript = [
+      `用户：${userContent}`,
+      `助手：${displayAnswer}`,
+      memoryFacts.length
+        ? `已确认记忆：\n${memoryFacts.map((fact) => `- ${fact}`).join("\n")}`
+        : "",
+      sessionTranscript,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    await Promise.allSettled([
+      compactAndSaveUserMemory(supabase, userId, memoryTranscript),
+      compactAndSaveJourneyProjectMemory(supabase, journeyId, memoryTranscript),
+    ]);
+  } catch (error) {
+    console.warn("[messages.route] finalize memory failed", error);
+  }
 }
 
 async function applyDeterministicMemoryUpdates(
@@ -458,64 +616,125 @@ async function prefetchFullArticleFromConfirmedTopic(
   toolContext: ToolExecutionContext,
   send: (payload: Record<string, unknown>) => void
 ) {
-  const toolName = "generate_full_article";
-  const label = getToolLabel(toolName);
-
-  send({
-    type: "tool_start",
-    toolName,
-    label,
+  await executeToolAndAppend({
+    toolName: "generate_full_article",
+    rawArgs: {
+      topic_title: topic.title ?? "",
+      angle: topic.angle ?? "",
+    },
+    toolCallId: `prefill-${crypto.randomUUID()}`,
+    llmMessages,
+    toolContext,
+    send,
   });
+}
 
-  const args = {
-    topic_title: topic.title ?? "",
-    angle: topic.angle ?? "",
+function detectFastPathPlan(userContent: string): FastPathPlan | null {
+  const accountName = extractExplicitAccountName(userContent);
+  if (!accountName) {
+    return null;
+  }
+
+  return {
+    steps: [
+      {
+        toolName: "import_koc_by_name",
+        args: { account_name: accountName },
+      },
+      {
+        toolName: "analyze_journey_data",
+        args: { focus: "viral_patterns" },
+      },
+    ],
   };
-  const toolCallId = `prefill-${crypto.randomUUID()}`;
+}
 
-  try {
-    const result = await executeTool(toolName, args, toolContext);
+function extractExplicitAccountName(userContent: string) {
+  if (!/(对标|导入|添加)/.test(userContent)) {
+    return null;
+  }
+
+  const match = userContent.match(/(?:对标|导入(?:一下)?|添加)([^，。！？\n]+)/);
+  const candidate = match?.[1]?.trim() || userContent.trim();
+  const cleaned = candidate
+    .replace(/^(一下|一个|这个|这个号|这个公众号|账号)/, "")
+    .replace(/(作为对标|做对标|这个号|这个公众号|公众号|账号)$/i, "")
+    .trim();
+
+  return cleaned.length >= 2 ? cleaned : null;
+}
+
+function normalizeToolName(
+  toolName: string
+): keyof typeof AGENT_TOOL_REGISTRY | "compliance_check" | null {
+  if (toolName === "compliance_check") {
+    return toolName;
+  }
+
+  if (toolName in AGENT_TOOL_REGISTRY) {
+    return toolName as keyof typeof AGENT_TOOL_REGISTRY;
+  }
+
+  return null;
+}
+
+function buildPlanningPrompt(params: {
+  journey: ToolExecutionContext["journey"];
+  sessionSteps: StepRecord[];
+}) {
+  const recentCalls = params.sessionSteps
+    .filter((step) => step.type === "tool_call")
+    .slice(-4)
+    .map((step) => {
+      const content = step.content as { tool?: string; args?: unknown };
+      return `- ${content.tool || "unknown"}: ${JSON.stringify(content.args || {})}`;
+    })
+    .join("\n");
+
+  return `你是 Niche 的工具规划器，只负责决定要不要调用工具以及调用哪个工具。
+
+原则：
+1. 优先少轮次完成任务，避免无意义的重复调用。
+2. 如果用户明确说“对标/导入某个公众号”，优先导入再分析。
+3. 如果问题明显只需要最终总结，不要再调工具。
+4. 已经成功执行过的工具，除非必要，不要再次调用。
+5. 工具参数尽量简洁，避免传空字段。
+
+当前旅程：
+- 平台：${params.journey?.platform || "未知"}
+- 关键词：${(params.journey?.keywords ?? []).join("、") || "暂无"}
+
+最近执行记录：
+${recentCalls || "（暂无）"}
+
+你可以调用工具，也可以直接回答。`;
+}
+
+function maybeEmitKocRecommendation(
+  send: (payload: Record<string, unknown>) => void,
+  result: unknown
+) {
+  if (
+    result &&
+    typeof result === "object" &&
+    Array.isArray((result as { articles?: unknown[] }).articles)
+  ) {
     send({
-      type: "tool_result",
-      toolName,
-      label,
-      payload: sanitizePayload(result),
-    });
-
-    llmMessages.push({
-      role: "assistant",
-      content: "",
-      tool_calls: [
-        {
-          id: toolCallId,
-          type: "function",
-          function: {
-            name: toolName,
-            arguments: JSON.stringify(args),
-          },
-        },
-      ],
-    } as LlmMessage);
-
-    llmMessages.push({
-      role: "tool",
-      tool_call_id: toolCallId,
-      content: JSON.stringify(result),
-    } as LlmMessage);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown tool error";
-    send({
-      type: "tool_error",
-      toolName,
-      label,
-      error: message,
+      type: "koc_recommendation_ready",
+      payload: {
+        keyword:
+          typeof (result as { keyword?: unknown }).keyword === "string"
+            ? (result as { keyword: string }).keyword
+            : "",
+        articles: (result as { articles: unknown[] }).articles,
+      },
     });
   }
 }
 
 function buildConfirmationContext(
   userContent: string,
-  sessionSteps: Awaited<ReturnType<typeof getSessionSteps>>
+  sessionSteps: StepRecord[]
 ): ConfirmationContext {
   const selectedTopic = detectTopicSelection(
     userContent,
@@ -540,7 +759,7 @@ function buildConfirmationContext(
 }
 
 function findLatestToolResult<T>(
-  sessionSteps: Awaited<ReturnType<typeof getSessionSteps>>,
+  sessionSteps: StepRecord[],
   toolName: string
 ) {
   for (let index = sessionSteps.length - 1; index >= 0; index -= 1) {
@@ -723,4 +942,18 @@ function extractMemoryFacts(text: string) {
 
 function stripMemoryTags(text: string) {
   return text.replace(/\s*<memory>[\s\S]*?<\/memory>\s*/g, "\n").trim();
+}
+
+function createPerfLogger(startTime: number) {
+  return {
+    elapsed() {
+      return Date.now() - startTime;
+    },
+    mark(stage: string) {
+      console.info("[messages.route][perf]", {
+        stage,
+        elapsed: Date.now() - startTime,
+      });
+    },
+  };
 }

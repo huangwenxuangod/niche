@@ -98,8 +98,10 @@ export async function completeWithTools(params: {
   const rawToolCalls = message?.tool_calls ?? [];
 
   const toolCalls: LlmToolCall[] = rawToolCalls.map((tc) => {
-    // Handle both function tool calls and custom tool calls
-    const fn = (tc as any).function;
+    const fn =
+      "function" in tc && tc.function
+        ? tc.function
+        : { name: "", arguments: "{}" };
     return {
       id: tc.id,
       type: "function",
@@ -111,6 +113,24 @@ export async function completeWithTools(params: {
   });
 
   return { content, toolCalls };
+}
+
+export async function completeText(params: {
+  systemPrompt: string;
+  messages: LlmMessage[];
+}): Promise<string> {
+  const messages: ChatCompletionMessageParam[] = [
+    { role: "system", content: params.systemPrompt },
+    ...params.messages,
+  ];
+
+  const response = await client.chat.completions.create({
+    model: MODEL,
+    messages,
+    temperature: 0.7,
+  });
+
+  return response.choices[0]?.message?.content ?? "";
 }
 
 /**
