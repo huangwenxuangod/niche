@@ -92,5 +92,5 @@ export async function GET(req: NextRequest) {
 
   if (!journey) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return NextResponse.json(MOCK_DATA);
+  return NextResponse.json({ ...MOCK_DATA, is_demo: true });
 }

@@ -32,7 +32,14 @@ export default function DashboardPage() {
       <div style={{ padding: "18px 28px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 16 }}>
         <button onClick={() => router.back()} style={{ background: "none", border: "none", color: "var(--text-tertiary)", cursor: "pointer", fontSize: 18 }}>←</button>
         <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 400, color: "var(--text-primary)" }}>数据复盘</div>
+          {data?.is_demo && (
+            <span style={{ fontSize: 10, color: "var(--accent)", background: "var(--accent-dim)", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(200,150,90,0.3)" }}>
+              演示数据
+            </span>
+          )}
+        </div>
           <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 2 }}>公众号数据一览，帮你复盘内容表现</div>
         </div>
       </div>

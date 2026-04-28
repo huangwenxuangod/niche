@@ -95,4 +95,5 @@ export type WechatDashboardData = {
   summary: WechatDashboardSummary;
   articles: WechatDashboardArticle[];
   ai_insights: string;
+  is_demo?: boolean;
 };

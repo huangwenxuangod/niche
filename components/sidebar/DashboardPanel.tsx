@@ -53,7 +53,10 @@ export function DashboardPanel({ journeyId }: { journeyId: string }) {
             <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)" }}>
               {data.account.name}
             </span>
-            <span style={tagStyle}>数据复盘</span>
+            <div style={{ display: "flex", gap: 4 }}>
+              {data.is_demo && <span style={demoTagStyle}>演示</span>}
+              <span style={tagStyle}>数据复盘</span>
+            </div>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
             <Stat label="总文章" val={String(data.summary.article_count)} />
@@ -89,4 +92,16 @@ const tagStyle: React.CSSProperties = {
   background: "var(--accent-dim)",
   color: "var(--accent)",
   border: "1px solid rgba(200,150,90,0.3)",
+};
+
+const demoTagStyle: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: 8,
+  letterSpacing: "0.1em",
+  textTransform: "uppercase",
+  padding: "2px 5px",
+  borderRadius: 3,
+  background: "rgba(150,150,150,0.15)",
+  color: "var(--text-tertiary)",
+  border: "1px solid rgba(150,150,150,0.3)",
 };

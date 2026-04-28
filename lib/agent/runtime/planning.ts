@@ -9,6 +9,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { LlmMessage } from "@/lib/llm";
+import { chat } from "@/lib/llm";
 import { recordStep, type ExecutionPlan, type PlanStep } from "@/lib/agent/memory";
 
 export interface PlanningInput {
@@ -112,21 +113,59 @@ ${recentToolCalls || "（无）"}
 
 async function callPlanningLLM(
   prompt: string,
-  systemPrompt: string
+  _systemPrompt: string
 ): Promise<{ plan: string; reasoning: string }> {
-  // 这里简化为直接调用，实际应该使用 LLM 客户端
-  // 由于 token 限制，这里提供框架，实际实现需要补充
-  throw new Error("Planning LLM not implemented - token limit reached");
+  const response = await chat({
+    systemPrompt:
+      "你是一个严谨的任务规划专家。请严格按照用户要求的 JSON 格式输出，不要添加任何 Markdown 代码块标记或其他说明文字。",
+    userContent: prompt,
+  });
+
+  // Extract JSON from potential markdown fences
+  const jsonMatch = response.match(/\{[\s\S]*\}/);
+  const jsonStr = jsonMatch ? jsonMatch[0] : response;
+
+  let parsed: { reasoning?: string; plan?: { steps?: unknown[]; expectedOutcome?: string } };
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    // Fallback: return raw response as reasoning with empty plan
+    return { plan: JSON.stringify({ steps: [], expectedOutcome: "" }), reasoning: response };
+  }
+
+  const planObj = {
+    steps: parsed.plan?.steps ?? [],
+    expectedOutcome: parsed.plan?.expectedOutcome ?? "",
+  };
+
+  return {
+    plan: JSON.stringify(planObj),
+    reasoning: parsed.reasoning ?? "",
+  };
 }
 
 function parsePlan(planJson: string, userMessage: string): ExecutionPlan {
-  // 解析 LLM 返回的计划
-  // 由于 token 限制，这里提供框架
+  let parsed: { steps?: Array<{ id?: string; type?: string; description?: string; toolName?: string; args?: Record<string, unknown>; dependencies?: string[] }>; expectedOutcome?: string };
+  try {
+    parsed = JSON.parse(planJson);
+  } catch {
+    parsed = { steps: [], expectedOutcome: "" };
+  }
+
+  const steps: PlanStep[] = (parsed.steps ?? []).map((s, i) => ({
+    id: s.id ?? `step-${i + 1}`,
+    type: (s.type as "tool" | "llm" | "user_input") ?? "tool",
+    description: s.description ?? "",
+    toolName: s.toolName,
+    args: s.args,
+    dependencies: s.dependencies ?? [],
+  }));
+
   return {
     id: crypto.randomUUID(),
     goal: userMessage,
-    steps: [],
-    expectedOutcome: "",
+    steps,
+    expectedOutcome: parsed.expectedOutcome ?? "",
     createdAt: Date.now(),
   };
 }
