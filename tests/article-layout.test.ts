@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractArticleFromAssistantMessage } from "../lib/article-layout.ts";
+import {
+  extractArticleFromAssistantMessage,
+  renderWechatHtml,
+} from "../lib/article-layout.ts";
 
 test("extracts article from legacy structured output", () => {
   const article = extractArticleFromAssistantMessage(`
@@ -61,4 +64,46 @@ test("extracts article from direct markdown output", () => {
 test("returns null for non-article assistant content", () => {
   const article = extractArticleFromAssistantMessage("这轮我先帮你分析一下增长机会。");
   assert.equal(article, null);
+});
+
+test("strips duplicated title and reference note from article body", () => {
+  const article = extractArticleFromAssistantMessage(`
+# 主标题测试
+
+> 这是一段摘要
+
+## 备选标题
+1. 备选一
+
+## 参考说明
+知识库暂无强相关参考，已按当前赛道生成。
+
+# 主标题测试
+
+正文第一段。
+
+## 小节
+
+正文第二段。
+  `);
+
+  assert.ok(article);
+  assert.doesNotMatch(article?.bodyMarkdown ?? "", /^# 主标题测试/m);
+  assert.doesNotMatch(article?.bodyMarkdown ?? "", /知识库暂无强相关参考/);
+  assert.match(article?.bodyMarkdown ?? "", /正文第一段/);
+});
+
+test("renders task list as structured list instead of merged paragraph", () => {
+  const html = renderWechatHtml(`
+## 行动清单
+
+- [x] 工具选择：优先免费工具
+- [x] 受众定位：越精准越好
+- [ ] 继续补案例
+  `);
+
+  assert.match(html, /<ul/);
+  assert.match(html, /✅/);
+  assert.match(html, /⬜/);
+  assert.doesNotMatch(html, /✅[\s\S]*✅[\s\S]*✅[\s\S]*<\/p>/);
 });

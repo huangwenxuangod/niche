@@ -85,7 +85,7 @@ export function normalizeLayoutMarkdown(markdown: string) {
 
 function splitInlineHeadings(markdown: string) {
   const withHeadingBreaks = markdown
-    .replace(/([^\n])\s*(#{1,3}\s)/g, "$1\n\n$2")
+    .replace(/([^\n#])\s*(#{1,3}\s)/g, "$1\n\n$2")
     .replace(/(#{1,3}\s[^\n]{6,80})(#{1,3}\s)/g, "$1\n\n$2");
   const lines = withHeadingBreaks.split("\n");
 
@@ -156,7 +156,7 @@ function findSafeHeadingSplitIndex(content: string) {
 }
 
 function splitInlineOrderedLists(markdown: string) {
-  return markdown.replace(/([。！？?!；;])\s+((?:\d+\.\s)|(?:-\s))/g, "$1\n$2");
+  return markdown.replace(/([。！？?!；;])\s+((?:\d+\.\s)|(?:-\s(?:\[[xX ]\]\s+)?)|(?:-\s))/g, "$1\n$2");
 }
 
 export function applyDefaultWechatLayout(markdown: string) {
@@ -219,10 +219,10 @@ function extractArticleFromRenderedMarkdown(content: string): ExtractedArticle |
 
   const remaining = lines.slice(cursor).join("\n");
   const body = sanitizeArticlePreviewMarkdown(
-    remaining
-      .replace(/^##\s+备选标题[\s\S]*?(?=\n##\s+参考说明|\n#\s|\n##\s|$)/m, "")
-      .replace(/^##\s+参考说明[\s\S]*?(?=\n#\s|\n##\s|$)/m, "")
-      .trim()
+    stripRedundantArticleLead(
+      removeSection(removeSection(remaining.trim(), "备选标题"), "参考说明"),
+      title
+    )
   );
 
   if (!body) {
@@ -246,7 +246,13 @@ function formatDefaultBlock(block: string): string[] {
   if (structuredParts) {
     return structuredParts.flatMap((part) => formatDefaultBlock(part));
   }
-  if (/^#{1,3}\s/.test(block) || /^>\s*/.test(block) || /^-\s/.test(block) || /^\d+\.\s/.test(block)) {
+  if (
+    /^#{1,3}\s/.test(block) ||
+    /^>\s*/.test(block) ||
+    /^-\s/.test(block) ||
+    /^-\s\[[xX ]\]\s/.test(block) ||
+    /^\d+\.\s/.test(block)
+  ) {
     return [block];
   }
 
@@ -275,6 +281,7 @@ function splitStructuredBlock(block: string): string[] | null {
       /^#{1,3}\s/.test(trimmed) ||
       /^>\s*/.test(trimmed) ||
       /^-\s/.test(trimmed) ||
+      /^-\s\[[xX ]\]\s/.test(trimmed) ||
       /^\d+\.\s/.test(trimmed)
     );
   });
@@ -344,7 +351,7 @@ function splitStructuredBlock(block: string): string[] | null {
       continue;
     }
 
-    if (/^-\s/.test(trimmed)) {
+    if (/^-\s\[[xX ]\]\s/.test(trimmed) || /^-\s/.test(trimmed)) {
       flushParagraph();
       flushQuote();
       if (listMode === "ordered") {
@@ -514,10 +521,13 @@ function parseMarkdown(markdown: string): Block[] {
       continue;
     }
 
-    if (line.startsWith("- ")) {
+    if (/^-\s\[[xX ]\]\s/.test(line) || line.startsWith("- ")) {
       const items: string[] = [];
-      while (index < lines.length && lines[index].trim().startsWith("- ")) {
-        items.push(lines[index].trim().slice(2).trim());
+      while (
+        index < lines.length &&
+        (/^-\s\[[xX ]\]\s/.test(lines[index].trim()) || lines[index].trim().startsWith("- "))
+      ) {
+        items.push(normalizeTaskListItem(lines[index].trim()));
         index++;
       }
       blocks.push({ type: "list", ordered: false, items });
@@ -547,11 +557,23 @@ function parseMarkdown(markdown: string): Block[] {
     const paragraphLines: string[] = [];
     while (index < lines.length) {
       const current = lines[index].trim();
-      if (!current || current.startsWith("#") || current.startsWith("- ") || /^\d+\.\s/.test(current) || /^>\s*/.test(current) || current.startsWith(":::")) {
+      if (
+        !current ||
+        current.startsWith("#") ||
+        current.startsWith("- ") ||
+        /^-\s\[[xX ]\]\s/.test(current) ||
+        /^\d+\.\s/.test(current) ||
+        /^>\s*/.test(current) ||
+        current.startsWith(":::")
+      ) {
         break;
       }
       paragraphLines.push(lines[index]);
       index++;
+    }
+    if (!paragraphLines.length) {
+      index++;
+      continue;
     }
     blocks.push({ type: "paragraph", text: paragraphLines.join(" ").trim() });
   }
@@ -609,8 +631,70 @@ function renderHeading(level: 1 | 2 | 3, text: string) {
 function formatInline(text: string) {
   const escaped = escapeHtml(text);
   return escaped
+    .replace(/^✅\s/g, `<span style="${checkIconStyle}">✅</span>`)
+    .replace(/^⬜\s/g, `<span style="${checkIconStyle}">⬜</span>`)
     .replace(/\*\*(.*?)\*\*/g, `<strong style="${strongStyle}">$1</strong>`)
     .replace(/`([^`]+)`/g, `<code style="${codeStyle}">$1</code>`);
+}
+
+function normalizeTaskListItem(line: string) {
+  const checkedMatch = line.match(/^-\s\[(x|X)\]\s+(.+)$/);
+  if (checkedMatch) {
+    return `✅ ${checkedMatch[2].trim()}`;
+  }
+
+  const uncheckedMatch = line.match(/^-\s\[\s\]\s+(.+)$/);
+  if (uncheckedMatch) {
+    return `⬜ ${uncheckedMatch[1].trim()}`;
+  }
+
+  return line.slice(2).trim();
+}
+
+function stripRedundantArticleLead(markdown: string, title: string) {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  let cursor = 0;
+
+  while (cursor < lines.length && !lines[cursor].trim()) {
+    cursor += 1;
+  }
+
+  while (
+    cursor < lines.length &&
+    /^知识库.*参考/.test(lines[cursor].trim())
+  ) {
+    cursor += 1;
+    while (cursor < lines.length && lines[cursor].trim()) {
+      cursor += 1;
+    }
+    while (cursor < lines.length && !lines[cursor].trim()) {
+      cursor += 1;
+    }
+  }
+
+  if (cursor < lines.length) {
+    const normalizedTitle = title.replace(/\s+/g, "");
+    const currentLine = lines[cursor].trim();
+    if (
+      currentLine.startsWith("# ") &&
+      currentLine.replace(/^#\s+/, "").replace(/\s+/g, "") === normalizedTitle
+    ) {
+      cursor += 1;
+      while (cursor < lines.length && !lines[cursor].trim()) {
+        cursor += 1;
+      }
+    }
+  }
+
+  return lines.slice(cursor).join("\n").trim();
+}
+
+function removeSection(markdown: string, heading: string) {
+  const escapedHeading = escapeRegExp(heading);
+  return markdown.replace(
+    new RegExp(`^##\\s+${escapedHeading}\\s*\\n[\\s\\S]*?(?=^##\\s+|^#\\s+|\\Z)`, "m"),
+    ""
+  ).trim();
 }
 
 function escapeHtml(text: string) {
@@ -782,3 +866,4 @@ const imagePlaceholderLabelStyle = [
 const imagePlaceholderTextStyle = "margin:0;color:var(--niche-text-muted);line-height:1.75;";
 const strongStyle = "color:var(--niche-text);font-weight:700;";
 const codeStyle = "padding:2px 6px;border-radius:6px;background:var(--niche-code-bg);font-size:0.9em;font-family:'SFMono-Regular',Consolas,monospace;color:var(--niche-code-text);";
+const checkIconStyle = "display:inline-block;margin-right:6px;";
