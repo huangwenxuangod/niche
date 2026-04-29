@@ -17,7 +17,6 @@ import {
 } from "@ant-design/icons";
 import { Button, Space, Tag } from "antd";
 import type { Message, Journey } from "@/lib/data";
-import { AccountAnalysisModal } from "./AccountAnalysisModal";
 import { ArticleLayoutPanel } from "./ArticleLayoutPanel";
 import {
   extractArticleFromAssistantMessage,
@@ -63,7 +62,7 @@ const QUICK_PROMPTS = [
   { key: "topic", label: "给我 3 个涨粉选题", icon: <EditOutlined /> },
   { key: "pattern", label: "分析对标账号增长规律", icon: <RadarChartOutlined /> },
   { key: "schedule", label: "什么时候发布更容易起量", icon: <ReadOutlined /> },
-  { key: "competitor", label: "帮我拆解对标账号标题", icon: <EditOutlined /> },
+  { key: "wxvideo", label: "分析视频号样本", icon: <AppstoreOutlined /> },
 ];
 
 export function ChatArea({ conversationId, journey, initialMessages, kocCount }: Props) {
@@ -71,7 +70,6 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
-  const [showAnalysis, setShowAnalysis] = useState(false);
   const [showRecommendations, setShowRecommendations] = useState(false);
   const [recommendedArticles, setRecommendedArticles] = useState<
     Array<{
@@ -572,9 +570,9 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
         <div style={senderWrapStyle}>
           <div style={senderInnerStyle}>
             {messages.length > 0 && (
-              <Prompts
+                <Prompts
                 items={[
-                  { key: "analysis", icon: <RadarChartOutlined />, label: "增长分析" },
+                  { key: "timing", icon: <ReadOutlined />, label: "发布时间" },
                   ...(latestLayoutMessage
                     ? [{ key: "layout", icon: <EditOutlined />, label: "排版" }]
                     : []),
@@ -590,8 +588,8 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                   },
                 }}
                 onItemClick={({ data }) => {
-                  if (data.key === "analysis") {
-                    setShowAnalysis(true);
+                  if (data.key === "timing") {
+                    void sendMessage("什么时候发布更容易起量");
                   } else if (data.key === "layout" && latestLayoutMessage) {
                     setLayoutTarget({
                       id: latestLayoutMessage.id,
@@ -639,17 +637,6 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
           </div>
         </div>
       </div>
-
-      {showAnalysis && (
-        <AccountAnalysisModal
-          journeyId={journey.id}
-          onClose={() => setShowAnalysis(false)}
-          onResult={(text) => {
-            setShowAnalysis(false);
-            sendMessage(text);
-          }}
-        />
-      )}
 
       <ArticleLayoutPanel
         open={layoutTarget !== null}
