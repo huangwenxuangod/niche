@@ -9,17 +9,41 @@ export async function streamSingleModelAnswer(params: {
   send: (payload: Record<string, unknown>) => void;
 }) {
   let text = "";
+  let pending = "";
+  let lastFlushAt = Date.now();
   const { streamChat } = await import("./llm.ts");
+
+  const flushPending = () => {
+    if (!pending) return;
+    text += pending;
+    params.send({ type: "text", text: pending });
+    pending = "";
+    lastFlushAt = Date.now();
+  };
+
+  const shouldFlush = (chunkText: string) => {
+    if (!pending) return false;
+    if (pending.length >= 40) return true;
+    if (/\n{2,}$/.test(pending)) return true;
+    if (/[。！？!?：:\n]$/.test(pending) && pending.length >= 18) return true;
+    if (Date.now() - lastFlushAt >= 80 && pending.length >= 12) return true;
+    if (chunkText.startsWith("###") || chunkText.startsWith("####")) return true;
+    return false;
+  };
 
   for await (const chunk of streamChat({
     systemPrompt: params.systemPrompt,
     messages: params.messages,
   })) {
     if (chunk.type === "text" && chunk.content) {
-      text += chunk.content;
-      params.send({ type: "text", text: chunk.content });
+      pending += chunk.content;
+      if (shouldFlush(chunk.content)) {
+        flushPending();
+      }
     }
   }
+
+  flushPending();
 
   return text.trim();
 }

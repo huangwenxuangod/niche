@@ -127,6 +127,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
         content: (
           <AssistantMessageContent
             content={message.content}
+            isStreaming={isStreamingAssistant}
             reasoning={message.role === "assistant" ? reasoningByMessage[message.id] : undefined}
           />
         ),
@@ -257,7 +258,21 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                   assistantContentRef.current = assistantContent;
                   assistantBufferRef.current = "";
                   applyAssistantContent(assistantContent);
-                }, 28);
+                }, 48);
+              }
+              if (
+                assistantBufferRef.current.length >= 48 ||
+                /\n{2,}$/.test(assistantBufferRef.current) ||
+                /[。！？!?：:]$/.test(assistantBufferRef.current)
+              ) {
+                if (assistantFlushTimerRef.current !== null) {
+                  window.clearTimeout(assistantFlushTimerRef.current);
+                  assistantFlushTimerRef.current = null;
+                }
+                assistantContent += assistantBufferRef.current;
+                assistantContentRef.current = assistantContent;
+                assistantBufferRef.current = "";
+                applyAssistantContent(assistantContent);
               }
             } else if (parsed.type === "assistant_status" && parsed.label) {
               setAssistantStatus(String(parsed.label));
@@ -735,15 +750,26 @@ function AssistantFooter({
 
 function AssistantMessageContent({
   content,
+  isStreaming,
   reasoning,
 }: {
   content: string;
+  isStreaming: boolean;
   reasoning?: ReasoningState;
 }) {
+  const formattedHtml = useMemo(
+    () => (isStreaming ? "" : formatMessage(content)),
+    [content, isStreaming]
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {reasoning?.text ? <ReasoningBar reasoning={reasoning} /> : null}
-      <div className="msg-prose" dangerouslySetInnerHTML={{ __html: formatMessage(content) }} />
+      {isStreaming ? (
+        <div style={streamingMessageStyle}>{content}</div>
+      ) : (
+        <div className="msg-prose" dangerouslySetInnerHTML={{ __html: formattedHtml }} />
+      )}
     </div>
   );
 }
@@ -1184,6 +1210,14 @@ const miniDoneDotStyle: React.CSSProperties = {
   borderRadius: "50%",
   background: "var(--accent)",
   boxShadow: "0 0 0 4px rgba(200,150,90,0.12)",
+};
+
+const streamingMessageStyle: React.CSSProperties = {
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+  lineHeight: 1.8,
+  fontSize: 15,
+  color: "var(--text-primary)",
 };
 
 const layoutActionButtonStyle: React.CSSProperties = {
