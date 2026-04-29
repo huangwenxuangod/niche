@@ -15,12 +15,6 @@ const MODEL = process.env.ARK_MODEL_ID ?? "";
 export type LlmMessage = ChatCompletionMessageParam;
 export type LlmTool = ChatCompletionTool;
 
-export type LlmToolCall = {
-  id: string;
-  type: "function";
-  function: { name: string; arguments: string };
-};
-
 export type LlmThinkingProfile = "fast" | "default" | "deep";
 
 // Export client for direct access
@@ -67,52 +61,6 @@ export async function* streamChat(params: {
       yield { type: "tool_call", toolCalls: delta.tool_calls };
     }
   }
-}
-
-/**
- * Non-streaming completion with tools - for simple use cases
- */
-export async function completeWithTools(params: {
-  systemPrompt: string;
-  messages: LlmMessage[];
-  tools: LlmTool[];
-}): Promise<{
-  content: string;
-  toolCalls: LlmToolCall[];
-}> {
-  const messages: ChatCompletionMessageParam[] = [
-    { role: "system", content: params.systemPrompt },
-    ...params.messages,
-  ];
-
-  const response = await client.chat.completions.create({
-    model: MODEL,
-    messages,
-    tools: params.tools,
-    tool_choice: "auto",
-    temperature: 0.7,
-  });
-
-  const message = response.choices[0]?.message;
-  const content = message?.content ?? "";
-  const rawToolCalls = message?.tool_calls ?? [];
-
-  const toolCalls: LlmToolCall[] = rawToolCalls.map((tc) => {
-    const fn =
-      "function" in tc && tc.function
-        ? tc.function
-        : { name: "", arguments: "{}" };
-    return {
-      id: tc.id,
-      type: "function",
-      function: {
-        name: fn?.name ?? "",
-        arguments: fn?.arguments ?? "{}",
-      },
-    };
-  });
-
-  return { content, toolCalls };
 }
 
 export async function completeText(params: {

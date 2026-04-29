@@ -20,17 +20,18 @@ Niche 是一个面向微信公众号创作者的 AI 内容工作台，当前最�
 - 支持关键词检索 + 向量召回的混合知识库检索
 
 ### 2. 聊天 Agent
-- 单 Agent + 工具调用
-- 当前主工具：
-  - `search_hot_topics`
-  - `search_wechat_hot_articles`
-  - `import_koc_by_name`
-  - `analyze_journey_data`
-  - `search_knowledge_base`
-  - `generate_topics`
-  - `generate_full_article`
+- Pattern-first + 单次模型流式生成
+- 高频意图走显式路由：
+  - `topics`
+  - `full_article`
+  - `publish_timing`
+  - `growth_analysis`
+  - `wxvideo_analysis`
+  - `video_script`
+  - `import_koc_analysis`
+- 数据准备在模型前完成，记忆沉淀放到后台
 - SSE 流式响应
-- 高频意图有快捷路径，减少无意义多轮规划
+- 高频意图有快捷路径和本地短路，减少无意义多轮规划
 
 ### 3. 内容生产工作流
 - 生成选题
@@ -60,11 +61,12 @@ Niche 是一个面向微信公众号创作者的 AI 内容工作台，当前最�
 
 ### 写稿主链
 1. 用户提问
-2. Agent 判断是否调用工具
-3. 如果生成了选题或完整稿，工具结果直接作为用户输出
-4. 用户可直接进入排版
-5. 排版后保存到公众号草稿箱
-6. 本轮记忆在后台压缩与沉淀
+2. 意图路由决定工作流
+3. 预取必要数据
+4. 单次模型真流式生成最终结果
+5. 用户可直接进入排版
+6. 排版后保存到公众号草稿箱
+7. 本轮记忆在后台沉淀
 
 ### 公众号导入主链
 1. 输入公众号名称 / `ghid` / 文章链接
@@ -102,14 +104,21 @@ components/
 lib/
   agent/
   article-layout.ts
+  chat-generation.ts
+  chat-intent-router.ts
+  chat-memory-finalize.ts
   chat-output.ts
+  chat-prefetch.ts
+  chat-prompt.ts
+  chat-runtime.ts
+  chat-workflow-state.ts
+  chat-workflows.ts
   dajiala.ts
   hot-topic-search.ts
   knowledge-base.ts
   koc-import.ts
   llm.ts
   memory.ts
-  system-prompt.ts
   wechat-publish.ts
   wxvideo-import.ts
 supabase/
@@ -141,7 +150,8 @@ npm test
 
 主要覆盖：
 - 完整稿提取
-- 工具结果到最终回答的直出逻辑
+- 意图路由
+- 主链 fallback 逻辑
 
 ## 环境变量
 

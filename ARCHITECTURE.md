@@ -4,12 +4,12 @@
 
 Niche 现在更准确的形态是：
 
-- 单 Agent
-- 工具调用
+- Pattern-first 内容工作流引擎
+- 单次模型真流式输出
 - 记忆驱动
 - 内容工作流产品
 
-它不是一个“任意自由规划的万能智能体”，当前最稳定的是内容生产主链。
+它不是一个“任意自由规划的万能智能体”，当前最稳定的是内容生产主链和显式工作流路由。
 
 ## 2. 当前产品主链
 
@@ -48,8 +48,11 @@ Niche 现在更准确的形态是：
 
 ### Agent / LLM
 - `lib/llm.ts`
-- `lib/system-prompt.ts`
-- `lib/agent/tools/registry.ts`
+- `lib/chat-intent-router.ts`
+- `lib/chat-workflows.ts`
+- `lib/chat-prefetch.ts`
+- `lib/chat-prompt.ts`
+- `lib/chat-generation.ts`
 - `lib/chat-output.ts`
 
 ### 记忆层
@@ -74,38 +77,40 @@ sequenceDiagram
     participant U as 用户
     participant UI as ChatArea
     participant API as messages route
-    participant TOOLS as Agent Tools
+    participant WF as Workflow Router
+    participant DATA as Prefetch Nodes
     participant DB as Supabase
     participant LLM as Ark / 豆包
 
     U->>UI: 发送消息
     UI->>API: POST /api/conversations/:id/messages
     API->>DB: 保存用户消息 + 读取上下文
-    API->>TOOLS: 快捷路径或工具规划
-    TOOLS->>DB: 检索知识库 / 账号数据 / 记忆
-    TOOLS-->>API: 返回工具结果
-    API->>API: buildToolBasedAnswer
+    API->>WF: detect intent / control action
+    WF->>DATA: 执行预取节点
+    DATA->>DB: 检索知识库 / 账号数据 / 记忆卡
+    DATA-->>API: 返回结构化上下文
+    API->>LLM: 单次 stream=true 调用
     API-->>UI: SSE 流式输出最终结果
     API->>DB: 后台写 session_memory / user_memories / journey_project_memories
 ```
 
 关键原则：
 
-1. 工具产物优先直接给用户
+1. 默认只调用一次模型
 2. memory 总结只做后台沉淀
 3. 用户输出链和 memory 链彻底分开
+4. 控制动作优先本地短路，不进入模型
 
 ## 5. 工具体系
 
-当前主工具：
+当前主预取节点 / 数据能力：
 
-- `search_hot_topics`
-- `search_wechat_hot_articles`
-- `import_koc_by_name`
 - `analyze_journey_data`
+- `analyze_wxvideo_data`
+- `analyze_publish_timing`
 - `search_knowledge_base`
-- `generate_topics`
-- `generate_full_article`
+- `retrieveSemanticCompetitorContent`
+- `import_koc_by_name`
 
 说明：
 - `compliance_check` 已不参与聊天主流程
@@ -113,15 +118,15 @@ sequenceDiagram
 ## 6. 输出体系
 
 ### 产物型输出
-下面这些结果不再走“再总结一轮”的链路：
+下面这些结果都走：
+
+`意图路由 -> 数据预取 -> 单次模型流式输出`
 
 - 选题结果
 - 完整稿
-- 热点结果摘要
+- 发布时间建议
 - 爆款规律分析
-
-对应文件：
-- `lib/chat-output.ts`
+- 视频脚本
 
 ### 排版识别
 完整稿输出后，前端通过：

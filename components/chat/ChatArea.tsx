@@ -359,6 +359,26 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                 );
                 setShowRecommendations(true);
               }
+            } else if (parsed.type === "workflow_action" && parsed.action === "open_layout") {
+              const payload = parsed.payload as
+                | {
+                    messageId?: unknown;
+                    content?: unknown;
+                  }
+                | undefined;
+              const messageId =
+                typeof payload?.messageId === "string" ? payload.messageId : null;
+              const messageContent =
+                typeof payload?.content === "string" ? payload.content : null;
+
+              if (messageId && messageContent) {
+                setLayoutTarget({ id: messageId, content: messageContent });
+              } else if (latestLayoutMessage) {
+                setLayoutTarget({
+                  id: latestLayoutMessage.id,
+                  content: latestLayoutMessage.content,
+                });
+              }
             } else if (parsed.type && parsed.type !== "text") {
               setToolEvents((prev) => [
                 ...prev,
@@ -775,6 +795,9 @@ function buildToolSummary(events: ToolEvent[]) {
   if (latestResult.toolName === "analyze_wxvideo_data") {
     return "已完成视频号样本分析";
   }
+  if (latestResult.toolName === "analyze_publish_timing") {
+    return "已完成发布时间分析";
+  }
   if (latestResult.toolName === "generate_article_draft") {
     return "已生成骨架稿";
   }
@@ -817,7 +840,7 @@ function stageState(
 }
 
 function resolveActiveStage(toolName?: string, assistantStatus?: string | null) {
-  if (toolName === "search_hot_topics" || toolName === "search_knowledge_base" || toolName === "analyze_journey_data" || toolName === "analyze_wxvideo_data") {
+  if (toolName === "search_hot_topics" || toolName === "search_knowledge_base" || toolName === "analyze_journey_data" || toolName === "analyze_wxvideo_data" || toolName === "analyze_publish_timing") {
     return "retrieve";
   }
   if (toolName === "generate_topics") return "compose";
@@ -839,6 +862,8 @@ function getToolMeta(toolName?: string, assistantStatus?: string | null) {
       return { title: "分析数据中", hint: "总结爆款规律、账号特征和内容偏好。" };
     case "analyze_wxvideo_data":
       return { title: "分析视频号中", hint: "总结视频号样本的互动规律和可迁移方向。" };
+    case "analyze_publish_timing":
+      return { title: "分析发布时间中", hint: "从样本发布时间里找更容易起量的时段。" };
     case "generate_topics":
       return { title: "生成选题中", hint: "把检索到的信息压缩成可执行的方向。" };
     case "generate_article_draft":

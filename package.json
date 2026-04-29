@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --test --test-isolation=none tests/article-layout.test.ts tests/chat-output.test.ts"
+    "test": "node --experimental-strip-types --test --test-isolation=none tests/article-layout.test.ts tests/chat-output.test.ts tests/chat-intent-router.test.ts tests/chat-generation.test.ts tests/chat-workflow-state.test.ts"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.1",
