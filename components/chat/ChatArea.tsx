@@ -91,6 +91,8 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const assistantFlushTimerRef = useRef<number | null>(null);
   const currentAssistantIdRef = useRef<string | null>(null);
   const assistantContentRef = useRef("");
+  const lastTextDebugRef = useRef<Record<string, unknown> | null>(null);
+  const lastTextReceivedAtRef = useRef<number | null>(null);
   const loadingSnapshot = buildLoadingSnapshot(toolEvents, assistantStatus);
   const latestLayoutMessage = useMemo(
     () =>
@@ -172,6 +174,8 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
     currentAssistantIdRef.current = assistantId;
     assistantContentRef.current = "";
     assistantBufferRef.current = "";
+    lastTextDebugRef.current = null;
+    lastTextReceivedAtRef.current = null;
     if (assistantFlushTimerRef.current !== null) {
       window.clearTimeout(assistantFlushTimerRef.current);
       assistantFlushTimerRef.current = null;
@@ -201,6 +205,16 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
           (value): value is string => Boolean(value)
         )
       );
+
+      console.debug("[chat.stream][ui_apply]", {
+        assistantId: currentAssistantIdRef.current ?? currentAssistantId,
+        contentLength: content.length,
+        receivedToApplyMs:
+          lastTextReceivedAtRef.current === null
+            ? null
+            : Math.round(performance.now() - lastTextReceivedAtRef.current),
+        serverDebug: lastTextDebugRef.current,
+      });
 
       setMessages((prev) =>
         prev.map((message) =>
@@ -244,6 +258,19 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
           try {
             const parsed = JSON.parse(data);
             if (parsed.type === "text" && parsed.text) {
+              lastTextDebugRef.current =
+                parsed.debug && typeof parsed.debug === "object"
+                  ? (parsed.debug as Record<string, unknown>)
+                  : null;
+              lastTextReceivedAtRef.current = performance.now();
+              console.debug("[chat.stream][client_chunk_received]", {
+                assistantId: currentAssistantIdRef.current ?? currentAssistantId,
+                textLength:
+                  typeof parsed.text === "string" ? parsed.text.length : null,
+                textPreview:
+                  typeof parsed.text === "string" ? parsed.text.slice(0, 32) : null,
+                serverDebug: lastTextDebugRef.current,
+              });
               if (!assistantContent) {
                 setAssistantStatus("输出答案中");
               }

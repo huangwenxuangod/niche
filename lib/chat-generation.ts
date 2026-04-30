@@ -7,18 +7,38 @@ export async function streamSingleModelAnswer(params: {
   systemPrompt: string;
   messages: LlmMessage[];
   send: (payload: Record<string, unknown>) => void;
+  getElapsed?: () => number;
 }) {
   let text = "";
   let pending = "";
   let lastFlushAt = Date.now();
+  let chunkIndex = 0;
+  let firstTextAt: number | null = null;
+  let lastTextAt: number | null = null;
   const { streamChat } = await import("./llm.ts");
 
   const flushPending = () => {
     if (!pending) return;
+    const now = Date.now();
+    if (firstTextAt === null) {
+      firstTextAt = now;
+    }
+    chunkIndex += 1;
+    const debug = {
+      chunkIndex,
+      emittedAt: now,
+      elapsed: params.getElapsed?.() ?? null,
+      sinceFirstText: now - firstTextAt,
+      sincePrevText: lastTextAt === null ? null : now - lastTextAt,
+      textLength: pending.length,
+      preview: pending.slice(0, 32),
+    };
     text += pending;
-    params.send({ type: "text", text: pending });
+    console.info("[chat.stream][server_chunk]", debug);
+    params.send({ type: "text", text: pending, debug });
     pending = "";
     lastFlushAt = Date.now();
+    lastTextAt = now;
   };
 
   const shouldFlush = (chunkText: string) => {

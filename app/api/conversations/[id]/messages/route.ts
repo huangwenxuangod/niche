@@ -255,6 +255,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
           systemPrompt,
           messages: modelMessages,
           send,
+          getElapsed: () => perf.elapsed(),
         });
         perf.mark("single_model_stream_completed");
 
