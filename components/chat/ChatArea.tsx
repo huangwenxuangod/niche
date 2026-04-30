@@ -1034,25 +1034,10 @@ function formatInline(value: string) {
 }
 
 function mergeReasoningPreview(current: string, incoming: string) {
-  const normalizedIncoming = incoming.replace(/\s+/g, " ").trim();
-  if (!normalizedIncoming) {
+  if (!incoming) {
     return current;
   }
-
-  const merged = `${current} ${normalizedIncoming}`.trim().replace(/\s+/g, " ");
-  if (merged.length <= 260) {
-    return merged;
-  }
-
-  const clipped = merged.slice(0, 260);
-  const lastBoundary = Math.max(
-    clipped.lastIndexOf("。"),
-    clipped.lastIndexOf("；"),
-    clipped.lastIndexOf("，"),
-    clipped.lastIndexOf(" ")
-  );
-
-  return `${clipped.slice(0, lastBoundary > 120 ? lastBoundary : 240).trim()}…`;
+  return `${current}${incoming}`;
 }
 
 const chatPageStyle: React.CSSProperties = {
@@ -1189,6 +1174,8 @@ const reasoningTextStyle: React.CSSProperties = {
   fontSize: 12,
   lineHeight: 1.75,
   paddingLeft: 2,
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
 };
 
 const miniProcessCollapsedStyle: React.CSSProperties = {

@@ -55,6 +55,21 @@ export async function streamSingleModelAnswer(params: {
     systemPrompt: params.systemPrompt,
     messages: params.messages,
   })) {
+    if (chunk.type === "reasoning_start") {
+      params.send({ type: "reasoning_start" });
+      continue;
+    }
+
+    if (chunk.type === "reasoning_chunk" && chunk.content) {
+      params.send({ type: "reasoning_chunk", text: chunk.content });
+      continue;
+    }
+
+    if (chunk.type === "reasoning_end") {
+      params.send({ type: "reasoning_end" });
+      continue;
+    }
+
     if (chunk.type === "text" && chunk.content) {
       pending += chunk.content;
       if (shouldFlush(chunk.content)) {

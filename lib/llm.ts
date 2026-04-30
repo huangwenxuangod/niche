@@ -23,6 +23,9 @@ export { client, MODEL };
 // Stream chunk types
 export type StreamChunk =
   | { type: "text"; content: string }
+  | { type: "reasoning_start" }
+  | { type: "reasoning_chunk"; content: string }
+  | { type: "reasoning_end" }
   | { type: "tool_call"; toolCalls: Array<{
       id?: string;
       type?: string;
@@ -68,6 +71,7 @@ export async function* streamChat(params: {
   let rawChunkIndex = 0;
   let textChunkIndex = 0;
   let nonContentChunkDebugCount = 0;
+  let reasoningStarted = false;
   let firstRawChunkAt: number | null = null;
   let firstTextChunkAt: number | null = null;
   let lastRawChunkAt: number | null = null;
@@ -137,7 +141,24 @@ export async function* streamChat(params: {
     }
     lastRawChunkAt = now;
 
+    const reasoningContent =
+      typeof (delta as Record<string, unknown> | undefined)?.["reasoning_content"] === "string"
+        ? ((delta as Record<string, unknown>)["reasoning_content"] as string)
+        : "";
+
+    if (reasoningContent) {
+      if (!reasoningStarted) {
+        reasoningStarted = true;
+        yield { type: "reasoning_start" };
+      }
+      yield { type: "reasoning_chunk", content: reasoningContent };
+    }
+
     if (delta?.content) {
+      if (reasoningStarted) {
+        reasoningStarted = false;
+        yield { type: "reasoning_end" };
+      }
       textChunkIndex += 1;
       if (firstTextChunkAt === null) {
         firstTextChunkAt = now;
@@ -167,6 +188,10 @@ export async function* streamChat(params: {
     if (delta?.tool_calls) {
       yield { type: "tool_call", toolCalls: delta.tool_calls };
     }
+  }
+
+  if (reasoningStarted) {
+    yield { type: "reasoning_end" };
   }
 
   const finishedAt = Date.now();
