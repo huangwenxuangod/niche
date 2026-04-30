@@ -117,6 +117,10 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
         key: message.id,
         role: message.role === "user" ? "user" : "assistant",
         placement: message.role === "user" ? "end" : "start",
+        loading:
+          message.role === "assistant" &&
+          isStreamingAssistant &&
+          !message.content.trim(),
         content: (
           <AssistantMessageContent
             content={message.content}
