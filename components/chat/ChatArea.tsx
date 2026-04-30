@@ -724,17 +724,16 @@ function AssistantMessageContent({
   isStreaming: boolean;
 }) {
   const formattedHtml = useMemo(
-    () => (isStreaming ? "" : formatMessage(content)),
-    [content, isStreaming]
+    () => formatMessage(content),
+    [content]
   );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {isStreaming ? (
-        <div style={streamingMessageStyle}>{content}</div>
-      ) : (
-        <div className="msg-prose" dangerouslySetInnerHTML={{ __html: formattedHtml }} />
-      )}
+      <div
+        className={isStreaming ? "msg-prose msg-prose-streaming" : "msg-prose"}
+        dangerouslySetInnerHTML={{ __html: formattedHtml }}
+      />
     </div>
   );
 }
