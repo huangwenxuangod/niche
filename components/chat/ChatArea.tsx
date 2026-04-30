@@ -64,7 +64,6 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
   const [showRecommendations, setShowRecommendations] = useState(false);
   const [recommendedArticles, setRecommendedArticles] = useState<
     Array<{
@@ -87,7 +86,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
   const assistantContentRef = useRef("");
   const lastTextDebugRef = useRef<Record<string, unknown> | null>(null);
   const lastTextReceivedAtRef = useRef<number | null>(null);
-  const loadingSnapshot = buildLoadingSnapshot(toolEvents, assistantStatus);
+  const loadingSnapshot = buildLoadingSnapshot(toolEvents);
   const latestLayoutMessage = useMemo(
     () =>
       [...messages]
@@ -150,7 +149,6 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
 
     setInput("");
     setToolEvents([]);
-    setAssistantStatus("理解问题中");
 
     const userMsg: Message = {
       id: crypto.randomUUID(),
@@ -260,9 +258,6 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                   typeof parsed.text === "string" ? parsed.text.slice(0, 32) : null,
                 serverDebug: lastTextDebugRef.current,
               });
-              if (!assistantContent) {
-                setAssistantStatus("输出答案中");
-              }
               assistantBufferRef.current += parsed.text;
               if (assistantFlushTimerRef.current === null) {
                 assistantFlushTimerRef.current = window.setTimeout(() => {
@@ -288,8 +283,6 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
                 assistantBufferRef.current = "";
                 applyAssistantContent(assistantContent);
               }
-            } else if (parsed.type === "assistant_status" && parsed.label) {
-              setAssistantStatus(String(parsed.label));
             } else if (parsed.type === "assistant_message" && parsed.messageId) {
               const previousAssistantId = currentAssistantIdRef.current ?? currentAssistantId;
               const nextId = String(parsed.messageId);
@@ -418,7 +411,6 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
       currentAssistantIdRef.current = null;
       assistantContentRef.current = "";
       setStreaming(false);
-      setAssistantStatus(null);
     }
   }
 
@@ -666,19 +658,12 @@ function AssistantFooter({
   hasLayoutTarget: boolean;
   onOpenLayout: () => void;
 }) {
-  const shouldShowProcess = isLatest && (isStreaming || toolEvents.length > 0);
+  const shouldShowProcess = isLatest && toolEvents.length > 0;
   const summary = buildToolSummary(toolEvents);
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
     let timer: number | undefined;
-
-    if (isStreaming) {
-      timer = window.setTimeout(() => {
-        setCollapsed(false);
-      }, 0);
-      return () => window.clearTimeout(timer);
-    }
 
     if (shouldShowProcess) {
       timer = window.setTimeout(() => {
@@ -768,11 +753,11 @@ function buildToolSummary(events: ToolEvent[]) {
   return `已完成${latestResult.label}`;
 }
 
-function buildLoadingSnapshot(events: ToolEvent[], assistantStatus: string | null): LoadingSnapshot {
+function buildLoadingSnapshot(events: ToolEvent[]): LoadingSnapshot {
   const activeToolEvent = [...events].reverse().find((event) => event.type === "tool_start");
   const latestToolName = activeToolEvent?.toolName;
-  const activeStage = resolveActiveStage(latestToolName, assistantStatus);
-  const meta = getToolMeta(latestToolName, assistantStatus);
+  const activeStage = resolveActiveStage(latestToolName);
+  const meta = getToolMeta(latestToolName);
   const order = ["understand", "retrieve", "compose", "generate", "stream"];
 
   const steps: LoadingStep[] = [
@@ -803,20 +788,16 @@ function stageState(
   return "pending";
 }
 
-function resolveActiveStage(toolName?: string, assistantStatus?: string | null) {
+function resolveActiveStage(toolName?: string) {
   if (toolName === "search_hot_topics" || toolName === "search_knowledge_base" || toolName === "analyze_journey_data" || toolName === "analyze_wxvideo_data" || toolName === "analyze_publish_timing") {
     return "retrieve";
   }
   if (toolName === "generate_topics") return "compose";
   if (toolName === "generate_article_draft" || toolName === "generate_full_article" || toolName === "revise_full_article") return "generate";
-  if (assistantStatus === "整合分析结果中") return "compose";
-  if (assistantStatus === "输出答案中") return "stream";
-  if (assistantStatus === "组织回答中") return "compose";
-  if (assistantStatus === "整理上下文中") return "retrieve";
   return "understand";
 }
 
-function getToolMeta(toolName?: string, assistantStatus?: string | null) {
+function getToolMeta(toolName?: string) {
   switch (toolName) {
     case "search_hot_topics":
       return { title: "搜索热点中", hint: "从近期内容里找最值得跟进的话题。" };
@@ -837,11 +818,7 @@ function getToolMeta(toolName?: string, assistantStatus?: string | null) {
     case "revise_full_article":
       return { title: "修改完整稿中", hint: "按你的要求调整语气、结构和表达。" };
     default:
-      if (assistantStatus === "整合分析结果中") return { title: "整合分析结果中", hint: "结合检索到的数据和分析结果生成回答。" };
-      if (assistantStatus === "输出答案中") return { title: "输出答案中", hint: "先把核心结论流式发出来。" };
-      if (assistantStatus === "组织回答中") return { title: "组织回答中", hint: "把线索压缩成更清晰的回答结构。" };
-      if (assistantStatus === "整理上下文中") return { title: "整理上下文中", hint: "结合当前对话和赛道背景继续处理。" };
-      return { title: "理解问题中", hint: "先判断你想要的是分析、检索还是生成。" };
+      return { title: "处理中", hint: "正在根据已触发的工具结果继续处理。" };
   }
 }
 

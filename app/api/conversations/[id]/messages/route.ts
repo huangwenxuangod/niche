@@ -62,8 +62,6 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
       };
       const perf = createPerfLogger(startTime);
 
-      send({ type: "assistant_status", label: "理解问题中", elapsed: perf.elapsed() });
-
       try {
         const cookieStore = await cookies();
         const supabase = createClient(cookieStore);
@@ -99,8 +97,6 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
           content,
         });
         perf.mark("user_message_saved");
-
-        send({ type: "assistant_status", label: "整理上下文中", elapsed: perf.elapsed() });
 
         const sessionStepsBeforeTurn = await getSessionSteps(supabase, conversationId);
         perf.mark("session_loaded");
@@ -174,9 +170,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
           }
 
           send({ type: "assistant_message", messageId: assistantMessage.id });
-          send({ type: "assistant_status", label: "输出答案中", elapsed: perf.elapsed() });
           send({ type: "text", text: layoutReply });
-          send({ type: "assistant_status", label: "已完成", elapsed: perf.elapsed() });
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           controller.close();
           return;
@@ -249,7 +243,6 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
         }
 
         send({ type: "assistant_message", messageId: assistantMessage.id });
-        send({ type: "assistant_status", label: "输出答案中", elapsed: perf.elapsed() });
 
         let finalAnswer = await streamSingleModelAnswer({
           systemPrompt,
