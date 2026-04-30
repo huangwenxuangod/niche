@@ -20,6 +20,17 @@ export type LlmThinkingProfile = "fast" | "default" | "deep";
 // Export client for direct access
 export { client, MODEL };
 
+function buildNonThinkingPayload() {
+  if (!/^glm-/i.test(MODEL)) {
+    return {};
+  }
+
+  return {
+    thinking: { type: "disabled" as const },
+    reasoning_effort: "minimal" as const,
+  };
+}
+
 // Stream chunk types
 export type StreamChunk =
   | { type: "text"; content: string }
@@ -59,6 +70,7 @@ export async function* streamChat(params: {
     tools: params.tools,
     stream: true,
     temperature: 0.7,
+    ...buildNonThinkingPayload(),
   });
 
   const responseReadyAt = Date.now();
@@ -221,6 +233,7 @@ export async function completeText(params: {
     model: MODEL,
     messages,
     temperature: 0.7,
+    ...buildNonThinkingPayload(),
   });
 
   return response.choices[0]?.message?.content ?? "";
@@ -240,6 +253,7 @@ export async function chat(params: {
       { role: "user", content: params.userContent },
     ],
     temperature: 0.7,
+    ...buildNonThinkingPayload(),
   });
 
   return response.choices[0]?.message?.content ?? "";
