@@ -67,6 +67,7 @@ export async function* streamChat(params: {
 
   let rawChunkIndex = 0;
   let textChunkIndex = 0;
+  let nonContentChunkDebugCount = 0;
   let firstRawChunkAt: number | null = null;
   let firstTextChunkAt: number | null = null;
   let lastRawChunkAt: number | null = null;
@@ -86,6 +87,7 @@ export async function* streamChat(params: {
     }
 
     const delta = chunk.choices[0]?.delta;
+    const choice = chunk.choices[0];
     const rawChunkDebug = {
       rawChunkIndex,
       at: now,
@@ -94,9 +96,45 @@ export async function* streamChat(params: {
       sincePrevRawChunk: lastRawChunkAt === null ? null : now - lastRawChunkAt,
       hasContent: Boolean(delta?.content),
       hasToolCalls: Boolean(delta?.tool_calls?.length),
-      finishReason: chunk.choices[0]?.finish_reason ?? null,
+      finishReason: choice?.finish_reason ?? null,
     };
     console.info("[llm.stream][raw_chunk]", rawChunkDebug);
+
+    if (!delta?.content) {
+      nonContentChunkDebugCount += 1;
+
+      if (nonContentChunkDebugCount <= 12 || rawChunkIndex % 100 === 0) {
+        const deltaKeys = delta ? Object.keys(delta) : [];
+        const choiceKeys = choice ? Object.keys(choice) : [];
+        console.info("[llm.stream][raw_chunk_shape]", {
+          rawChunkIndex,
+          nonContentChunkDebugCount,
+          deltaKeys,
+          choiceKeys,
+          role: delta?.role ?? null,
+          hasReasoningContent:
+            typeof (delta as Record<string, unknown> | undefined)?.["reasoning_content"] === "string",
+          hasReasoning:
+            typeof (delta as Record<string, unknown> | undefined)?.["reasoning"] === "string",
+          hasThinking:
+            typeof (delta as Record<string, unknown> | undefined)?.["thinking"] === "string",
+        });
+      }
+
+      if (nonContentChunkDebugCount <= 8) {
+        console.info(
+          "[llm.stream][raw_chunk_full]",
+          JSON.stringify(
+            {
+              rawChunkIndex,
+              choice,
+            },
+            null,
+            2,
+          ),
+        );
+      }
+    }
     lastRawChunkAt = now;
 
     if (delta?.content) {
