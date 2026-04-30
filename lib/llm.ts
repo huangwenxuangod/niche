@@ -37,10 +37,18 @@ export async function* streamChat(params: {
   messages: LlmMessage[];
   tools?: LlmTool[];
 }): AsyncGenerator<StreamChunk> {
+  const requestStartedAt = Date.now();
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: params.systemPrompt },
     ...params.messages,
   ];
+
+  console.info("[llm.stream][request_start]", {
+    requestStartedAt,
+    messageCount: messages.length,
+    hasTools: Boolean(params.tools?.length),
+    model: MODEL,
+  });
 
   const response = await client.chat.completions.create({
     model: MODEL,
@@ -50,10 +58,71 @@ export async function* streamChat(params: {
     temperature: 0.7,
   });
 
+  const responseReadyAt = Date.now();
+  console.info("[llm.stream][response_ready]", {
+    responseReadyAt,
+    sinceRequestStart: responseReadyAt - requestStartedAt,
+    model: MODEL,
+  });
+
+  let rawChunkIndex = 0;
+  let textChunkIndex = 0;
+  let firstRawChunkAt: number | null = null;
+  let firstTextChunkAt: number | null = null;
+  let lastRawChunkAt: number | null = null;
+  let lastTextChunkAt: number | null = null;
+
   for await (const chunk of response) {
+    const now = Date.now();
+    rawChunkIndex += 1;
+    if (firstRawChunkAt === null) {
+      firstRawChunkAt = now;
+      console.info("[llm.stream][first_raw_chunk]", {
+        rawChunkIndex,
+        at: now,
+        sinceRequestStart: now - requestStartedAt,
+        sinceResponseReady: now - responseReadyAt,
+      });
+    }
+
     const delta = chunk.choices[0]?.delta;
+    const rawChunkDebug = {
+      rawChunkIndex,
+      at: now,
+      sinceRequestStart: now - requestStartedAt,
+      sinceFirstRawChunk: now - firstRawChunkAt,
+      sincePrevRawChunk: lastRawChunkAt === null ? null : now - lastRawChunkAt,
+      hasContent: Boolean(delta?.content),
+      hasToolCalls: Boolean(delta?.tool_calls?.length),
+      finishReason: chunk.choices[0]?.finish_reason ?? null,
+    };
+    console.info("[llm.stream][raw_chunk]", rawChunkDebug);
+    lastRawChunkAt = now;
 
     if (delta?.content) {
+      textChunkIndex += 1;
+      if (firstTextChunkAt === null) {
+        firstTextChunkAt = now;
+        console.info("[llm.stream][first_text_chunk]", {
+          textChunkIndex,
+          at: now,
+          sinceRequestStart: now - requestStartedAt,
+          sinceResponseReady: now - responseReadyAt,
+          sinceFirstRawChunk: firstRawChunkAt === null ? null : now - firstRawChunkAt,
+          preview: delta.content.slice(0, 48),
+        });
+      }
+
+      console.info("[llm.stream][text_chunk]", {
+        textChunkIndex,
+        at: now,
+        sinceRequestStart: now - requestStartedAt,
+        sinceFirstTextChunk: now - firstTextChunkAt,
+        sincePrevTextChunk: lastTextChunkAt === null ? null : now - lastTextChunkAt,
+        length: delta.content.length,
+        preview: delta.content.slice(0, 48),
+      });
+      lastTextChunkAt = now;
       yield { type: "text", content: delta.content };
     }
 
@@ -61,6 +130,19 @@ export async function* streamChat(params: {
       yield { type: "tool_call", toolCalls: delta.tool_calls };
     }
   }
+
+  const finishedAt = Date.now();
+  console.info("[llm.stream][finished]", {
+    finishedAt,
+    sinceRequestStart: finishedAt - requestStartedAt,
+    sinceResponseReady: finishedAt - responseReadyAt,
+    sinceFirstRawChunk:
+      firstRawChunkAt === null ? null : finishedAt - firstRawChunkAt,
+    sinceFirstTextChunk:
+      firstTextChunkAt === null ? null : finishedAt - firstTextChunkAt,
+    rawChunkCount: rawChunkIndex,
+    textChunkCount: textChunkIndex,
+  });
 }
 
 export async function completeText(params: {
