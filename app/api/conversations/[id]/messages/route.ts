@@ -192,20 +192,26 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
           .limit(Math.max(historyLimit + 4, 6));
         perf.mark("context_loaded");
 
-        const prefetched = await prefetchIntentContext({
-          intent,
-          userContent: content,
-          confirmationContext,
-          context: toolContext,
-          send,
-          perf,
-        });
+        const prefetched =
+          intent === "fast_generation"
+            ? { intent, data: {} }
+            : await prefetchIntentContext({
+                intent,
+                userContent: content,
+                confirmationContext,
+                context: toolContext,
+                send,
+                perf,
+              });
         perf.mark("prefetch_completed");
 
-        const [userMemory, projectMemory] = await Promise.all([
-          getUserMemory(supabase, user.id),
-          ensureJourneyProjectMemory(supabase, conversation.journey_id),
-        ]);
+        const [userMemory, projectMemory] =
+          intent === "fast_generation"
+            ? ["", ""]
+            : await Promise.all([
+                getUserMemory(supabase, user.id),
+                ensureJourneyProjectMemory(supabase, conversation.journey_id),
+              ]);
         perf.mark("memory_cards_loaded");
 
         const systemPrompt = buildCompactPrompt({

@@ -26,6 +26,14 @@ test("routes explicit article writing requests to full_article intent", () => {
   assert.equal(detectIntent("帮我写一篇完整稿", emptyConfirmation), "full_article");
 });
 
+test("routes freeform generation requests to fast_generation intent", () => {
+  assert.equal(
+    detectIntent("帮我随意输出一篇长文，任何风格都可以", emptyConfirmation),
+    "fast_generation"
+  );
+  assert.equal(detectIntent("再说一遍", emptyConfirmation), "fast_generation");
+});
+
 test("routes selected topic confirmation to full_article intent", () => {
   assert.equal(
     detectIntent("第一个可以", {
@@ -47,6 +55,7 @@ test("extracts explicit account name from import style message", () => {
 });
 
 test("uses short history windows for production intents", () => {
+  assert.equal(getHistoryLimitForIntent("fast_generation"), 1);
   assert.equal(getHistoryLimitForIntent("publish_timing"), 2);
   assert.equal(getHistoryLimitForIntent("full_article"), 3);
   assert.equal(getHistoryLimitForIntent("growth_analysis"), 4);

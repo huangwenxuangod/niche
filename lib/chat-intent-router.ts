@@ -18,6 +18,7 @@ export type ConfirmationContext = {
 export type ChatIntent =
   | "topics"
   | "full_article"
+  | "fast_generation"
   | "publish_timing"
   | "growth_analysis"
   | "wxvideo_analysis"
@@ -41,6 +42,9 @@ export function detectIntent(
   }
   if (/(写稿|成稿|完整稿|文章|公众号稿)/.test(normalized)) {
     return "full_article";
+  }
+  if (isFastGenerationRequest(normalized)) {
+    return "fast_generation";
   }
   if (/(几点发|什么时候发|发布时间|发文时间|什么时间发更容易起量)/.test(normalized)) {
     return "publish_timing";
@@ -89,6 +93,12 @@ export function extractExplicitAccountName(userContent: string) {
 
 export function isGrowthAnalysisQuestion(normalizedText: string) {
   return /(增长规律|爆款规律|标题套路|为什么.*(起量|阅读量高|会爆)|高阅读.*原因|分析对标账号|增长分析)/.test(
+    normalizedText
+  );
+}
+
+export function isFastGenerationRequest(normalizedText: string) {
+  return /(再说一遍|重写一下|改写一下|润色一下|换个风格|来个开头|写个开头|随便写|随意写|随意输出|任意风格|任何风格|输出一篇长文|写一篇长文|生成一篇长文|来一篇长文)/.test(
     normalizedText
   );
 }

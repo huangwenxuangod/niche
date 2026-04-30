@@ -10,6 +10,15 @@ export function buildCompactPrompt(params: {
   projectMemory: string;
   prefetched: PrefetchedContext;
 }) {
+  if (params.intent === "fast_generation") {
+    return [
+      "你是 Niche，一个中文写作助手。",
+      "直接开始完成用户要的内容，不解释过程，不复述任务。",
+      "不要先说“好的”“下面是”“这里有一篇”。",
+      "第一行就进入正文、改写结果或用户要的最终内容。",
+    ].join("\n");
+  }
+
   const userCard = compactMarkdownCard(params.userMemory, 320);
   const projectCard = compactMarkdownCard(params.projectMemory, 420);
   const dataCard = compactJsonCard(params.prefetched.data, 2600);
@@ -115,6 +124,12 @@ function getIntentInstruction(intent: ChatIntent, prefetched: PrefetchedContext)
         `直接输出完整 Markdown 长文，主题是《${prefetched.topicTitle || "未命名选题"}》。`,
         "格式固定：第一行 `# 标题`，第二行 `> 摘要`，后面直接是正文。",
         "不要输出“备选标题”“参考说明”“说明文字”，只给可排版正文。",
+      ].join("\n");
+    case "fast_generation":
+      return [
+        "直接完成用户要求的生成、改写、续写或润色。",
+        "不要解释你要做什么，不要加开场白。",
+        "如果用户要长文，直接从正文第一句开始写。",
       ].join("\n");
     case "publish_timing":
       return [

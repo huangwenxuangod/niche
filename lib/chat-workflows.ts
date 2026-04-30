@@ -11,6 +11,7 @@ export type WorkflowPrefetchNode =
 export type WorkflowGenerationKind =
   | "topics_output"
   | "article_output"
+  | "fast_generation_output"
   | "timing_output"
   | "growth_output"
   | "wxvideo_output"
@@ -37,6 +38,12 @@ export const CHAT_WORKFLOWS: Record<ChatIntent, WorkflowDefinition> = {
     historyLimit: 3,
     prefetch: ["journey_analysis", "knowledge_refs", "semantic_refs"],
     generation: "article_output",
+  },
+  fast_generation: {
+    intent: "fast_generation",
+    historyLimit: 1,
+    prefetch: [],
+    generation: "fast_generation_output",
   },
   publish_timing: {
     intent: "publish_timing",
