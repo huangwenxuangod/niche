@@ -68,5 +68,13 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  if (koc?.id) {
+    await supabase
+      .from("journeys")
+      .update({ primary_koc_source_id: koc.id })
+      .eq("id", journey_id)
+      .eq("user_id", user.id);
+  }
+
   return NextResponse.json(koc);
 }

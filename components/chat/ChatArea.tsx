@@ -733,8 +733,11 @@ function buildToolSummary(events: ToolEvent[]) {
 
   const payload = latestResult.payload ?? {};
 
+  if (latestResult.toolName === "web_search" && Array.isArray(payload.results)) {
+    return `已补充网页资料，找到 ${payload.results.length} 条参考`;
+  }
   if (latestResult.toolName === "search_hot_topics" && Array.isArray(payload.topics)) {
-    return `已搜索热点，找到 ${payload.topics.length} 条候选`;
+    return `已补充外部资料，找到 ${payload.topics.length} 条参考`;
   }
   if (latestResult.toolName === "search_knowledge_base" && Array.isArray(payload.articles)) {
     return `已检索知识库，命中 ${payload.articles.length} 篇内容`;
@@ -793,7 +796,14 @@ function stageState(
 }
 
 function resolveActiveStage(toolName?: string) {
-  if (toolName === "search_hot_topics" || toolName === "search_knowledge_base" || toolName === "analyze_journey_data" || toolName === "analyze_wxvideo_data" || toolName === "analyze_publish_timing") {
+  if (
+    toolName === "web_search" ||
+    toolName === "search_hot_topics" ||
+    toolName === "search_knowledge_base" ||
+    toolName === "analyze_journey_data" ||
+    toolName === "analyze_wxvideo_data" ||
+    toolName === "analyze_publish_timing"
+  ) {
     return "retrieve";
   }
   if (toolName === "generate_topics") return "compose";
@@ -803,8 +813,10 @@ function resolveActiveStage(toolName?: string) {
 
 function getToolMeta(toolName?: string) {
   switch (toolName) {
+    case "web_search":
+      return { title: "补充网页资料中", hint: "遇到陌生概念、最近动态或缺失背景时，先补齐外部上下文。" };
     case "search_hot_topics":
-      return { title: "搜索热点中", hint: "从近期内容里找最值得跟进的话题。" };
+      return { title: "补充外部资料中", hint: "从外部内容里补充近期话题和背景信息。" };
     case "search_knowledge_base":
       return { title: "检索知识库中", hint: "从已同步文章里找能支撑答案的案例。" };
     case "analyze_journey_data":

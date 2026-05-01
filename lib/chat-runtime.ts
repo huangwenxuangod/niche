@@ -14,6 +14,7 @@ export type PrefetchedContext = {
 };
 
 export type DeterministicToolName =
+  | "web_search"
   | "analyze_journey_data"
   | "analyze_wxvideo_data"
   | "analyze_publish_timing"

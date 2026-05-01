@@ -41,7 +41,7 @@ export function IdentityForm({
           marginBottom: 8,
         }}
       >
-        身份备注
+        当前判断摘要
       </div>
       <textarea
         value={identityValue}
@@ -61,7 +61,7 @@ export function IdentityForm({
           resize: "vertical",
           marginBottom: 24,
         }}
-        placeholder="简短描述你的身份..."
+        placeholder="写下你现在最明确、最想保留的一段判断..."
       />
       <div
         style={{
@@ -73,7 +73,7 @@ export function IdentityForm({
           marginBottom: 8,
         }}
       >
-        AI 已记住的内容
+        AI 正在持续沉淀的认知
       </div>
       <textarea
         value={memoryValue}
@@ -94,22 +94,28 @@ export function IdentityForm({
           marginBottom: 16,
           whiteSpace: "pre-wrap",
         }}
-        placeholder="# 用户记忆
+        placeholder="# 用户认知
 
-## 身份与背景
-（填写你的身份和背景信息）
+## 我反复在意的问题
+（填写你总在反复思考的问题）
 
-## 赛道与变现
-（填写你的赛道和变现模式）
+## 我目前形成的判断
+（填写你现在已经比较明确的主张）
 
-## 风格偏好
-（填写你的内容风格偏好）
+## 我还没想透的问题
+（填写你还在继续想的部分）
 
-## 已确认对标账号
-（已确认的对标账号列表）
+## 我的关键经历
+（填写真正影响过你的案例和经历）
 
-## 历史决策
-（重要的历史决策记录）
+## 我的长期主题
+（填写你想长期持续写下去的主题）
+
+## 当前核心对标
+（填写你现在最想长期研究的一个对象）
+
+## 我从核心对标学到的可迁移资产
+（填写你觉得真正值得吸收，而不是照抄的东西）
 "
       />
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

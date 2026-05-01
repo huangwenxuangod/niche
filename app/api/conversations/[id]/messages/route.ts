@@ -283,8 +283,11 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
 
         void finalizeTurnMemory({
           supabase,
+          userId: user.id,
           conversationId,
           journeyId: conversation.journey_id,
+          userContent: content,
+          intent,
           displayAnswer,
           confirmationContext,
         });

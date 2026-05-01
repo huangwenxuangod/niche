@@ -1,5 +1,6 @@
 import { searchJourneyKnowledge } from "@/lib/knowledge-base";
 import { retrieveSemanticCompetitorContent } from "@/lib/agent/retrievers/semantic-knowledge";
+import { searchWebContext } from "@/lib/web-search";
 import { recordStep } from "@/lib/agent/memory/session-memory";
 import type { ToolExecutionContext } from "@/lib/agent/tools/types";
 import { runAnalyzeJourneyData } from "@/lib/agent/tools/analyze-journey-data";
@@ -24,18 +25,23 @@ export async function prefetchIntentContext(params: {
   switch (intent) {
     case "topics": {
       sendStatus(send, "准备选题素材中", perf);
-      const journeyAnalysis = await runObservedTool(
-        "analyze_journey_data",
-        { focus: "topic_generation" },
-        context,
-        send
-      );
-      return { intent, data: { journeyAnalysis } };
+      const [journeyAnalysis, webContext] = await Promise.all([
+        runObservedTool(
+          "analyze_journey_data",
+          { focus: "topic_generation" },
+          context,
+          send
+        ),
+        shouldAutoWebSearch(userContent, context.journey?.keywords ?? [])
+          ? runObservedTool("web_search", { query: userContent }, context, send)
+          : Promise.resolve(null),
+      ]);
+      return { intent, data: { journeyAnalysis, webContext } };
     }
     case "full_article": {
       sendStatus(send, "准备写作素材中", perf);
       const topic = resolveArticleTopic(userContent, confirmationContext, context.journey?.keywords ?? []);
-      const [journeyAnalysis, knowledge, semanticReferences] = await Promise.all([
+      const [journeyAnalysis, knowledge, semanticReferences, webContext] = await Promise.all([
         runObservedTool("analyze_journey_data", { focus: "viral_patterns" }, context, send),
         searchJourneyKnowledge(context.supabase, context.journeyId, topic.title, 5),
         retrieveSemanticCompetitorContent(context.supabase, {
@@ -43,6 +49,9 @@ export async function prefetchIntentContext(params: {
           query: [topic.title, topic.angle].filter(Boolean).join("\n"),
           limit: 6,
         }).catch(() => []),
+        shouldAutoWebSearch(userContent, context.journey?.keywords ?? [])
+          ? runObservedTool("web_search", { query: [topic.title, topic.angle].filter(Boolean).join(" ") }, context, send)
+          : Promise.resolve(null),
       ]);
       return {
         intent,
@@ -51,6 +60,7 @@ export async function prefetchIntentContext(params: {
         data: {
           journeyAnalysis,
           knowledge,
+          webContext,
           semanticReferences: semanticReferences.map((item) => ({
             article_title: item.article_title,
             account_name: item.account_name,
@@ -121,6 +131,15 @@ export async function prefetchIntentContext(params: {
     }
     case "general":
     default:
+      if (shouldAutoWebSearch(userContent, context.journey?.keywords ?? [])) {
+        const webContext = await runObservedTool(
+          "web_search",
+          { query: userContent },
+          context,
+          send
+        );
+        return { intent: "general", data: { webContext } };
+      }
       return { intent: "general", data: {} };
   }
 }
@@ -200,6 +219,12 @@ async function executeDeterministicTool(
   context: ToolExecutionContext
 ) {
   switch (toolName) {
+    case "web_search":
+      return searchWebContext({
+        query: String(rawArgs.query || ""),
+        maxResults: 4,
+        days: 30,
+      });
     case "analyze_journey_data":
       return runAnalyzeJourneyData(
         rawArgs as { focus?: "viral_patterns" | "koc_summary" | "topic_generation" },
@@ -278,6 +303,8 @@ export function sanitizePayload(result: unknown) {
 
 export function getToolLabel(toolName: string) {
   switch (toolName) {
+    case "web_search":
+      return "搜索网页资料";
     case "analyze_journey_data":
       return "分析对标样本";
     case "analyze_wxvideo_data":
@@ -289,6 +316,33 @@ export function getToolLabel(toolName: string) {
     default:
       return toolName;
   }
+}
+
+function shouldAutoWebSearch(userContent: string, journeyKeywords: string[]) {
+  const text = userContent.trim();
+  const normalized = text.toLowerCase();
+
+  if (!text) return false;
+  if (/https?:\/\//i.test(text)) return true;
+  if (/(最近|最新|刚刚|今天|这周|本周|发布|上线|新功能|更新|是什么|谁是|没见过|不了解|不认识)/.test(text)) {
+    return true;
+  }
+  if (/[A-Z]{2,}|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*/.test(text)) {
+    return true;
+  }
+
+  const compactKeywords = (journeyKeywords ?? [])
+    .map((item) => String(item || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  if (
+    compactKeywords.length &&
+    compactKeywords.every((keyword) => !normalized.includes(keyword))
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function sendStatus(

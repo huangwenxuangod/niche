@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import {
+  ensureJourneyProjectMemory,
+  extractOwnedWechatAccountNameFromProjectMemory,
+  getJourneyProjectMemory,
+  mergeOwnedWechatAccountNameIntoProjectMemory,
+  saveJourneyProjectMemory,
+} from "@/lib/memory";
 import type { WechatDashboardData } from "@/lib/data";
 
 const MOCK_DATA: WechatDashboardData = {
@@ -92,5 +99,60 @@ export async function GET(req: NextRequest) {
 
   if (!journey) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return NextResponse.json({ ...MOCK_DATA, is_demo: true });
+  const projectMemory = await ensureJourneyProjectMemory(supabase, journeyId);
+  const accountName = extractOwnedWechatAccountNameFromProjectMemory(projectMemory);
+
+  if (!accountName) {
+    return NextResponse.json({
+      configured: false,
+      account_name: "",
+    });
+  }
+
+  return NextResponse.json({
+    configured: true,
+    account_name: accountName,
+    ...MOCK_DATA,
+    account: {
+      ...MOCK_DATA.account,
+      name: accountName,
+    },
+    is_demo: true,
+  });
+}
+
+export async function POST(req: NextRequest) {
+  const cookieStore = await cookies();
+  const supabase = createClient(cookieStore);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = await req.json();
+  const journeyId = String(body.journey_id ?? "");
+  const accountName = String(body.account_name ?? "").trim();
+
+  if (!journeyId) {
+    return NextResponse.json({ error: "Missing journey_id" }, { status: 400 });
+  }
+
+  const { data: journey } = await supabase
+    .from("journeys")
+    .select("id")
+    .eq("id", journeyId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!journey) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const projectMemory = await getJourneyProjectMemory(supabase, journeyId);
+  const merged = mergeOwnedWechatAccountNameIntoProjectMemory(projectMemory, accountName);
+  await saveJourneyProjectMemory(supabase, journeyId, merged);
+
+  return NextResponse.json({
+    success: true,
+    configured: Boolean(accountName),
+    account_name: accountName,
+  });
 }

@@ -33,6 +33,7 @@ export type Journey = {
   name: string;
   platform: string;
   keywords?: string[] | null;
+  primary_koc_source_id?: string | null;
   is_active: boolean;
   knowledge_initialized: boolean;
   init_status: "pending" | "running" | "done" | "error";

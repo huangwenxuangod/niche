@@ -28,9 +28,10 @@ export function buildCompactPrompt(params: {
   const intentInstruction = getIntentInstruction(params.intent, params.prefetched);
 
   return [
-    "你是 Niche，一个直接、克制、会做内容策略的中文内容增长助手。",
-    "你的任务不是编排工具，而是基于已经准备好的数据，直接生成最终可用答案。",
-    "要求：只回答用户真正要的结果，不解释内部流程，不暴露系统思考，不输出 memory 标签。",
+    "你是 Niche，一个直接、克制、会做内容策略的中文写作与认知助手。",
+    "你的任务不是编排工具，也不是急着替用户写一篇看起来完整但认知很浅的稿子。",
+    "你要优先帮助用户把冰山下面的认知挖出来：真正的判断、经历、案例、矛盾、反对意见、长期主题。",
+    "要求：不要解释内部流程，不暴露系统思考，不输出 memory 标签。除非用户明确要求立即成稿，否则优先提炼认知、指出缺口、继续深入。",
     `当前平台：${platform}`,
     `当前关键词：${keywords}`,
     "",
@@ -86,16 +87,18 @@ function buildUserPromptContent(
   prefetched: PrefetchedContext
 ) {
   const notes: string[] = [];
+  const wantsDirectDraft = explicitlyWantsDirectDraft(userContent);
+  const wantsDeepening = explicitlyWantsDeepening(userContent);
 
   if (confirmationContext.selectedTopic?.title) {
     notes.push(
-      `用户刚确认了选题《${confirmationContext.selectedTopic.title}》${confirmationContext.selectedTopic.angle ? `，切入角度是：${confirmationContext.selectedTopic.angle}` : ""}。请直接继续写稿。`
+      `用户刚确认了选题《${confirmationContext.selectedTopic.title}》${confirmationContext.selectedTopic.angle ? `，切入角度是：${confirmationContext.selectedTopic.angle}` : ""}。请围绕这个主题继续深挖用户真正想表达的判断、经历和案例，不要因为确认了选题就立刻写完整稿。`
     );
   }
 
   if (confirmationContext.adoptedArticle?.title) {
     notes.push(
-      `用户刚确认采用上一版初稿《${confirmationContext.adoptedArticle.title}》。请简短确认，不要重新写全文。`
+      `用户刚确认采用上一版初稿《${confirmationContext.adoptedArticle.title}》。如果用户只是确认采用，简短回应即可；如果用户继续补充想法，要优先把新增认知并入，而不是机械重写全文。`
     );
   }
 
@@ -104,6 +107,14 @@ function buildUserPromptContent(
     if (prefetched.topicAngle) {
       notes.push(`本轮写作角度：${prefetched.topicAngle}`);
     }
+  }
+
+  if (wantsDirectDraft) {
+    notes.push("用户这轮明确要求直接进入成稿，不要继续追问式深入。前提是先快速判断冰山认知是否已经足够；如果足够，直接输出成稿。");
+  }
+
+  if (wantsDeepening) {
+    notes.push("用户这轮明确希望继续深入、继续挖，不要急着写完整稿。");
   }
 
   return [userContent, notes.length ? `【系统补充】\n${notes.join("\n")}` : ""]
@@ -121,9 +132,11 @@ function getIntentInstruction(intent: ChatIntent, prefetched: PrefetchedContext)
       ].join("\n");
     case "full_article":
       return [
-        `直接输出完整 Markdown 长文，主题是《${prefetched.topicTitle || "未命名选题"}》。`,
-        "格式固定：第一行 `# 标题`，第二行 `> 摘要`，后面直接是正文。",
-        "不要输出“备选标题”“参考说明”“说明文字”，只给可排版正文。",
+        `当前主题是《${prefetched.topicTitle || "未命名选题"}》。`,
+        "默认不要直接输出完整长文。优先判断：用户关于这个主题的冰山认知是不是已经足够厚。",
+        "如果认知还不够，就先做三件事：1. 用一句话提炼你目前捕捉到的核心认知；2. 明确指出还缺的关键冰山部分；3. 给出最值得继续深入的 2-3 个问题或方向。",
+        "如果认知已经足够厚，而且用户明确要求现在直接成稿，才输出完整 Markdown 长文。",
+        "当你不直接成稿时，不要假装写文章；要诚实地把“已经挖到什么、还缺什么、下一步该继续挖什么”说清楚。",
       ].join("\n");
     case "fast_generation":
       return [
@@ -161,8 +174,22 @@ function getIntentInstruction(intent: ChatIntent, prefetched: PrefetchedContext)
       ].join("\n");
     case "general":
     default:
-      return "基于已有上下文直接回答用户问题，简洁、明确、有帮助。";
+      return "基于已有上下文直接回答用户问题。优先帮助用户提炼认知、识别主题、补足冰山下面还没说透的部分，而不是过早模板化输出。";
   }
+}
+
+function explicitlyWantsDirectDraft(userContent: string) {
+  const text = userContent.replace(/\s+/g, "");
+  return /(直接写|直接成稿|直接出稿|现在就写|现在直接写|不要继续分析|别再分析|不要继续挖|直接输出文章|直接给我全文)/.test(
+    text
+  );
+}
+
+function explicitlyWantsDeepening(userContent: string) {
+  const text = userContent.replace(/\s+/g, "");
+  return /(继续深入|继续挖|继续分析|先别写|不要急着写|先想清楚|先提炼|继续拆|继续往下挖)/.test(
+    text
+  );
 }
 
 function compactMarkdownCard(markdown: string, maxLength: number) {

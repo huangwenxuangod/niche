@@ -26,6 +26,15 @@ export async function POST(req: NextRequest) {
       journey_id,
       input
     );
+
+    if (result?.kocId) {
+      await supabase
+        .from("journeys")
+        .update({ primary_koc_source_id: result.kocId })
+        .eq("id", journey_id)
+        .eq("user_id", user.id);
+    }
+
     return NextResponse.json(result);
   } catch (err) {
     console.error("Import failed:", err);

@@ -1,4 +1,8 @@
-import { appendJourneyProjectMemoryItems } from "@/lib/memory";
+import {
+  appendJourneyProjectMemoryItems,
+  compactAndSaveJourneyProjectMemory,
+  compactAndSaveUserMemory,
+} from "@/lib/memory";
 import { recordStep, type StepRecord } from "@/lib/agent/memory/session-memory";
 import type { ToolExecutionContext } from "@/lib/agent/tools/types";
 import type { ConfirmationContext, GeneratedTopic } from "./chat-intent-router";
@@ -63,8 +67,11 @@ export async function applyDeterministicMemoryUpdates(
 
 export async function finalizeTurnMemory(params: {
   supabase: ToolExecutionContext["supabase"];
+  userId: string;
   conversationId: string;
   journeyId: string;
+  userContent: string;
+  intent: ChatIntent;
   displayAnswer: string;
   confirmationContext: ConfirmationContext;
 }) {
@@ -86,6 +93,26 @@ export async function finalizeTurnMemory(params: {
         params.confirmationContext.memoryFacts
       );
     }
+
+    const conversationMarkdown = buildMemoryTranscript({
+      userContent: params.userContent,
+      assistantContent: params.displayAnswer,
+      intent: params.intent,
+      confirmationContext: params.confirmationContext,
+    });
+
+    await Promise.all([
+      compactAndSaveUserMemory(
+        params.supabase,
+        params.userId,
+        conversationMarkdown
+      ),
+      compactAndSaveJourneyProjectMemory(
+        params.supabase,
+        params.journeyId,
+        conversationMarkdown
+      ),
+    ]);
   } catch (error) {
     console.warn("[messages.route] finalize memory failed", error);
   }
@@ -118,7 +145,10 @@ export async function recordIntentArtifacts(params: {
   }
 
   if (params.intent === "full_article") {
-    const title = parseArticleTitle(params.answer) || params.prefetched.topicTitle || "未命名文章";
+    const title = parseArticleTitle(params.answer);
+    if (!title) {
+      return;
+    }
     await recordStep(params.supabase, params.conversationId, {
       id: crypto.randomUUID(),
       type: "observation",
@@ -261,4 +291,33 @@ function parseGeneratedTopics(answer: string): GeneratedTopic[] {
 function parseArticleTitle(answer: string) {
   const match = answer.match(/^#\s+(.+)$/m);
   return match?.[1]?.trim() ?? "";
+}
+
+function buildMemoryTranscript(params: {
+  userContent: string;
+  assistantContent: string;
+  intent: ChatIntent;
+  confirmationContext: ConfirmationContext;
+}) {
+  const signals = [
+    params.confirmationContext.selectedTopic?.title
+      ? `已确认选题：${params.confirmationContext.selectedTopic.title}${params.confirmationContext.selectedTopic.angle ? `｜角度：${params.confirmationContext.selectedTopic.angle}` : ""}`
+      : "",
+    params.confirmationContext.adoptedArticle?.title
+      ? `已采用初稿：${params.confirmationContext.adoptedArticle.title}`
+      : "",
+  ].filter(Boolean);
+
+  return [
+    "# 本轮写作记录",
+    "",
+    `- intent: ${params.intent}`,
+    ...(signals.length ? signals.map((item) => `- ${item}`) : []),
+    "",
+    "## 用户原话",
+    params.userContent.trim() || "（空）",
+    "",
+    "## 助手本轮回应",
+    params.assistantContent.trim() || "（空）",
+  ].join("\n");
 }

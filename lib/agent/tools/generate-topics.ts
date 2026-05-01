@@ -28,7 +28,7 @@ export const generateTopicsToolDefinition: AgentToolDefinition<typeof generateTo
 
 【触发关键词】选题、推荐选题、给我选题、生成选题
 
-【调用建议】建议在调用本工具前，先调用 search_hot_topics 和 analyze_journey_data
+【调用建议】建议在调用本工具前，先补网页资料（web_search）并分析对标样本（analyze_journey_data）
 
 【参数】
 - count: 选题数量，默认 3

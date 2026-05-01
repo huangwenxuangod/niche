@@ -147,39 +147,29 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
               )}
             </div>
 
-            {/* Data retrospective toggle */}
+            {/* Owned account toggle */}
             <div style={{ display: "flex", alignItems: "center", padding: "0 8px 0 12px" }}>
               <button
                 onClick={() => setDashboardOpen(!dashboardOpen)}
                 style={{ ...navItemStyle, flex: 1, padding: "6px 4px" }}
               >
                 <ChevronIcon open={dashboardOpen} />
-                📊 数据复盘
+                我的公众号
               </button>
-              {activeJourney && (
-                <Link href={`/journey/${activeJourney.id}/dashboard`} style={{ padding: "4px", color: "var(--text-tertiary)", fontSize: 12, textDecoration: "none", borderRadius: 4 }}>
-                  详情
-                </Link>
-              )}
             </div>
             {dashboardOpen && activeJourney && (
               <DashboardPanel journeyId={activeJourney.id} />
             )}
 
-            {/* Benchmark accounts toggle */}
+            {/* Core benchmark toggle */}
             <div style={{ display: "flex", alignItems: "center", padding: "0 8px 0 12px" }}>
               <button
                 onClick={() => setKocOpen(!kocOpen)}
                 style={{ ...navItemStyle, flex: 1, padding: "6px 4px" }}
               >
                 <ChevronIcon open={kocOpen} />
-                📋 对标账号
+                核心对标
               </button>
-              {activeJourney && (
-                <Link href={`/journey/${activeJourney.id}/koc`} style={{ padding: "4px", color: "var(--text-tertiary)", fontSize: 12, textDecoration: "none", borderRadius: 4 }}>
-                  管理
-                </Link>
-              )}
             </div>
             {kocOpen && activeJourney && (
               <KOCListPanel journeyId={activeJourney.id} />
@@ -249,7 +239,7 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
       <div style={{ borderTop: "1px solid var(--border)", padding: "10px 12px 12px" }}>
         <Link href="/profile" style={{ textDecoration: "none" }}>
           <div style={footerBtnStyle}>
-            <GearIcon /> 我是谁
+            <GearIcon /> 我的认知
           </div>
         </Link>
         <button onClick={signOut} style={{ ...footerBtnStyle, width: "100%", background: "none", border: "none", cursor: "pointer", textAlign: "left" }}>

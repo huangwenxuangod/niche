@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     .from("journeys")
     .insert({
       user_id: user.id,
-      name: `${platformLabel}内容增长旅程`,
+      name: `${platformLabel}写作与认知旅程`,
       platform: resolvedPlatform,
       keywords: [],
       is_active: true,

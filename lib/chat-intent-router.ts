@@ -40,7 +40,7 @@ export function detectIntent(
   if (/视频脚本|短视频脚本|口播稿|口播脚本/.test(normalized)) {
     return "video_script";
   }
-  if (/(写稿|成稿|完整稿|文章|公众号稿)/.test(normalized)) {
+  if (/(写稿|成稿|完整稿|文章|公众号稿|长文)/.test(normalized)) {
     return "full_article";
   }
   if (isFastGenerationRequest(normalized)) {
@@ -98,7 +98,7 @@ export function isGrowthAnalysisQuestion(normalizedText: string) {
 }
 
 export function isFastGenerationRequest(normalizedText: string) {
-  return /(再说一遍|重写一下|改写一下|润色一下|换个风格|来个开头|写个开头|随便写|随意写|随意输出|任意风格|任何风格|输出一篇长文|写一篇长文|生成一篇长文|来一篇长文)/.test(
+  return /(再说一遍|重写一下|改写一下|润色一下|换个风格|来个开头|写个开头|随便写|随意写|随意输出|任意风格|任何风格)/.test(
     normalizedText
   );
 }

@@ -2,6 +2,17 @@
 
 import { useState, useEffect } from "react";
 import type { WechatDashboardData } from "@/lib/data";
+import { toast } from "@/lib/toast";
+
+type DashboardResponse =
+  | ({
+      configured: false;
+      account_name: string;
+    })
+  | ({
+      configured: true;
+      account_name: string;
+    } & WechatDashboardData);
 
 function fmtCount(n: number): string {
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
@@ -11,7 +22,10 @@ function fmtCount(n: number): string {
 
 export function DashboardPanel({ journeyId }: { journeyId: string }) {
   const [data, setData] = useState<WechatDashboardData | null>(null);
+  const [configured, setConfigured] = useState(false);
+  const [accountName, setAccountName] = useState("");
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!journeyId) {
@@ -20,12 +34,56 @@ export function DashboardPanel({ journeyId }: { journeyId: string }) {
     }
     fetch(`/api/wechat/dashboard?journey_id=${journeyId}`)
       .then((res) => res.json())
-      .then((d: WechatDashboardData) => {
+      .then((d: DashboardResponse) => {
+        if (!d.configured) {
+          setConfigured(false);
+          setAccountName(d.account_name || "");
+          setData(null);
+          setLoading(false);
+          return;
+        }
+
+        setConfigured(true);
+        setAccountName(d.account_name || "");
         setData(d);
         setLoading(false);
       })
       .catch(() => setLoading(false));
   }, [journeyId]);
+
+  async function saveAccountName() {
+    if (!accountName.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/wechat/dashboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          journey_id: journeyId,
+          account_name: accountName.trim(),
+        }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(typeof payload?.error === "string" ? payload.error : "保存失败");
+      }
+
+      const refreshed = await fetch(`/api/wechat/dashboard?journey_id=${journeyId}`).then((r) =>
+        r.json()
+      ) as DashboardResponse;
+
+      if (refreshed.configured) {
+        setConfigured(true);
+        setData(refreshed);
+      }
+      toast.success("公众号已配置");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div
@@ -39,6 +97,58 @@ export function DashboardPanel({ journeyId }: { journeyId: string }) {
       {loading ? (
         <div style={{ fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", padding: "4px 0" }}>
           加载中...
+        </div>
+      ) : !configured ? (
+        <div
+          style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            padding: "10px",
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)", marginBottom: 6 }}>
+            先配置你的公众号
+          </div>
+          <div style={{ fontSize: 10, color: "var(--text-tertiary)", lineHeight: 1.6, marginBottom: 10 }}>
+            填入你的公众号名称，后续这里会持续沉淀你的内容表现，帮你看到哪些表达真正有效。
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              value={accountName}
+              onChange={(e) => setAccountName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveAccountName()}
+              placeholder="输入你的公众号名称"
+              style={{
+                flex: 1,
+                background: "var(--bg-base)",
+                border: "1px solid var(--border)",
+                borderRadius: 4,
+                padding: "6px 8px",
+                fontSize: 11,
+                color: "var(--text-primary)",
+                outline: "none",
+                fontFamily: "var(--font-body)",
+              }}
+            />
+            <button
+              onClick={saveAccountName}
+              disabled={saving || !accountName.trim()}
+              style={{
+                padding: "0 10px",
+                background: "var(--accent-dim)",
+                border: "1px solid rgba(200,150,90,0.25)",
+                borderRadius: 4,
+                color: "var(--accent)",
+                fontSize: 11,
+                cursor: saving ? "not-allowed" : "pointer",
+                fontFamily: "var(--font-body)",
+                opacity: saving ? 0.7 : 1,
+              }}
+            >
+              {saving ? "保存中..." : "保存"}
+            </button>
+          </div>
         </div>
       ) : !data ? (
         <div style={{ fontSize: 10, color: "var(--text-tertiary)", fontFamily: "var(--font-mono)", padding: "4px 0" }}>
@@ -59,7 +169,7 @@ export function DashboardPanel({ journeyId }: { journeyId: string }) {
             </span>
             <div style={{ display: "flex", gap: 4 }}>
               {data.is_demo && <span style={demoTagStyle}>演示</span>}
-              <span style={tagStyle}>数据复盘</span>
+              <span style={tagStyle}>我的公众号</span>
             </div>
           </div>
           <div style={{ display: "flex", gap: 10 }}>

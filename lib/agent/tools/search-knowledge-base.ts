@@ -22,7 +22,7 @@ export const searchKnowledgeBaseToolDefinition: AgentToolDefinition<
 - "对标 XXX" → 应先调用 import_koc_by_name
 - "搜索 XXX" → 应使用 search_wechat_hot_articles（外部搜索）
 
-【调用建议】如果用户同时问热点或趋势，建议本工具与 search_hot_topics 配合使用
+【调用建议】如果用户同时问最近动态、陌生概念或缺少上下文，建议本工具与 web_search 配合使用
 
 【参数】
 - query: 检索关键词（选题、概念、标题方向）

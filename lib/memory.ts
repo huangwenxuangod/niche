@@ -143,6 +143,9 @@ export async function ensureJourneyProjectMemory(
     "## 平台与范围",
     `平台：${journey?.platform ?? "未知"}${Array.isArray(journey?.keywords) && journey?.keywords.length ? ` | 关键词：${journey.keywords.join("、")}` : ""}`,
     "",
+    "## 我的公众号",
+    "（暂无）",
+    "",
     "## 当前策略卡片",
     "- 待建立",
     "",
@@ -171,14 +174,18 @@ export async function compactAndSaveUserMemory(
 ) {
   const current = await getUserMemory(supabase, userId);
 
-  const prompt = `你是一个记忆管理助手。请把对话中值得长期保留的稳定用户事实，合并到现有的用户记忆文档中。
+  const prompt = `你是一个创作者认知记忆助手。请把这一轮对话里值得长期保留的用户认知，合并到现有的用户记忆文档中。
+
+你维护的不是资料库，而是“这个用户是谁、反复在意什么、已经形成了哪些判断”的认知母本。
 
 规则：
-1. 只记录确认过的长期事实：身份、背景、赛道偏好、风格偏好、明确的长期目标
-2. 不记录一次性工具结果、临时问题、未确认猜测
-3. 如果没有新的长期事实，原样返回现有记忆
-4. 保持 Markdown 结构清晰
-5. 只输出记忆文档本身
+1. 只记录长期有效的认知资产：反复在意的问题、已经形成的判断、还没想透的问题、关键经历、长期主题、当前核心对标、从核心对标学到的可迁移资产
+2. 优先保留用户自己的判断、经历、反对意见、价值偏好；不要把 AI 为了成稿而补的套话、模板话、空泛方法论写进去
+3. 不记录一次性工具结果、临时安排、表层闲聊、未确认猜测
+4. 如果本轮只有成稿，没有新增认知，就尽量保持原文档不动
+5. 允许把散乱表达提炼成更稳定的一两句判断，但不要改写到失去原意
+6. 保持现有 Markdown 结构，不要新增奇怪层级
+7. 只输出更新后的 Markdown 文档本身，不要解释
 
 【现有用户记忆】
 ${current || defaultUserMemory()}
@@ -188,7 +195,7 @@ ${conversationMarkdown}`;
 
   try {
     const updated = await chat({
-      systemPrompt: "你是记忆管理助手，只输出更新后的 Markdown 用户记忆文档。",
+      systemPrompt: "你是创作者认知记忆助手，只输出更新后的 Markdown 用户记忆文档。",
       userContent: prompt,
     });
 
@@ -207,15 +214,16 @@ export async function compactAndSaveJourneyProjectMemory(
 ) {
   const current = (await getJourneyProjectMemory(supabase, journeyId)) || defaultJourneyProjectMemory();
 
-  const prompt = `你是一个项目记忆管理助手。请把对话中已经确认的项目级策略信息，合并到现有的项目记忆文档中。
+  const prompt = `你是一个项目记忆助手。请把这一轮对话里已经相对明确的项目级信息，合并到现有的项目记忆文档中。
 
 规则：
-1. 只记录项目级信息：当前策略、已验证选题模式、增长假设、对标观察
-2. 不记录用户全局身份信息
-3. 不记录一次性工具报错和未确认猜测
-4. 如果没有新的项目级事实，原样返回现有记忆
-5. 保持 Markdown 结构清晰
-6. 只输出文档本身
+1. 只记录项目级内容：我的公众号、当前策略卡片、已验证选题模式、当前增长假设、当前对标观察
+2. 优先记录对写作和长期产出真的有帮助的东西，而不是把整轮回答搬进来
+3. 不记录用户全局身份信息，不记录一次性工具报错，不记录未确认猜测
+4. 如果这一轮只是继续写稿、没有新的项目级信息，就尽量保持原文档不动
+5. 可以把零散信息压缩成简洁条目，但不要凭空补结论
+6. 保持 Markdown 结构清晰
+7. 只输出更新后的 Markdown 文档本身，不要解释
 
 【现有项目记忆】
 ${current}
@@ -225,7 +233,7 @@ ${conversationMarkdown}`;
 
   try {
     const updated = await chat({
-      systemPrompt: "你是项目记忆管理助手，只输出更新后的 Markdown 项目记忆文档。",
+      systemPrompt: "你是项目记忆助手，只输出更新后的 Markdown 项目记忆文档。",
       userContent: prompt,
     });
 
@@ -264,7 +272,7 @@ export function extractIdentityMemoFromUserMemory(userMemory: string): string {
   if (!userMemory.trim()) return "";
 
   const lines = userMemory.split(/\r?\n/);
-  const headingIndex = lines.findIndex((line) => line.trim() === "## 身份与背景");
+  const headingIndex = lines.findIndex((line) => line.trim() === "## 我目前形成的判断");
   if (headingIndex === -1) return "";
 
   const content: string[] = [];
@@ -283,7 +291,7 @@ export function mergeIdentityMemoIntoUserMemory(
 ): string {
   const source = userMemory.trim() || defaultUserMemory();
   const lines = source.split(/\r?\n/);
-  const headingIndex = lines.findIndex((line) => line.trim() === "## 身份与背景");
+  const headingIndex = lines.findIndex((line) => line.trim() === "## 我目前形成的判断");
   if (headingIndex === -1) return source;
 
   let nextHeadingIndex = lines.length;
@@ -304,27 +312,78 @@ export function mergeIdentityMemoIntoUserMemory(
   return updated.join("\n").trim();
 }
 
+export function extractOwnedWechatAccountNameFromProjectMemory(projectMemory: string): string {
+  if (!projectMemory.trim()) return "";
+
+  const lines = projectMemory.split(/\r?\n/);
+  const headingIndex = lines.findIndex((line) => line.trim() === "## 我的公众号");
+  if (headingIndex === -1) return "";
+
+  const content: string[] = [];
+  for (let i = headingIndex + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (line.trim().startsWith("## ")) break;
+    content.push(line);
+  }
+
+  const merged = content.join("\n").trim();
+  return merged === "（暂无）" ? "" : merged;
+}
+
+export function mergeOwnedWechatAccountNameIntoProjectMemory(
+  projectMemory: string,
+  accountName: string
+): string {
+  const source = projectMemory.trim() || defaultJourneyProjectMemory();
+  const lines = source.split(/\r?\n/);
+  const headingIndex = lines.findIndex((line) => line.trim() === "## 我的公众号");
+  if (headingIndex === -1) return source;
+
+  let nextHeadingIndex = lines.length;
+  for (let i = headingIndex + 1; i < lines.length; i += 1) {
+    if (lines[i].trim().startsWith("## ")) {
+      nextHeadingIndex = i;
+      break;
+    }
+  }
+
+  const replacement = (accountName.trim() || "（暂无）").split(/\r?\n/);
+  const updated = [
+    ...lines.slice(0, headingIndex + 1),
+    ...replacement,
+    ...lines.slice(nextHeadingIndex),
+  ];
+
+  return updated.join("\n").trim();
+}
+
 // ---------------------------------------------------------------------------
 // Templates
 // ---------------------------------------------------------------------------
 
 function defaultUserMemory() {
   return [
-    "# 用户记忆",
+    "# 用户认知",
     "",
-    "## 身份与背景",
+    "## 我反复在意的问题",
     "（暂无）",
     "",
-    "## 赛道与变现",
+    "## 我目前形成的判断",
     "（暂无）",
     "",
-    "## 风格偏好",
+    "## 我还没想透的问题",
     "（暂无）",
     "",
-    "## 已确认对标账号",
+    "## 我的关键经历",
     "（暂无）",
     "",
-    "## 历史决策",
+    "## 我的长期主题",
+    "（暂无）",
+    "",
+    "## 当前核心对标",
+    "（暂无）",
+    "",
+    "## 我从核心对标学到的可迁移资产",
     "（暂无）",
   ].join("\n");
 }
@@ -332,6 +391,9 @@ function defaultUserMemory() {
 function defaultJourneyProjectMemory() {
   return [
     "# 项目记忆",
+    "",
+    "## 我的公众号",
+    "（暂无）",
     "",
     "## 当前策略卡片",
     "- 待建立",

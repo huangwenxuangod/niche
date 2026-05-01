@@ -25,13 +25,13 @@ export default async function ProfilePage() {
       }}
     >
       <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--accent)", marginBottom: 12 }}>
-        身份配置
+        认知母本
       </div>
       <div style={{ fontFamily: "var(--font-display)", fontSize: 24, fontWeight: 300, letterSpacing: "-0.02em", color: "var(--text-primary)", marginBottom: 8 }}>
-        我是谁
+        我的认知
       </div>
       <div style={{ fontSize: 13, color: "var(--text-tertiary)", marginBottom: 32, lineHeight: 1.6 }}>
-        用 Markdown 方式记录你的身份、赛道、目标用户和当前目标，AI 会把这些信息持续带入每次对话。
+        用 Markdown 持续沉淀你的判断、经历、长期主题和核心对标。AI 不只是记住你是谁，而是逐步记住你在意什么、相信什么、还没想透什么。
       </div>
       <IdentityForm
         initialValue={identityMemo}

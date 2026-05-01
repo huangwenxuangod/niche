@@ -26,7 +26,7 @@ export default async function HomePage() {
       .from("journeys")
       .insert({
         user_id: user.id,
-        name: "公众号内容增长旅程",
+        name: "公众号写作与认知旅程",
         platform: "wechat_mp",
         keywords: [],
         is_active: true,
