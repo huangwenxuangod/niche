@@ -9,6 +9,7 @@ import {
   explicitlyWantsDeepening,
   explicitlyWantsDirectDraft,
 } from "./cognitive-gap";
+import { isBenchmarkAnalysisQuestion } from "./chat-intent-router";
 
 export function buildCompactPrompt(params: {
   intent: ChatIntent;
@@ -99,6 +100,10 @@ function buildUserPromptContent(
   const wantsDirectDraft = explicitlyWantsDirectDraft(userContent);
   const wantsDeepening = explicitlyWantsDeepening(userContent);
   const articleMode = detectArticleMode(userContent, intent);
+  const benchmarkAnalysis = isBenchmarkAnalysisQuestion(
+    userContent,
+    userContent.replace(/\s+/g, "")
+  );
   const cognitiveGap = articleMode === "high_leverage_article" && !wantsDirectDraft
     ? detectPrimaryCognitiveGap(userContent)
     : null;
@@ -130,11 +135,17 @@ function buildUserPromptContent(
     notes.push("用户这轮明确希望继续深入、继续挖，不要急着写完整稿。");
   }
 
+  if (benchmarkAnalysis) {
+    notes.push(
+      "用户这轮是在分析核心对标，不是在立刻写一篇模仿稿。优先回答三件事：它为什么能爆、它的爆款逻辑是什么、你真正能学什么。只有当用户明确要开始模仿写作时，再进入认知缺口提问。"
+    );
+  }
+
   if (articleMode === "high_leverage_article") {
     notes.push("这轮不是普通写作，更像高认知密度的对标型爆文/事件解读型长文。不要立刻铺开写，先判断最主要的认知缺口。");
   }
 
-  if (cognitiveGap) {
+  if (cognitiveGap && !benchmarkAnalysis) {
     notes.push(buildGapInstruction(cognitiveGap));
   }
 
@@ -174,9 +185,9 @@ function getIntentInstruction(intent: ChatIntent, prefetched: PrefetchedContext)
       ].join("\n");
     case "growth_analysis":
       return [
-        "像增长顾问一样给出结论。",
-        "先回答“为什么起量 / 哪些规律最重要”，再给 3 条可执行建议。",
-        "优先引用已准备数据里的规律，不要空泛谈方法论。",
+        "像一个真正懂内容的人一样分析这个对象为什么能爆。",
+        "先回答：1. 它为什么能爆；2. 它的爆款逻辑是什么；3. 用户真正能学什么。",
+        "不要停留在浅层规律统计，不要只说标题带数字、发布时间这种表面特征。优先提炼它稳定输出的判断、常用叙事张力、案例使用方式和可迁移资产。",
       ].join("\n");
     case "wxvideo_analysis":
       return [

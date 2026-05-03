@@ -1,5 +1,6 @@
 import { searchJourneyKnowledge } from "@/lib/knowledge-base";
 import { retrieveSemanticCompetitorContent } from "@/lib/agent/retrievers/semantic-knowledge";
+import { retrieveOwnedContent } from "@/lib/agent/retrievers/owned-content";
 import { searchWebContext } from "@/lib/web-search";
 import { recordStep } from "@/lib/agent/memory/session-memory";
 import type { ToolExecutionContext } from "@/lib/agent/tools/types";
@@ -26,25 +27,33 @@ export async function prefetchIntentContext(params: {
   switch (intent) {
     case "topics": {
       sendStatus(send, "准备选题素材中", perf);
-      const [journeyAnalysis, webContext] = await Promise.all([
+      const [journeyAnalysis, ownedContent, webContext] = await Promise.all([
         runObservedTool(
           "analyze_journey_data",
           { focus: "topic_generation" },
           context,
           send
         ),
+        retrieveOwnedContent(context.supabase, {
+          journeyId: context.journeyId,
+          limit: 8,
+        }).catch(() => []),
         shouldAutoWebSearchForIntent(intent, userContent, context.journey?.keywords ?? [])
           ? runObservedTool("web_search", { query: userContent }, context, send)
           : Promise.resolve(null),
       ]);
-      return { intent, data: { journeyAnalysis, webContext } };
+      return { intent, data: { journeyAnalysis, ownedContent, webContext } };
     }
     case "full_article": {
       sendStatus(send, "准备写作素材中", perf);
       const topic = resolveArticleTopic(userContent, confirmationContext, context.journey?.keywords ?? []);
-      const [journeyAnalysis, knowledge, semanticReferences, webContext] = await Promise.all([
+      const [journeyAnalysis, knowledge, ownedContent, semanticReferences, webContext] = await Promise.all([
         runObservedTool("analyze_journey_data", { focus: "viral_patterns" }, context, send),
         searchJourneyKnowledge(context.supabase, context.journeyId, topic.title, 5),
+        retrieveOwnedContent(context.supabase, {
+          journeyId: context.journeyId,
+          limit: 8,
+        }).catch(() => []),
         retrieveSemanticCompetitorContent(context.supabase, {
           journeyId: context.journeyId,
           query: [topic.title, topic.angle].filter(Boolean).join("\n"),
@@ -61,6 +70,7 @@ export async function prefetchIntentContext(params: {
         data: {
           journeyAnalysis,
           knowledge,
+          ownedContent,
           webContext,
           semanticReferences: semanticReferences.map((item) => ({
             article_title: item.article_title,
@@ -83,12 +93,16 @@ export async function prefetchIntentContext(params: {
     }
     case "growth_analysis": {
       sendStatus(send, "准备增长样本中", perf);
-      const [journeyAnalysis, wxvideoAnalysis, publishTiming] = await Promise.all([
+      const [journeyAnalysis, ownedContent, wxvideoAnalysis, publishTiming] = await Promise.all([
         runObservedTool("analyze_journey_data", { focus: "viral_patterns" }, context, send),
+        retrieveOwnedContent(context.supabase, {
+          journeyId: context.journeyId,
+          limit: 12,
+        }).catch(() => []),
         runObservedTool("analyze_wxvideo_data", { focus: "viral_patterns" }, context, send),
         runObservedTool("analyze_publish_timing", { scope: "auto" }, context, send),
       ]);
-      return { intent, data: { journeyAnalysis, wxvideoAnalysis, publishTiming } };
+      return { intent, data: { journeyAnalysis, ownedContent, wxvideoAnalysis, publishTiming } };
     }
     case "wxvideo_analysis": {
       sendStatus(send, "准备视频号样本中", perf);
@@ -139,9 +153,17 @@ export async function prefetchIntentContext(params: {
           context,
           send
         );
-        return { intent: "general", data: { webContext } };
+        const ownedContent = await retrieveOwnedContent(context.supabase, {
+          journeyId: context.journeyId,
+          limit: 6,
+        }).catch(() => []);
+        return { intent: "general", data: { ownedContent, webContext } };
       }
-      return { intent: "general", data: {} };
+      const ownedContent = await retrieveOwnedContent(context.supabase, {
+        journeyId: context.journeyId,
+        limit: 6,
+      }).catch(() => []);
+      return { intent: "general", data: { ownedContent } };
   }
 }
 

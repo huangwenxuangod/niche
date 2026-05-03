@@ -9,71 +9,7 @@ import {
   saveJourneyProjectMemory,
 } from "@/lib/memory";
 import type { WechatDashboardData } from "@/lib/data";
-
-const MOCK_DATA: WechatDashboardData = {
-  account: {
-    name: "AI增长实验室",
-    avatar_url: null,
-  },
-  summary: {
-    article_count: 24,
-    total_reads: 38420,
-    avg_reads: 1601,
-    avg_likes: 43,
-    avg_shares: 18,
-    avg_comments: 7,
-    peak_reads: 8923,
-  },
-  articles: [
-    {
-      id: "art_1",
-      title: "用 Claude Code 写公众号，效率提升 5 倍的实操方法",
-      read_num: 8923,
-      like_num: 186,
-      share_num: 94,
-      comment_num: 32,
-      publish_time: "2026-04-18T08:00:00Z",
-    },
-    {
-      id: "art_2",
-      title: "冷启动公众号，前 100 篇文章该怎么选题",
-      read_num: 4217,
-      like_num: 89,
-      share_num: 41,
-      comment_num: 15,
-      publish_time: "2026-04-12T08:00:00Z",
-    },
-    {
-      id: "art_3",
-      title: "对标分析实操：3 步拆解爆款公众号的内容策略",
-      read_num: 3156,
-      like_num: 67,
-      share_num: 29,
-      comment_num: 11,
-      publish_time: "2026-04-05T08:00:00Z",
-    },
-    {
-      id: "art_4",
-      title: "公众号数据复盘模板：每周 10 分钟找到增长信号",
-      read_num: 2840,
-      like_num: 58,
-      share_num: 22,
-      comment_num: 8,
-      publish_time: "2026-03-29T08:00:00Z",
-    },
-    {
-      id: "art_5",
-      title: "从 0 到 1000 粉，我的公众号增长复盘",
-      read_num: 2190,
-      like_num: 47,
-      share_num: 18,
-      comment_num: 6,
-      publish_time: "2026-03-22T08:00:00Z",
-    },
-  ],
-  ai_insights:
-    "过去 30 天内容表现整体呈上升趋势，平均阅读量环比增长 12%。\"实操方法\"类文章的阅读和分享数据显著高于其他类型，建议继续深耕教程型内容。标题中带有具体数字的文章（如\"5 倍\"、\"3 步\"）点击率更高，可在后续选题中保持这一命名模式。",
-};
+import { dajiala, type DajialaArticleListItem } from "@/lib/dajiala";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -99,8 +35,17 @@ export async function GET(req: NextRequest) {
 
   if (!journey) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  const { data: ownedProfile } = await supabase
+    .from("owned_wechat_profiles")
+    .select("id, account_name")
+    .eq("journey_id", journeyId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
   const projectMemory = await ensureJourneyProjectMemory(supabase, journeyId);
-  const accountName = extractOwnedWechatAccountNameFromProjectMemory(projectMemory);
+  const accountName =
+    ownedProfile?.account_name || extractOwnedWechatAccountNameFromProjectMemory(projectMemory);
 
   if (!accountName) {
     return NextResponse.json({
@@ -109,15 +54,45 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  const articleQuery = supabase
+    .from("owned_wechat_articles")
+    .select("id, title, publish_time, read_num, like_num, share_num, comment_num, account_name")
+    .eq("journey_id", journeyId)
+    .order("publish_time", { ascending: false });
+
+  if (ownedProfile?.id) {
+    articleQuery.eq("owned_profile_id", ownedProfile.id);
+  } else {
+    articleQuery.ilike("account_name", `%${accountName}%`);
+  }
+
+  const { data: articleRows } = await articleQuery.limit(50);
+  const articles = (articleRows ?? []).map((row) => ({
+    id: String(row.id),
+    title: String(row.title ?? "未命名文章"),
+    read_num: Number(row.read_num ?? 0),
+    like_num: Number(row.like_num ?? 0),
+    share_num: Number(row.share_num ?? 0),
+    comment_num: Number(row.comment_num ?? 0),
+    publish_time: String(row.publish_time ?? new Date().toISOString()),
+  }));
+
+  const summary = buildOwnedDashboardSummary(articles);
+  const aiInsights = buildOwnedAiInsights(accountName, articles, summary);
+
   return NextResponse.json({
     configured: true,
     account_name: accountName,
-    ...MOCK_DATA,
     account: {
-      ...MOCK_DATA.account,
       name: accountName,
+      avatar_url: null,
     },
-    is_demo: true,
+    summary,
+    articles: [...articles]
+      .sort((a, b) => b.read_num - a.read_num)
+      .slice(0, 5),
+    ai_insights: aiInsights,
+    is_demo: articles.length === 0,
   });
 }
 
@@ -150,9 +125,238 @@ export async function POST(req: NextRequest) {
   const merged = mergeOwnedWechatAccountNameIntoProjectMemory(projectMemory, accountName);
   await saveJourneyProjectMemory(supabase, journeyId, merged);
 
+  let importedArticleCount = 0;
+  if (accountName) {
+    const profileId = await upsertOwnedWechatProfile(supabase, {
+      userId: user.id,
+      journeyId,
+      accountName,
+    });
+    importedArticleCount = await importOwnedWechatArticlesFromDajiala(supabase, {
+      userId: user.id,
+      journeyId,
+      profileId,
+      accountName,
+    });
+  }
+
   return NextResponse.json({
     success: true,
     configured: Boolean(accountName),
     account_name: accountName,
+    imported_article_count: importedArticleCount,
   });
+}
+
+async function upsertOwnedWechatProfile(
+  supabase: ReturnType<typeof createClient>,
+  params: { userId: string; journeyId: string; accountName: string }
+) {
+  const { data: existing } = await supabase
+    .from("owned_wechat_profiles")
+    .select("id")
+    .eq("journey_id", params.journeyId)
+    .eq("account_name", params.accountName)
+    .maybeSingle();
+
+  if (existing?.id) {
+    return String(existing.id);
+  }
+
+  const { data, error } = await supabase
+    .from("owned_wechat_profiles")
+    .insert({
+      user_id: params.userId,
+      journey_id: params.journeyId,
+      account_name: params.accountName,
+      import_source: "dajiala",
+    })
+    .select("id")
+    .single();
+
+  if (error || !data?.id) {
+    throw new Error(error?.message || "创建公众号档案失败");
+  }
+
+  return String(data.id);
+}
+
+async function importOwnedWechatArticlesFromDajiala(
+  supabase: ReturnType<typeof createClient>,
+  params: { userId: string; journeyId: string; profileId: string; accountName: string }
+) {
+  const postHistory = await dajiala.getPostHistory(params.accountName, 1);
+  if (postHistory.code && postHistory.code !== 200 && postHistory.code !== 0) {
+    throw new Error(postHistory.msg || `获取公众号历史失败: ${postHistory.code}`);
+  }
+
+  const articles = postHistory.articles.slice(0, 8);
+  let savedCount = 0;
+
+  for (const article of articles) {
+    const payload = await buildOwnedWechatArticlePayload(article, params.accountName);
+    const { error } = await supabase
+      .from("owned_wechat_articles")
+      .upsert(
+        {
+          user_id: params.userId,
+          journey_id: params.journeyId,
+          wechat_config_id: null,
+          owned_profile_id: params.profileId,
+          publish_id: payload.publish_id,
+          msg_id: payload.msg_id,
+          article_idx: payload.article_idx,
+          title: payload.title,
+          digest: payload.digest,
+          content: payload.content,
+          content_html: payload.content_html,
+          url: payload.url,
+          cover_url: payload.cover_url,
+          author: payload.author,
+          account_name: payload.account_name,
+          publish_time: payload.publish_time,
+          read_num: payload.read_num,
+          like_num: payload.like_num,
+          share_num: payload.share_num,
+          comment_num: payload.comment_num,
+          favorite_num: payload.favorite_num,
+          raw_payload: payload.raw_payload,
+          synced_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "journey_id,url" }
+      );
+
+    if (error) {
+      throw new Error(`保存公众号文章失败: ${error.message}`);
+    }
+
+    savedCount += 1;
+  }
+
+  return savedCount;
+}
+
+async function buildOwnedWechatArticlePayload(
+  article: DajialaArticleListItem,
+  accountName: string
+) {
+  let detailContent = "";
+  let detailHtml = "";
+  let readNum = 0;
+  let likeNum = 0;
+  let shareNum = 0;
+  let commentNum = 0;
+  let favoriteNum = 0;
+
+  if (article.url) {
+    const [statsRes, detailRes] = await Promise.allSettled([
+      dajiala.getArticleStats(article.url),
+      dajiala.getArticleDetail(article.url),
+    ]);
+
+    if (statsRes.status === "fulfilled") {
+      readNum = statsRes.value.read || 0;
+      likeNum = statsRes.value.zan || 0;
+      shareNum = statsRes.value.share_num || 0;
+      commentNum = statsRes.value.comment_count || 0;
+      favoriteNum = statsRes.value.collect_num || 0;
+    }
+
+    if (detailRes.status === "fulfilled") {
+      detailContent = detailRes.value.content || stripHtml(detailRes.value.content_multi_text || "");
+      detailHtml = detailRes.value.content_multi_text || "";
+    }
+  }
+
+  return {
+    publish_id: null,
+    msg_id: null,
+    article_idx: Number(article.idx ?? 0),
+    title: article.title || "未命名文章",
+    digest: article.digest || null,
+    content: detailContent,
+    content_html: detailHtml,
+    url: article.url || article.source_url || `owned://${accountName}/${article.title}`,
+    cover_url: normalizeImageUrl(article.cover_url),
+    author: article.author || null,
+    account_name: accountName,
+    publish_time: article.post_time ? new Date(article.post_time * 1000).toISOString() : null,
+    read_num: readNum,
+    like_num: likeNum,
+    share_num: shareNum,
+    comment_num: commentNum,
+    favorite_num: favoriteNum,
+    raw_payload: article,
+  };
+}
+
+function buildOwnedDashboardSummary(
+  articles: Array<{
+    read_num: number;
+    like_num: number;
+    share_num: number;
+    comment_num: number;
+  }>
+) {
+  const articleCount = articles.length;
+  const totalReads = articles.reduce((sum, item) => sum + item.read_num, 0);
+  const totalLikes = articles.reduce((sum, item) => sum + item.like_num, 0);
+  const totalShares = articles.reduce((sum, item) => sum + item.share_num, 0);
+  const totalComments = articles.reduce((sum, item) => sum + item.comment_num, 0);
+  const peakReads = articles.reduce((max, item) => Math.max(max, item.read_num), 0);
+
+  return {
+    article_count: articleCount,
+    total_reads: totalReads,
+    avg_reads: articleCount ? Math.round(totalReads / articleCount) : 0,
+    avg_likes: articleCount ? Math.round(totalLikes / articleCount) : 0,
+    avg_shares: articleCount ? Math.round(totalShares / articleCount) : 0,
+    avg_comments: articleCount ? Math.round(totalComments / articleCount) : 0,
+    peak_reads: peakReads,
+  };
+}
+
+function buildOwnedAiInsights(
+  accountName: string,
+  articles: Array<{ title: string; read_num: number; share_num: number }>,
+  summary: WechatDashboardData["summary"]
+) {
+  if (!articles.length) {
+    return `已经为「${accountName}」完成配置，但暂时还没有拉到文章数据。下一步优先确认名称是否准确，或者补一次同步。`;
+  }
+
+  const topArticle = [...articles].sort((a, b) => b.read_num - a.read_num)[0];
+  const highShareArticle = [...articles].sort((a, b) => b.share_num - a.share_num)[0];
+
+  return [
+    `目前已沉淀 ${summary.article_count} 篇文章，平均阅读 ${summary.avg_reads}。`,
+    topArticle
+      ? `当前阅读表现最强的是《${topArticle.title}》，说明这类表达最容易形成传播势能。`
+      : "",
+    highShareArticle && highShareArticle.title !== topArticle?.title
+      ? `当前分享表现最强的是《${highShareArticle.title}》，说明它更容易触发用户主动转发。`
+      : "",
+    "后面这里最值得看的不是单篇高低，而是：哪些主题反复有效、哪些表达最像你、哪些内容开始形成长期母题。",
+  ]
+    .filter(Boolean)
+    .join("");
+}
+
+function stripHtml(html: string) {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeImageUrl(url: unknown) {
+  if (typeof url !== "string" || !url.trim()) return null;
+  return url.trim().replace(/^http:\/\//, "https://");
 }

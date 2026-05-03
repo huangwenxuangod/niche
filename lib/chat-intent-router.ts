@@ -56,7 +56,7 @@ export function detectIntent(
   if (isGrowthAnalysisQuestion(normalized)) {
     return "growth_analysis";
   }
-  if (extractExplicitAccountName(userContent)) {
+  if (shouldImportKocAnalysis(userContent)) {
     return "import_koc_analysis";
   }
   if (/(选题|题目|方向|写什么)/.test(normalized)) {
@@ -100,8 +100,34 @@ export function extractExplicitAccountName(userContent: string) {
   return cleaned.length >= 2 ? cleaned : null;
 }
 
+export function shouldImportKocAnalysis(userContent: string) {
+  const trimmed = userContent.trim();
+  const hasStrongImportAction = /(对标|导入|添加|同步)/.test(trimmed);
+  const hasStandaloneNaturalReference =
+    /^([^\s，。！？]{2,40})(?:的号|的公众号|公众号|这个号|这个公众号|账号)(?:嘛|吗|呢|呀|啊|吧)?$/.test(
+      trimmed
+    );
+
+  return hasStrongImportAction || hasStandaloneNaturalReference;
+}
+
+export function isBenchmarkAnalysisQuestion(
+  userContent: string,
+  normalizedText: string
+) {
+  const hasBenchmarkCue =
+    /(卡兹克|公众号|账号|这个号|对标|风格|文章内容|写了啥|长期反复在讲什么|选题逻辑|叙事张力|爆款逻辑)/.test(
+      userContent
+    );
+  const hasAnalysisVerb =
+    /(分析|拆解|研究|总结|看看|看下|写了啥|讲了啥|长期反复)/.test(normalizedText);
+  const hasDirectWritingVerb = /(写稿|成稿|完整稿|直接写|写一篇|生成一篇)/.test(normalizedText);
+
+  return hasBenchmarkCue && hasAnalysisVerb && !hasDirectWritingVerb;
+}
+
 export function isGrowthAnalysisQuestion(normalizedText: string) {
-  return /(增长规律|爆款规律|标题套路|为什么.*(起量|阅读量高|会爆)|高阅读.*原因|分析对标账号|增长分析)/.test(
+  return /(增长规律|爆款规律|标题套路|为什么.*(起量|阅读量高|会爆)|高阅读.*原因|分析对标账号|增长分析|文章内容写了啥|长期反复在讲什么|账号风格|选题逻辑|叙事张力|爆款逻辑)/.test(
     normalizedText
   );
 }
