@@ -1,290 +1,571 @@
 # Niche 架构说明
 
-## 1. 当前真实架构
+## 1. 当前真实架构结论
 
-Niche 现在更准确的形态是：
+Niche 现在的真实架构，已经不适合再被描述成单纯的“AI 内容工作流工具”。
 
-- **Workflow-Driven 工作流驱动架构** —— 意图路由 + 工作流定义 + 单次模型调用
-- Pattern-first 内容工作流引擎
-- 单次模型真流式输出
-- 记忆驱动
-- 内容工作流产品
-
-它不是一个”任意自由规划的万能智能体”，当前最稳定的是内容生产主链和显式工作流路由。
-
-## 2. 当前产品主链
+更准确地说，它正在从旧架构：
 
 ```text
-导入对标公众号
--> 建立知识库
--> 分析规律
--> 生成选题
--> 生成完整稿
--> 排版
--> 发布到公众号草稿箱
+导入对标 -> 分析 -> 选题 -> 成稿 -> 排版 -> 发布
 ```
 
-## 3. 工作流驱动架构（新）
+迁移到新架构：
 
-### 3.1 架构概览
-
-当前采用 **Workflow-Driven Architecture（工作流驱动架构）**：
-
-```
-用户消息
-    ↓
-[chat-intent-router] → 识别意图 (topics/full_article/fast_generation...)
-    ↓
-[chat-workflows] → 获取工作流定义 (historyLimit + prefetch + generation)
-    ↓
-[chat-prefetch] → 并行执行数据预取 (journey_analysis, knowledge_refs...)
-    ↓
-[chat-prompt] → 构建 compact prompt (用户卡 + 项目卡 + 数据卡 + 意图指令)
-    ↓
-[chat-generation] → 单次模型流式调用 → 直出结果
-    ↓
-[chat-output] → 格式化输出
-    ↓
-[chat-memory-finalize] → 异步沉淀长期记忆
-[chat-workflow-state] → 持久化工作流状态 (latest_topics, latest_full_article)
+```text
+写作前台
+-> 单核心对标作为长期参照
+-> 我的公众号作为复盘入口
+-> memory 作为认知核心
+-> 后台工具按需补知识 / 补证据 / 补上下文
 ```
 
-### 3.2 核心模块职责
+所以当前最准确的形态是：
 
-| 模块 | 文件 | 职责 |
-|------|------|------|
-| Intent Router | `lib/chat-intent-router.ts` | 10 种意图识别、控制动作检测、历史长度配置 |
-| Workflow Registry | `lib/chat-workflows.ts` | 10 种工作流定义（CHAT_WORKFLOWS） |
-| Prefetch Engine | `lib/chat-prefetch.ts` | 数据预取并行执行、工具调用观测 |
-| Prompt Builder | `lib/chat-prompt.ts` | Compact prompt 构建、意图指令生成 |
-| Generation Engine | `lib/chat-generation.ts` | 单次流式生成、确定性降级响应 |
-| Output Formatter | `lib/chat-output.ts` | 输出格式化、fallback 消息构建 |
-| Memory Finalizer | `lib/chat-memory-finalize.ts` | 异步沉淀长期记忆 |
-| Workflow State | `lib/chat-workflow-state.ts` | 工作流状态持久化 |
-| Runtime Types | `lib/chat-runtime.ts` | 共享类型定义 |
+- **Writing-First**：写作是前台，不是 workflow 菜单
+- **Memory-Centered**：memory 不只是配置，而是长期认知母本
+- **Single-Benchmark-Oriented**：对标不是多 KOC 列表，而是单核心对象
+- **Owned-Content-Backfed**：自己的公众号文章不仅复盘，还会反哺后续写作
+- **Prompt-Led Orchestration**：少量规则兜底，主要依赖 prompt 驱动提问与生成
 
-### 3.3 工作流定义示例
+---
 
-```typescript
-// CHAT_WORKFLOWS: Record<ChatIntent, WorkflowDefinition>
-const CHAT_WORKFLOWS = {
-  topics: {
-    intent: “topics”,
-    historyLimit: 2,
-    prefetch: [“journey_analysis”],
-    generation: “topics_output”
-  },
-  full_article: {
-    intent: “full_article”,
-    historyLimit: 3,
-    prefetch: [“journey_analysis”, “knowledge_refs”, “semantic_refs”],
-    generation: “article_output”
-  },
-  // ... 共 10 种工作流
-}
+## 2. 当前产品主线
+
+### 2.1 前台主线
+
+当前用户真正感知到的主线应该被理解成：
+
+```text
+写
+-> 看自己的复盘
+-> 研究一个核心对标
+-> 系统逐步记住你
 ```
 
-### 3.4 预取节点清单
+而不是：
 
-| 节点名称 | 对应工具 | 说明 |
-|----------|----------|------|
-| `journey_analysis` | `analyze_journey_data` | 分析旅程样本数据 |
-| `wxvideo_analysis` | `analyze_wxvideo_data` | 分析视频号样本数据 |
-| `publish_timing` | `analyze_publish_timing` | 分析最佳发布时间 |
-| `knowledge_refs` | `searchJourneyKnowledge` | 检索知识库 |
-| `semantic_refs` | `retrieveSemanticCompetitorContent` | 语义检索竞品内容 |
-| `import_koc` | `import_koc_by_name` | 导入对标账号 |
+```text
+选工作流
+-> 跑一堆工具
+-> 看分析面板
+-> 再生成
+```
 
-### 3.5 意图清单（ChatIntent）
+### 2.2 后台主线
 
-| 意图 | 触发条件 | 工作流特点 |
-|------|----------|------------|
-| `topics` | 选题/方向/写什么 | 预取 journey_analysis |
-| `full_article` | 写稿/成稿/完整稿 | 预取 journey + knowledge + semantic |
-| `fast_generation` | 重写/润色/随意写 | 无预取，直接生成 |
-| `publish_timing` | 几点发/发布时间 | 预取 publish_timing |
-| `growth_analysis` | 增长规律/爆款分析 | 预取 journey + wxvideo + timing |
-| `wxvideo_analysis` | 视频号分析 | 预取 wxvideo + timing |
-| `video_script` | 视频脚本/口播稿 | 预取 wxvideo |
-| `import_koc_analysis` | 导入对标账号 | 预取 import_koc + journey + timing |
-| `general` | 其他 | 无预取，通用回答 |
+后台仍然有数据准备和能力编排，但目的已经变了：
 
-## 3. 系统分层
+- 不再让用户“感受到工具”
+- 而是让工具默默为写作服务
 
-### 前端
-- Next.js App Router
+后台主要负责：
+
+- 拉核心对标知识
+- 拉自己的公众号内容
+- 必要时 web search
+- 提炼对话认知精华
+- 更新长期 memory
+
+---
+
+## 3. 核心系统分层
+
+### 3.1 写作前台层
+
+负责：
+
+- 用户输入
+- 持续写作
+- 继续深入
+- 直接成稿
+- 排版与发布
+
+核心文件：
+
 - `components/chat/ChatArea.tsx`
-- `components/chat/ArticleLayoutPanel.tsx`
-- `app/(app)/journey/[id]/koc/page.tsx`
-
-### API 路由
 - `app/api/conversations/[id]/messages/route.ts`
-- `app/api/koc/*`
-- `app/api/article-layout/*`
-- `app/api/wechat/*`
-- `app/api/memory/*`
-
-### 业务层
-- `lib/koc-import.ts`
-- `lib/wxvideo-import.ts`
-- `lib/knowledge-base.ts`
-- `lib/hot-topic-search.ts`
-- `lib/wechat-publish.ts`
-- `lib/article-layout.ts`
-
-### Agent / LLM
-- `lib/llm.ts`
-- `lib/chat-intent-router.ts`
-- `lib/chat-workflows.ts`
-- `lib/chat-prefetch.ts`
-- `lib/chat-prompt.ts`
 - `lib/chat-generation.ts`
 - `lib/chat-output.ts`
 
-### 记忆层
+### 3.2 对标层
+
+负责：
+
+- 当前核心对标是谁
+- 导入核心对标
+- 读取对标内容
+- 后续围绕它做分析
+
+核心文件：
+
+- `components/sidebar/KOCListPanel.tsx`
+- `app/api/koc/import/route.ts`
+- `lib/koc-import.ts`
+- `lib/knowledge-base.ts`
+
+### 3.3 我的公众号层
+
+负责：
+
+- 配置自己的公众号
+- 导入自己的文章与表现
+- 生成复盘数据
+- 与核心对标做差距对照
+
+核心文件：
+
+- `components/sidebar/DashboardPanel.tsx`
+- `app/api/wechat/dashboard/route.ts`
+- `app/(app)/journey/[id]/dashboard/page.tsx`
+
+### 3.4 认知与 memory 层
+
+负责：
+
+- 沉淀长期判断
+- 沉淀关键经历
+- 沉淀未想透问题
+- 沉淀长期主题
+- 沉淀对标启发
+
+核心文件：
+
 - `lib/memory.ts`
+- `lib/chat-memory-finalize.ts`
 - `lib/agent/memory/session-memory.ts`
 
-### 数据层
-- Supabase
-- `koc_sources`
-- `knowledge_articles`
-- `knowledge_chunks`
-- `session_memory`
-- `user_memories`
-- `journey_project_memories`
-- `wxvideo_sources`
-- `wxvideo_posts`
+### 3.5 后台能力层
 
-## 4. 对话主链
+负责：
+
+- 对标检索
+- 自己文章检索
+- web search
+- 轻分析
+- 微信发布
+
+核心文件：
+
+- `lib/chat-prefetch.ts`
+- `lib/web-search.ts`
+- `lib/agent/retrievers/owned-content.ts`
+- `lib/agent/retrievers/competitor-content.ts`
+- `lib/wechat-publish.ts`
+
+---
+
+## 4. 当前核心信息架构
+
+当前产品应该被理解成 4 个主区：
+
+### 4.1 写作区
+
+主屏，负责：
+
+- 用户表达
+- AI 继续深入
+- AI 直接生成
+
+### 4.2 核心对标
+
+不是列表，不是大盘，而是：
+
+- 当前研究对象
+- 它为什么能爆
+- 它的爆款逻辑
+- 你真正能学什么
+
+### 4.3 我的公众号
+
+前台偏复盘层：
+
+- 我的文章表现
+- 我 vs 核心对标的差距
+- AI 洞察
+
+但底层本质是知识层：
+
+- 自己的文章会进入后续写作上下文
+
+### 4.4 我的认知
+
+不是 profile 配置，而是认知母本：
+
+- 我反复在意的问题
+- 我目前形成的判断
+- 我还没想透的问题
+- 我的关键经历
+- 我的长期主题
+- 当前核心对标
+- 我从核心对标学到的可迁移资产
+
+---
+
+## 5. 对话主链
+
+### 5.1 当前真实主链
 
 ```mermaid
 sequenceDiagram
     participant U as 用户
     participant UI as ChatArea
     participant API as messages route
-    participant WF as Workflow Router
-    participant DATA as Prefetch Nodes
-    participant DB as Supabase
+    participant PRE as Prefetch
+    participant MEM as Memory
     participant LLM as Ark / 豆包
 
-    U->>UI: 发送消息
+    U->>UI: 输入问题 / 写作内容
     UI->>API: POST /api/conversations/:id/messages
-    API->>DB: 保存用户消息 + 读取上下文
-    API->>WF: detect intent / control action
-    WF->>DATA: 执行预取节点
-    DATA->>DB: 检索知识库 / 账号数据 / 记忆卡
-    DATA-->>API: 返回结构化上下文
+    API->>API: 保存用户消息 + 读取上下文
+    API->>PRE: 预取核心对标 / owned content / web search / memory
+    PRE-->>API: 返回结构化上下文
     API->>LLM: 单次 stream=true 调用
-    API-->>UI: SSE 流式输出最终结果
-    API->>DB: 后台写 session_memory / user_memories / journey_project_memories
+    LLM-->>UI: SSE 流式结果
+    API->>MEM: 异步沉淀认知精华
 ```
 
-关键原则：
+### 5.2 与旧主链的差别
 
-1. 默认只调用一次模型
-2. memory 总结只做后台沉淀
-3. 用户输出链和 memory 链彻底分开
-4. 控制动作优先本地短路，不进入模型
+旧主链强调：
 
-## 5. 工具体系
+- 意图
+- 工作流
+- 生成结果
 
-当前主预取节点 / 数据能力：
+当前主链更强调：
 
-- `analyze_journey_data`
-- `analyze_wxvideo_data`
-- `analyze_publish_timing`
-- `search_knowledge_base`
-- `retrieveSemanticCompetitorContent`
-- `import_koc_by_name`
+- 当前这轮表达缺什么
+- 是否需要继续深入
+- 是否需要补事件知识
+- 是否需要参考自己的文章和核心对标
 
-说明：
-- `compliance_check` 已不参与聊天主流程
+---
 
-## 6. 输出体系
+## 6. prompt 与少量规则的关系
 
-### 产物型输出
-下面这些结果都走：
+当前方向不是继续扩很多显式路由，而是：
 
-`意图路由 -> 数据预取 -> 单次模型流式输出`
+- **少量 heuristic**
+- **强 prompt**
+- **AI 主动判断**
 
-- 选题结果
-- 完整稿
-- 发布时间建议
-- 爆款规律分析
-- 视频脚本
+### 6.1 已保留的显式规则
 
-### 排版识别
-完整稿输出后，前端通过：
-- `lib/article-layout.ts`
+显式规则主要还用在：
 
-识别出：
-- 标题
-- 摘要
-- 正文
+- 高频意图兜底
+- 快捷路径
+- 控制动作
+- 必要的数据预取
 
-再进入：
-- `ArticleLayoutPanel`
+相关文件：
 
-## 7. 记忆体系
+- `lib/chat-intent-router.ts`
+- `lib/chat-workflows.ts`
+- `lib/chat-prefetch.ts`
 
-### 工作记忆
-- 当前对话 messages
+### 6.2 当前更强调 prompt 的地方
 
-### 情景记忆
-- `session_memory`
-- 工具调用、结果、观察、反思
+prompt 主要负责：
 
-### 长期记忆
-- `user_memories`
-- `journey_project_memories`
+- 判断是否先继续深入
+- 对高认知密度写作做认知缺口识别
+- 在分析核心对标时优先回答：
+  - 它为什么能爆
+  - 它的爆款逻辑是什么
+  - 你真正能学什么
+- 在用户表达明显空时，只问一句最关键的问题
 
-当前原则：
-- 原始事实尽量保留
-- 摘要压缩放后台
-- 不让 memory summary 参与用户最终回答
+相关文件：
 
-## 8. 知识库体系
+- `lib/chat-prompt.ts`
+- `lib/cognitive-gap.ts`
 
-### 公众号内容
+---
+
+## 7. 认知缺口与继续深入
+
+### 7.1 模型目标
+
+现在不是“永远直接成稿”，而是：
+
+- 先判断用户是否已经具备足够认知材料
+- 如果不够，就继续深入
+- 如果用户明确说“直接写”，可以跳过
+
+### 7.2 当前缺口类型（v1）
+
+当前缺口模型主要围绕：
+
+- `judgment`：缺判断
+- `anxiety`：缺焦虑对象
+- `event`：缺事件抓手
+- `personal`：缺个人性 / 真实经历
+- `conflict`：缺冲突
+
+### 7.3 当前原则
+
+- 不一次砸很多问题
+- 只问当前最关键的那一句
+- 用户表达明显空时才问
+- 用户明确要求直接写时，不强行打断
+
+---
+
+## 8. 数据预取架构
+
+### 8.1 当前预取目标
+
+当前 `chat-prefetch` 已不只是“对标分析工具链”，而是统一补这些上下文：
+
+- 核心对标内容
+- 自己公众号文章
+- user / journey memory
+- 必要的 web search
+
+### 8.2 当前重要预取来源
+
+#### 核心对标
+
 - `koc_sources`
 - `knowledge_articles`
 - `knowledge_chunks`
 
-### 检索方式
-- 关键词检索
-- 向量召回
-- 混合结果重排
+#### 自己的公众号
 
-## 9. 视频号增量架构
+- `owned_wechat_profiles`
+- `owned_wechat_articles`
 
-当前视频号不是独立入口，而是从公众号导入链自然扩展：
+#### 长期记忆
+
+- `user_memories`
+- `journey_project_memories`
+- `session_memory`
+
+#### 外部网页
+
+- `web_search`
+
+### 8.3 关键变化
+
+以前预取更像“围绕工作流”。
+
+现在预取更像：
+
+# 围绕“这个人 + 这个核心对标 + 这轮写作”补上下文
+
+---
+
+## 9. 核心对标架构
+
+### 9.1 当前结构
+
+- `journeys.primary_koc_source_id`
+- `koc_sources`
+- `knowledge_articles`
+
+### 9.2 当前定位
+
+核心对标不是“多个竞品中的一个”，而是：
+
+- 当前唯一重点研究对象
+
+### 9.3 当前产品语义
+
+系统分析核心对标时，应该优先提供：
+
+1. 它为什么能爆
+2. 它的爆款逻辑是什么
+3. 你真正能学什么
+
+而不是停留在：
+
+- 数字标题多
+- 晚上发效果好
+- 实测内容多
+
+也就是说，核心对标层应该从“浅规律分析”升级为“资产研究”。
+
+---
+
+## 10. 我的公众号架构
+
+### 10.1 当前导入链
 
 ```text
-公众号名称
--> 公众号导入
--> 拿到 ghid
--> history_by_ghid
--> 发现绑定视频号
--> 拉视频号作品列表
--> 拉互动指标
--> 写入 wxvideo_sources / wxvideo_posts
+配置公众号名称
+-> 创建 / 复用 owned_wechat_profiles
+-> 调大佳啦接口拉历史文章
+-> 获取文章统计 / 详情
+-> 写入 owned_wechat_articles
+-> 返回 dashboard summary / articles / ai_insights
 ```
 
-对应文件：
-- `lib/dajiala.ts`
-- `lib/wxvideo-import.ts`
-- `supabase/migrations/020_add_wxvideo_tables.sql`
+### 10.2 当前详情页能力
 
-## 10. 当前风险点
+当前详情页已经支持：
 
-1. `generate_full_article` 仍然是重工具
-2. 路由里仍有较多快捷路径规则
-3. 测试覆盖还薄
-4. 视频号能力刚接底座，页面体验还在补
+- 账号摘要
+- 核心指标
+- Top articles
+- AI insights
+- 与核心对标的对照复盘
 
-## 11. 当前最值得继续优化的方向
+### 10.3 当前真正价值
 
-1. 稳定“写稿 -> 排版 -> 发布”
-2. 补最小测试，防止回归
-3. 把视频号状态和分析接进页面与聊天
+“我的公众号”表面上是复盘层，但底层最重要的是：
+
+- 这些文章会被拿来做后续写作上下文
+- 逐渐形成“你自己的高表现知识”
+
+---
+
+## 11. memory 架构
+
+### 11.1 当前 memory 分层
+
+#### session_memory
+
+对话情景和过程记忆。
+
+#### user_memories
+
+用户长期认知记忆。
+
+#### journey_project_memories
+
+当前写作方向 / 项目策略记忆。
+
+### 11.2 当前 finalize 逻辑
+
+每轮对话结束后，不再只记录流程结果，而会先提炼：
+
+- 本轮认知精华
+- 候选判断
+- 候选未想透问题
+- 候选关键经历
+- 候选长期主题
+- 候选对标启发
+
+再送入 compactor 更新 memory。
+
+### 11.3 当前目标
+
+不是单纯“记住聊过什么”，而是：
+
+# 记住这个人到底形成了什么认知
+
+---
+
+## 12. 当前数据对象
+
+### 对标与知识
+
+- `journeys`
+- `koc_sources`
+- `knowledge_articles`
+- `knowledge_chunks`
+
+### 自己的公众号
+
+- `owned_wechat_profiles`
+- `owned_wechat_articles`
+
+### 记忆
+
+- `session_memory`
+- `user_memories`
+- `journey_project_memories`
+
+### 视频号
+
+- `wxvideo_sources`
+- `wxvideo_posts`
+
+---
+
+## 13. 当前仍保留但应后台化的能力
+
+这些能力依然重要，但不再适合作为前台主心智：
+
+- `analyze_journey_data`
+- `analyze_wxvideo_data`
+- `analyze_publish_timing`
+- 热点搜索
+- 外部搜索
+- 子生成器
+
+它们更适合作为：
+
+- 数据 enrich
+- 证据补充
+- 分析底座
+
+而不是产品卖点。
+
+---
+
+## 14. 当前架构中的主要矛盾
+
+### 14.1 文档世界观仍然偏旧
+
+当前 `README.md` / `ARCHITECTURE.md` 旧版仍然偏：
+
+- AI 内容工作流
+- 多意图路由
+- 对标导入 + 选题 + 成稿
+
+而现在真实代码已经更偏：
+
+- 写作
+- 核心对标
+- 我的公众号
+- 我的认知
+
+### 14.2 workflow 仍存在，但不该再主导产品叙事
+
+`chat-workflows.ts`、`ChatIntent` 仍然存在，这是正常的。
+
+但产品层已经不应该继续强调：
+
+- “我有多少条 workflow”
+- “我能调多少工具”
+
+### 14.3 核心对标与我的公众号还有继续做深空间
+
+现在已经有底座，但还缺：
+
+- 核心对标详情页
+- 自己高表现文章规律沉淀
+- 用户自己的高表现母题进入 memory
+
+---
+
+## 15. 当前最值得继续做
+
+### P1
+
+统一所有文档和文案世界观。
+
+### P2
+
+做核心对标详情页，把“研究一个对象”做深。
+
+### P3
+
+继续把“我的公众号”从复盘页做成知识层入口。
+
+### P4
+
+把高表现文章规律回写到 memory 与写作上下文。
+
+### P5
+
+继续减少显式 intent 复杂度，让 prompt 主导行为更稳定。
+
+---
+
+## 16. 当前架构一句话总结
+
+> Niche 当前的真实架构，是一个以写作为前台、以单核心对标为参照、以我的公众号为复盘入口、以 memory 为认知核心、以后台数据能力静默补上下文的创作者系统。
