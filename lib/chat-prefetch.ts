@@ -93,7 +93,7 @@ export async function prefetchIntentContext(params: {
     }
     case "growth_analysis": {
       sendStatus(send, "准备增长样本中", perf);
-      const [journeyAnalysis, ownedContent, wxvideoAnalysis, publishTiming] = await Promise.all([
+      const [journeyAnalysis, ownedContent, wxvideoAnalysis, publishTiming, webContext] = await Promise.all([
         runObservedTool("analyze_journey_data", { focus: "viral_patterns" }, context, send),
         retrieveOwnedContent(context.supabase, {
           journeyId: context.journeyId,
@@ -101,8 +101,14 @@ export async function prefetchIntentContext(params: {
         }).catch(() => []),
         runObservedTool("analyze_wxvideo_data", { focus: "viral_patterns" }, context, send),
         runObservedTool("analyze_publish_timing", { scope: "auto" }, context, send),
+        shouldAutoWebSearchForIntent(intent, userContent, context.journey?.keywords ?? [])
+          ? runObservedTool("web_search", { query: userContent }, context, send)
+          : Promise.resolve(null),
       ]);
-      return { intent, data: { journeyAnalysis, ownedContent, wxvideoAnalysis, publishTiming } };
+      return {
+        intent,
+        data: { journeyAnalysis, ownedContent, wxvideoAnalysis, publishTiming, webContext },
+      };
     }
     case "wxvideo_analysis": {
       sendStatus(send, "准备视频号样本中", perf);
