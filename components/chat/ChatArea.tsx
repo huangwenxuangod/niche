@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Bubble,
   Prompts,
@@ -61,6 +62,7 @@ const QUICK_PROMPTS = [
 ];
 
 export function ChatArea({ conversationId, journey, initialMessages, kocCount }: Props) {
+  const router = useRouter();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -150,6 +152,7 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
 
   async function sendMessage(text: string) {
     if (!text.trim() || streaming) return;
+    const shouldRefreshSidebarTitle = messages.length === 0;
 
     setInput("");
     setToolEvents([]);
@@ -415,6 +418,9 @@ export function ChatArea({ conversationId, journey, initialMessages, kocCount }:
       currentAssistantIdRef.current = null;
       assistantContentRef.current = "";
       setStreaming(false);
+      if (shouldRefreshSidebarTitle) {
+        router.refresh();
+      }
     }
   }
 

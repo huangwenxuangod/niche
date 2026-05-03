@@ -13,7 +13,7 @@ import type { ChatIntent, ConfirmationContext } from "./chat-intent-router";
 import { extractExplicitAccountName } from "./chat-intent-router";
 import type { DeterministicToolName, PerfLogger, PrefetchedContext } from "./chat-runtime";
 import { trimText } from "./chat-runtime";
-import { detectArticleMode, detectPrimaryCognitiveGap } from "./cognitive-gap";
+import { detectArticleMode } from "./cognitive-gap";
 
 export async function prefetchIntentContext(params: {
   intent: ChatIntent;
@@ -208,14 +208,33 @@ function buildWebSearchQuery(
     .join(" ")
     .trim();
 
+  if (searchIntent.type === "news_lookup") {
+    const seedTerms = [cleaned, keywordPart, domainPart]
+      .join(" ")
+      .split(/\s+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .filter((item) => !/^(帮我|给我|搜索|搜|查|找|一下|最新|新闻|资讯|动态)$/.test(item));
+
+    const uniqueTerms = Array.from(new Set(seedTerms)).slice(0, 6).join(" ");
+    return `${uniqueTerms || cleaned || keywordPart || domainPart} 官方 博客 发布 更新 新闻 动态`;
+  }
+
   if (intent === "topics") {
-    return (
-      base ||
-      keywordPart ||
-      domainPart ||
-      anglePart ||
-      "内容"
-    ) + " 最新 发布 更新 趋势 热点 值得写的选题";
+    const topicTerms = [
+      keywordPart,
+      domainPart,
+      anglePart,
+      intentPart,
+      cleaned,
+    ]
+      .join(" ")
+      .split(/\s+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .filter((item) => !/^(3|三个|个|涨粉|选题|题目|方向|写什么|值得写|话题|热点)$/.test(item));
+    const uniqueTopicTerms = Array.from(new Set(topicTerms)).slice(0, 8).join(" ");
+    return `${uniqueTopicTerms || keywordPart || domainPart || anglePart || "内容"} 最新 发布 更新 趋势 热点 值得写的选题`;
   }
 
   if (intent === "growth_analysis") {
@@ -458,9 +477,8 @@ function shouldAutoWebSearchForIntent(
   }
 
   const articleMode = detectArticleMode(userContent, intent);
-  const gap = detectPrimaryCognitiveGap(userContent);
 
-  if (articleMode === "high_leverage_article" && gap === "event") {
+  if (articleMode === "high_leverage_article" && /(发布|更新|上线|新功能|模型|发布会|最新|最近)/.test(userContent)) {
     return true;
   }
 
@@ -562,8 +580,13 @@ function extractSearchIntentFromUserText(userContent: string, intent: ChatIntent
   const text = userContent.trim();
   const normalized = text.toLowerCase();
   const queryHints: string[] = [];
-  let type: "topic_discovery" | "deep_test" | "industry_judgment" | "tutorial" | "general" =
+  let type: "topic_discovery" | "deep_test" | "industry_judgment" | "tutorial" | "news_lookup" | "general" =
     "general";
+
+  if (/(新闻|资讯|动态|最新消息|最新新闻|更新日志|release|changelog|官方博客|官网)/i.test(text)) {
+    type = "news_lookup";
+    queryHints.push("官方", "发布", "更新", "新闻");
+  }
 
   if (/(选题|题目|方向|写什么|值得写|最近写什么|现在写什么|热点)/.test(text) || intent === "topics") {
     type = "topic_discovery";

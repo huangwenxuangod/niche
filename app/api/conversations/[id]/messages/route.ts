@@ -46,6 +46,22 @@ type ConversationRow = {
   journeys: JourneyRow | JourneyRow[] | null;
 };
 
+function buildConversationTitleFromUserInput(content: string) {
+  const normalized = String(content || "")
+    .replace(/\s+/g, " ")
+    .replace(/^[#*>\-\d.\s]+/, "")
+    .trim();
+
+  if (!normalized) return "新对话";
+
+  const cleaned = normalized
+    .replace(/^(帮我|请|麻烦|给我|我想|想要|想让你|先|直接)/, "")
+    .trim();
+
+  const source = cleaned || normalized;
+  return source.length > 18 ? `${source.slice(0, 18).trim()}...` : source;
+}
+
 export async function POST(req: NextRequest, { params }: RouteContext) {
   const startTime = Date.now();
   const { id: conversationId } = await params;
@@ -98,6 +114,17 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
           content,
         });
         perf.mark("user_message_saved");
+
+        const currentTitle = String(conv.title || "").trim();
+        if (!currentTitle || currentTitle === "新对话") {
+          const nextTitle = buildConversationTitleFromUserInput(content);
+          await supabase
+            .from("conversations")
+            .update({ title: nextTitle })
+            .eq("id", conversationId)
+            .eq("user_id", user.id);
+          perf.mark("conversation_titled");
+        }
 
         const sessionStepsBeforeTurn = await getSessionSteps(supabase, conversationId);
         perf.mark("session_loaded");
