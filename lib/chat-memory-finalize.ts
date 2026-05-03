@@ -308,11 +308,24 @@ function buildMemoryTranscript(params: {
       : "",
   ].filter(Boolean);
 
+  const extracted = extractMemoryHighlights(
+    params.userContent,
+    params.assistantContent
+  );
+
   return [
     "# 本轮写作记录",
     "",
     `- intent: ${params.intent}`,
     ...(signals.length ? signals.map((item) => `- ${item}`) : []),
+    ...(extracted.summary.length ? ["", "## 本轮认知精华", ...extracted.summary.map((item) => `- ${item}`)] : []),
+    ...(extracted.judgments.length ? ["", "## 候选判断", ...extracted.judgments.map((item) => `- ${item}`)] : []),
+    ...(extracted.openQuestions.length ? ["", "## 候选未想透问题", ...extracted.openQuestions.map((item) => `- ${item}`)] : []),
+    ...(extracted.experiences.length ? ["", "## 候选关键经历", ...extracted.experiences.map((item) => `- ${item}`)] : []),
+    ...(extracted.themes.length ? ["", "## 候选长期主题", ...extracted.themes.map((item) => `- ${item}`)] : []),
+    ...(extracted.benchmarkLearnings.length
+      ? ["", "## 候选对标启发", ...extracted.benchmarkLearnings.map((item) => `- ${item}`)]
+      : []),
     "",
     "## 用户原话",
     params.userContent.trim() || "（空）",
@@ -320,4 +333,102 @@ function buildMemoryTranscript(params: {
     "## 助手本轮回应",
     params.assistantContent.trim() || "（空）",
   ].join("\n");
+}
+
+function extractMemoryHighlights(userContent: string, assistantContent: string) {
+  const userSentences = splitSentences(userContent);
+  const assistantSentences = splitSentences(assistantContent);
+  const combined = [...userSentences, ...assistantSentences];
+
+  const judgments = dedupePreserveOrder(
+    combined.filter((line) =>
+      /(我认为|我觉得|我判断|真正的问题是|本质上|核心是|说白了|我反对|我最反对|根本不是|不是.+而是)/.test(
+        line
+      )
+    )
+  ).slice(0, 4);
+
+  const openQuestions = dedupePreserveOrder(
+    combined.filter(
+      (line) =>
+        /[？?]$/.test(line) ||
+        /(还没想透|没想清楚|需要继续想|值得继续追问|先别急着写|最关键的问题)/.test(line)
+    )
+  ).slice(0, 4);
+
+  const experiences = dedupePreserveOrder(
+    combined.filter((line) =>
+      /(我自己|我踩过|我吃过亏|我发现|我观察到|我试过|我的经历|我之前|让我最烦|我最受不了)/.test(
+        line
+      )
+    )
+  ).slice(0, 4);
+
+  const themes = dedupePreserveOrder(
+    combined.flatMap((line) => inferThemeCandidates(line))
+  ).slice(0, 5);
+
+  const benchmarkLearnings = dedupePreserveOrder(
+    combined.filter((line) =>
+      /(对标|卡兹克|可迁移|值得学|不能抄|核心对标|真正该学|资产)/.test(line)
+    )
+  ).slice(0, 4);
+
+  const summary = dedupePreserveOrder(
+    [
+      judgments[0],
+      openQuestions[0] ? `当前最值得继续挖的问题：${stripTrailingPunctuation(openQuestions[0])}` : "",
+      experiences[0] ? `和用户真实经历最相关的一句：${stripTrailingPunctuation(experiences[0])}` : "",
+      benchmarkLearnings[0]
+        ? `和核心对标最相关的一句：${stripTrailingPunctuation(benchmarkLearnings[0])}`
+        : "",
+    ].filter(Boolean) as string[]
+  ).slice(0, 4);
+
+  return {
+    summary,
+    judgments,
+    openQuestions,
+    experiences,
+    themes,
+    benchmarkLearnings,
+  };
+}
+
+function splitSentences(text: string) {
+  return text
+    .split(/\r?\n+/)
+    .flatMap((line) => line.split(/(?<=[。！？!?])/))
+    .map((line) => line.trim())
+    .map((line) => line.replace(/^[-*]\s*/, ""))
+    .filter(Boolean)
+    .filter((line) => line !== "（空）")
+    .filter((line) => line.length >= 6)
+    .slice(0, 40);
+}
+
+function inferThemeCandidates(line: string) {
+  const themes: string[] = [];
+  if (/(留存|坚持|持续写|长期产出)/.test(line)) themes.push("创作者留存");
+  if (/(隐性知识|没说透|认知|判断)/.test(line)) themes.push("隐性知识挖掘");
+  if (/(对标|卡兹克|模仿|不能抄|资产)/.test(line)) themes.push("核心对标与资产转化");
+  if (/(AI工具|工具崇拜|工作流|模型)/.test(line)) themes.push("AI 工具与工作流认知");
+  if (/(公众号|写作|爆文|选题|长文)/.test(line)) themes.push("公众号写作与爆文逻辑");
+  return themes;
+}
+
+function dedupePreserveOrder(items: string[]) {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const item of items) {
+    const normalized = stripTrailingPunctuation(item).trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
+}
+
+function stripTrailingPunctuation(text: string) {
+  return text.replace(/[。！？!?；;：:]+$/g, "").trim();
 }

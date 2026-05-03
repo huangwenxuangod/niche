@@ -11,6 +11,7 @@ import type { ChatIntent, ConfirmationContext } from "./chat-intent-router";
 import { extractExplicitAccountName } from "./chat-intent-router";
 import type { DeterministicToolName, PerfLogger, PrefetchedContext } from "./chat-runtime";
 import { trimText } from "./chat-runtime";
+import { detectArticleMode, detectPrimaryCognitiveGap } from "./cognitive-gap";
 
 export async function prefetchIntentContext(params: {
   intent: ChatIntent;
@@ -32,7 +33,7 @@ export async function prefetchIntentContext(params: {
           context,
           send
         ),
-        shouldAutoWebSearch(userContent, context.journey?.keywords ?? [])
+        shouldAutoWebSearchForIntent(intent, userContent, context.journey?.keywords ?? [])
           ? runObservedTool("web_search", { query: userContent }, context, send)
           : Promise.resolve(null),
       ]);
@@ -49,7 +50,7 @@ export async function prefetchIntentContext(params: {
           query: [topic.title, topic.angle].filter(Boolean).join("\n"),
           limit: 6,
         }).catch(() => []),
-        shouldAutoWebSearch(userContent, context.journey?.keywords ?? [])
+        shouldAutoWebSearchForIntent(intent, userContent, context.journey?.keywords ?? [])
           ? runObservedTool("web_search", { query: [topic.title, topic.angle].filter(Boolean).join(" ") }, context, send)
           : Promise.resolve(null),
       ]);
@@ -131,7 +132,7 @@ export async function prefetchIntentContext(params: {
     }
     case "general":
     default:
-      if (shouldAutoWebSearch(userContent, context.journey?.keywords ?? [])) {
+      if (shouldAutoWebSearchForIntent(intent, userContent, context.journey?.keywords ?? [])) {
         const webContext = await runObservedTool(
           "web_search",
           { query: userContent },
@@ -339,6 +340,25 @@ function shouldAutoWebSearch(userContent: string, journeyKeywords: string[]) {
     compactKeywords.length &&
     compactKeywords.every((keyword) => !normalized.includes(keyword))
   ) {
+    return true;
+  }
+
+  return false;
+}
+
+function shouldAutoWebSearchForIntent(
+  intent: ChatIntent,
+  userContent: string,
+  journeyKeywords: string[]
+) {
+  if (shouldAutoWebSearch(userContent, journeyKeywords)) {
+    return true;
+  }
+
+  const articleMode = detectArticleMode(userContent, intent);
+  const gap = detectPrimaryCognitiveGap(userContent);
+
+  if (articleMode === "high_leverage_article" && gap === "event") {
     return true;
   }
 

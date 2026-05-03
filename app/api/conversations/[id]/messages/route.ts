@@ -27,6 +27,12 @@ import {
   finalizeTurnMemory,
   recordIntentArtifacts,
 } from "@/lib/chat-memory-finalize";
+import {
+  buildGapQuestion,
+  detectArticleMode,
+  detectPrimaryCognitiveGap,
+  explicitlyWantsDirectDraft,
+} from "@/lib/cognitive-gap";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -198,6 +204,53 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
                 perf,
               });
         perf.mark("prefetch_completed");
+
+        const articleMode = detectArticleMode(content, intent);
+        const wantsDirectDraft = explicitlyWantsDirectDraft(content);
+        const primaryGap =
+          articleMode === "high_leverage_article" && !wantsDirectDraft
+            ? detectPrimaryCognitiveGap(content)
+            : null;
+
+        if (primaryGap) {
+          const deterministicQuestion = `${buildGapQuestion(primaryGap)}\n\n如果你已经想清楚了，也可以直接回我：直接写。`;
+
+          const { data: assistantMessage, error: assistantMessageError } = await supabase
+            .from("messages")
+            .insert({
+              conversation_id: conversationId,
+              role: "assistant",
+              content: deterministicQuestion,
+            })
+            .select("id")
+            .single();
+
+          if (assistantMessageError || !assistantMessage?.id) {
+            throw new Error(
+              `Create assistant message failed: ${
+                assistantMessageError?.message || "unknown error"
+              }`
+            );
+          }
+
+          send({ type: "assistant_message", messageId: assistantMessage.id });
+          send({ type: "text", text: deterministicQuestion });
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+
+          void finalizeTurnMemory({
+            supabase,
+            userId: user.id,
+            conversationId,
+            journeyId: conversation.journey_id,
+            userContent: content,
+            intent,
+            displayAnswer: deterministicQuestion,
+            confirmationContext,
+          });
+
+          controller.close();
+          return;
+        }
 
         const [userMemory, projectMemory] =
           intent === "fast_generation"
