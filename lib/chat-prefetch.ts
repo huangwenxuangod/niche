@@ -209,42 +209,35 @@ function buildWebSearchQuery(
     .trim();
 
   if (searchIntent.type === "news_lookup") {
-    const seedTerms = [cleaned, keywordPart, domainPart]
-      .join(" ")
-      .split(/\s+/)
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .filter((item) => !/^(帮我|给我|搜索|搜|查|找|一下|最新|新闻|资讯|动态)$/.test(item));
-
-    const uniqueTerms = Array.from(new Set(seedTerms)).slice(0, 6).join(" ");
-    return `${uniqueTerms || cleaned || keywordPart || domainPart} 官方 博客 发布 更新 新闻 动态`;
+    const seedTerms = compressSearchTerms([
+      cleaned,
+      ...keywords,
+      ...domainHints.slice(0, 2),
+    ]);
+    const uniqueTerms = seedTerms.slice(0, 4).join(" ");
+    return `${uniqueTerms || cleaned || keywordPart || domainPart} 官方 博客 发布 更新 新闻`;
   }
 
   if (intent === "topics") {
-    const topicTerms = [
-      keywordPart,
-      domainPart,
-      anglePart,
-      intentPart,
+    const topicTerms = compressSearchTerms([
       cleaned,
-    ]
-      .join(" ")
-      .split(/\s+/)
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .filter((item) => !/^(3|三个|个|涨粉|选题|题目|方向|写什么|值得写|话题|热点)$/.test(item));
-    const uniqueTopicTerms = Array.from(new Set(topicTerms)).slice(0, 8).join(" ");
-    return `${uniqueTopicTerms || keywordPart || domainPart || anglePart || "内容"} 最新 发布 更新 趋势 热点 值得写的选题`;
+      ...keywords,
+      ...domainHints.slice(0, 2),
+      ...benchmarkProfile.angles.slice(0, 2),
+      ...searchIntent.queryHints.slice(0, 2),
+    ]);
+    const uniqueTopicTerms = topicTerms.slice(0, 5).join(" ");
+    return `${uniqueTopicTerms || keywordPart || domainPart || anglePart || "内容"} 最新更新 值得写选题`;
   }
 
   if (intent === "growth_analysis") {
-    return (
-      base ||
-      keywordPart ||
-      domainPart ||
-      anglePart ||
-      "内容"
-    ) + " 最新 发布 更新 讨论 趋势";
+    const analysisTerms = compressSearchTerms([
+      cleaned,
+      ...keywords,
+      ...domainHints.slice(0, 2),
+      ...benchmarkProfile.angles.slice(0, 2),
+    ]);
+    return `${analysisTerms.slice(0, 5).join(" ") || base || keywordPart || domainPart || anglePart || "内容"} 最新讨论 趋势`;
   }
 
   return base || userContent.trim();
@@ -503,30 +496,30 @@ function inferDomainHints(
       seed
     )
   ) {
-    hints.push("AI", "科技", "模型", "工具");
+    hints.push("AI", "模型", "工具");
   }
 
   if (/(职场|求职|面试|简历|副业|效率|打工|运营)/.test(seed)) {
-    hints.push("职场", "效率", "副业");
+    hints.push("职场", "效率");
   }
 
   if (/(教育|学习|留学|考研|英语|编程教育)/.test(seed)) {
-    hints.push("学习", "教育", "成长");
+    hints.push("教育", "成长");
   }
 
   if (/(生活|穿搭|旅行|美食|家居|健身|运动|情绪)/.test(seed)) {
-    hints.push("生活方式", "经验", "趋势");
+    hints.push("生活方式", "经验");
   }
 
   if (/(财经|投资|创业|商业|理财|独立开发)/.test(seed)) {
-    hints.push("商业", "创业", "趋势");
+    hints.push("商业", "创业");
   }
 
   if (!hints.length && journey?.platform === "wechat_mp") {
     hints.push("公众号");
   }
 
-  return Array.from(new Set(hints)).slice(0, 4);
+  return Array.from(new Set(hints)).slice(0, 3);
 }
 
 function inferBenchmarkProfile(journey: ToolContextJourney | null) {
@@ -541,28 +534,28 @@ function inferBenchmarkProfile(journey: ToolContextJourney | null) {
       seed
     )
   ) {
-    domain.push("AI", "科技", "模型", "工具");
-    angles.push("工具实测", "模型更新", "行业趋势", "判断型内容");
+    domain.push("AI", "模型", "工具");
+    angles.push("工具实测", "模型更新", "行业判断");
   }
 
   if (/(职场|求职|面试|副业|效率|打工|运营)/.test(seed)) {
     domain.push("职场", "成长", "效率");
-    angles.push("实操经验", "方法清单", "趋势判断");
+    angles.push("实操经验", "方法清单");
   }
 
   if (/(教育|学习|留学|考研|英语|编程教育)/.test(seed)) {
     domain.push("教育", "学习", "成长");
-    angles.push("方法拆解", "经验总结", "实操教程");
+    angles.push("方法拆解", "实操教程");
   }
 
   if (/(生活|穿搭|旅行|美食|家居|健身|运动|情绪)/.test(seed)) {
     domain.push("生活方式", "体验", "趋势");
-    angles.push("真实体验", "场景化内容", "情绪价值");
+    angles.push("真实体验", "场景内容");
   }
 
   if (/(财经|投资|创业|商业|理财|独立开发)/.test(seed)) {
     domain.push("商业", "创业", "趋势");
-    angles.push("行业判断", "机会分析", "案例拆解");
+    angles.push("行业判断", "机会分析");
   }
 
   if (!domain.length && journey?.platform === "wechat_mp") {
@@ -571,8 +564,8 @@ function inferBenchmarkProfile(journey: ToolContextJourney | null) {
   }
 
   return {
-    domain: Array.from(new Set(domain)).slice(0, 4),
-    angles: Array.from(new Set(angles)).slice(0, 4),
+    domain: Array.from(new Set(domain)).slice(0, 3),
+    angles: Array.from(new Set(angles)).slice(0, 3),
   };
 }
 
@@ -620,6 +613,26 @@ function extractSearchIntentFromUserText(userContent: string, intent: ChatIntent
     type,
     queryHints: Array.from(new Set(queryHints)).slice(0, 4),
   };
+}
+
+function compressSearchTerms(parts: string[]) {
+  const stopWords = /^(帮我|给我|请|麻烦|搜索|搜|查|找|一下|现在|最近|最新|当前|有什么|有啥|哪些|哪个|值得写|好玩的|能写的|可写的|选题|题目|方向|写什么|3|三个|个|涨粉|话题|热点|趋势|内容)$/;
+
+  const rawTerms = parts
+    .flatMap((part) => String(part || "").split(/\s+/))
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => !stopWords.test(item));
+
+  const compact: string[] = [];
+  for (const term of rawTerms) {
+    if (compact.some((existing) => existing === term || existing.includes(term) || term.includes(existing))) {
+      continue;
+    }
+    compact.push(term);
+  }
+
+  return compact;
 }
 
 function sendStatus(
