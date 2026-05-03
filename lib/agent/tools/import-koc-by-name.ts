@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { importKocForJourney } from "@/lib/koc-import";
+import { normalizeAccountName } from "@/lib/account-name";
 import type { AgentToolDefinition } from "./helpers";
 import type { ToolExecutionContext } from "./types";
 
@@ -24,40 +25,7 @@ export const importKocByNameToolDefinition: AgentToolDefinition<typeof importKoc
  * 清理公众号名称，移除常见的用户输入前缀和后缀
  */
 function cleanAccountName(rawName: string): string {
-  let cleaned = rawName.trim();
-
-  // 移除常见前缀
-  const prefixes = [
-    /^导入一下?/,
-    /^添加一下?/,
-    /^搜索一下?/,
-    /^分析一下?/,
-    /^同步一下?/,
-    /^看看/,
-    /^查一下?/,
-  ];
-  for (const prefix of prefixes) {
-    cleaned = cleaned.replace(prefix, "");
-  }
-
-  // 移除常见后缀
-  const suffixes = [
-    /这个号$/i,
-    /这个公众号$/i,
-    /的公众号$/i,
-    /的账号$/i,
-    /这个账号$/i,
-    /公众号$/i,
-  ];
-  for (const suffix of suffixes) {
-    cleaned = cleaned.replace(suffix, "");
-  }
-
-  // 再次清理空格
-  cleaned = cleaned.trim();
-
-  // 如果清理后为空，返回原始值（至少让 API 给出明确的错误）
-  return cleaned || rawName;
+  return normalizeAccountName(rawName) || rawName;
 }
 
 export async function runImportKocByName(

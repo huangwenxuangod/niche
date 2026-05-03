@@ -25,7 +25,29 @@ export default async function AppLayout({
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
-  const activeJourney = (journeys ?? []).find((j: Journey) => j.is_active) ?? null;
+  let hydratedJourneys = (journeys ?? []) as Journey[];
+  let activeJourney = hydratedJourneys.find((j: Journey) => j.is_active) ?? hydratedJourneys[0] ?? null;
+
+  if (!activeJourney) {
+    const { data: createdJourney } = await supabase
+      .from("journeys")
+      .insert({
+        user_id: user.id,
+        name: "公众号写作与认知旅程",
+        platform: "wechat_mp",
+        keywords: [],
+        is_active: true,
+        knowledge_initialized: false,
+        init_status: "pending",
+      })
+      .select("*")
+      .single();
+
+    if (createdJourney) {
+      activeJourney = createdJourney as Journey;
+      hydratedJourneys = [activeJourney];
+    }
+  }
 
   let conversations: Conversation[] = [];
   if (activeJourney) {
@@ -48,7 +70,7 @@ export default async function AppLayout({
       }}
     >
       <Sidebar
-        journeys={journeys ?? []}
+        journeys={hydratedJourneys}
         activeJourney={activeJourney}
         conversations={conversations}
       />

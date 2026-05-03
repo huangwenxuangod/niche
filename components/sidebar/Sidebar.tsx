@@ -43,13 +43,12 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
   const router = useRouter();
   const params = useParams();
   const currentConvId = params?.conversationId as string | undefined;
-  const [kocOpen, setKocOpen] = useState(false);
-  const [dashboardOpen, setDashboardOpen] = useState(false);
+  const [kocOpen, setKocOpen] = useState(true);
+  const [dashboardOpen, setDashboardOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const supabase = createClient();
   const { themeMode, toggleTheme } = useThemeMode();
 
-  const inactiveJourneys = journeys.filter((j) => !j.is_active);
   const groups = groupByDate(conversations);
   const conversationItems: ConversationItemType[] = Object.entries(groups).flatMap(([label, convs]) =>
     convs.map((conversation) => ({
@@ -129,24 +128,6 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
       <div style={bodyStyle}>
         {activeJourney ? (
           <>
-            {/* Journey name */}
-            <div style={{ padding: "8px 16px 4px" }}>
-              <div style={sectionTitleStyle}>当前旅程</div>
-              <div style={{ fontSize: 12, fontWeight: 500, color: "var(--text-primary)", marginTop: 4, lineHeight: 1.4 }}>
-                {activeJourney.name}
-              </div>
-              {activeJourney.init_status === "running" && (
-                <div style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--accent)", marginTop: 3 }}>
-                  ⏳ 正在初始化对标内容库...
-                </div>
-              )}
-              {activeJourney.init_status === "error" && (
-                <div style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "#e57373", marginTop: 3 }}>
-                  ⚠ 初始化失败
-                </div>
-              )}
-            </div>
-
             {/* Owned account toggle */}
             <div style={{ display: "flex", alignItems: "center", padding: "0 8px 0 12px" }}>
               <button
@@ -216,21 +197,7 @@ export function Sidebar({ journeys, activeJourney, conversations }: SidebarProps
           </>
         ) : (
           <div style={{ padding: "20px 16px", color: "var(--text-tertiary)", fontSize: 12 }}>
-            还没有旅程，点击上方「新建旅程」开始
-          </div>
-        )}
-
-        {/* Archived journeys */}
-        {inactiveJourneys.length > 0 && (
-          <div style={{ marginTop: 12 }}>
-            <div style={sectionTitleStyle}>归档旅程</div>
-            {inactiveJourneys.map((j) => (
-              <div key={j.id} style={{ ...navItemStyle, color: "var(--text-tertiary)" }}>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {j.name}
-                </span>
-              </div>
-            ))}
+            正在准备你的工作区...
           </div>
         )}
       </div>

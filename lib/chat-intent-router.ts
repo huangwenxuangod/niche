@@ -1,4 +1,5 @@
 import { getWorkflowForIntent } from "./chat-workflows.ts";
+import { normalizeAccountName } from "./account-name";
 
 export type GeneratedTopic = {
   index?: number;
@@ -77,16 +78,24 @@ export function getHistoryLimitForIntent(intent: ChatIntent) {
 }
 
 export function extractExplicitAccountName(userContent: string) {
-  if (!/(对标|导入|添加)/.test(userContent)) {
+  const hasExplicitAction = /(对标|导入|添加|同步|研究|拆解|看看|看下|查下)/.test(userContent);
+  const hasNaturalAccountReference =
+    /([^\s，。！？]{2,40})(的号|的公众号|公众号|这个号|这个公众号|账号)(嘛|吗|呢|呀|啊|吧)?$/.test(
+      userContent.trim()
+    );
+
+  if (!hasExplicitAction && !hasNaturalAccountReference) {
     return null;
   }
 
-  const match = userContent.match(/(?:对标|导入(?:一下)?|添加)([^，。！？\n]+)/);
-  const candidate = match?.[1]?.trim() || userContent.trim();
-  const cleaned = candidate
-    .replace(/^(一下|一个|这个|这个号|这个公众号|账号)/, "")
-    .replace(/(作为对标|做对标|这个号|这个公众号|公众号|账号)$/i, "")
-    .trim();
+  const match = userContent.match(
+    /(?:对标|导入(?:一下)?|添加|同步(?:一下)?|研究(?:一下)?|拆解(?:一下)?|看看|看下|查下)([^，。！？\n]+)/
+  );
+  const naturalMatch = userContent.match(
+    /([^\s，。！？]{2,40})(?:的号|的公众号|公众号|这个号|这个公众号|账号)(?:嘛|吗|呢|呀|啊|吧)?$/
+  );
+  const candidate = match?.[1]?.trim() || naturalMatch?.[1]?.trim() || userContent.trim();
+  const cleaned = normalizeAccountName(candidate);
 
   return cleaned.length >= 2 ? cleaned : null;
 }
