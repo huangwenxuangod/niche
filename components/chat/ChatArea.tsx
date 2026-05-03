@@ -54,7 +54,7 @@ type LoadingSnapshot = {
 };
 
 const QUICK_PROMPTS = [
-  { key: "topic", label: "给我 3 个涨粉选题", icon: <EditOutlined /> },
+  { key: "topic", label: "给我 3 个最近值得写的涨粉选题", icon: <EditOutlined /> },
   { key: "pattern", label: "分析对标账号增长规律", icon: <RadarChartOutlined /> },
   { key: "schedule", label: "什么时候发布更容易起量", icon: <ReadOutlined /> },
   { key: "wxvideo", label: "分析视频号样本", icon: <AppstoreOutlined /> },

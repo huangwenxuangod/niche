@@ -445,6 +445,14 @@ function shouldAutoWebSearchForIntent(
   userContent: string,
   journey: ToolContextJourney | null
 ) {
+  if (
+    intent === "topics" &&
+    /(选题|题目|方向|写什么|涨粉选题)/.test(userContent) &&
+    ((journey?.keywords ?? []).length > 0 || Boolean(journey?.primaryBenchmarkName))
+  ) {
+    return true;
+  }
+
   if (shouldAutoWebSearch(userContent, journey)) {
     return true;
   }
