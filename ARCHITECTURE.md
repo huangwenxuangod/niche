@@ -200,6 +200,108 @@ Niche 现在的真实架构，已经不适合再被描述成单纯的“AI 内�
 - 当前核心对标
 - 我从核心对标学到的可迁移资产
 
+### 4.5 产品功能架构图
+
+```mermaid
+flowchart LR
+    subgraph F["前台层"]
+        A["写作区<br/>对话 / 继续深入 / 直接成稿"]
+        B["核心对标<br/>为什么能爆 / 爆款逻辑 / 你能学什么"]
+        C["我的公众号<br/>导入文章 / 复盘 / 对照核心对标"]
+        D["我的认知<br/>判断 / 问题 / 经历 / 长期主题"]
+    end
+
+    subgraph G["生成与复盘层"]
+        E["内容生成<br/>分析结果 / 长文 / 改写"]
+        F2["排版发布<br/>Markdown -> HTML -> 草稿箱"]
+        G2["复盘洞察<br/>Top Articles / AI Insights / Gap Summary"]
+    end
+
+    subgraph K["知识与记忆层"]
+        H["核心对标知识"]
+        I["我的文章知识"]
+        J["长期记忆"]
+    end
+
+    subgraph S["后台补全层"]
+        K2["Prompt 判断<br/>继续深入 / 直接写 / 缺口识别"]
+        L["数据预取<br/>对标 / owned content / memory / web_search"]
+    end
+
+    A --> E
+    B --> H
+    C --> I
+    D --> J
+    H --> L
+    I --> L
+    J --> L
+    K2 --> E
+    L --> E
+    E --> F2
+    I --> G2
+    H --> G2
+    G2 --> J
+```
+
+### 4.6 产品技术架构图
+
+```mermaid
+flowchart TD
+    subgraph UI["前端层"]
+        A["Next.js App Router"]
+        B["ChatArea / Sidebar"]
+        C["Dashboard / ArticleLayout"]
+    end
+
+    subgraph API["API 路由层"]
+        D["messages / koc / dashboard / article-layout / memory"]
+    end
+
+    subgraph CORE["写作主链"]
+        E["chat-prefetch<br/>对标 / owned content / memory / web_search"]
+        F["chat-prompt + cognitive-gap<br/>prompt 主导判断与提问"]
+        G["chat-generation + chat-output<br/>单次模型流式生成"]
+        H["chat-memory-finalize<br/>本轮认知精华提炼"]
+    end
+
+    subgraph KNOW["知识与记忆层"]
+        I["核心对标知识"]
+        J["我的文章知识"]
+        K["长期记忆"]
+    end
+
+    subgraph EXT["外部能力"]
+        L["Ark / 豆包"]
+        M["大佳啦 API"]
+        N["web search"]
+        O["微信公众号发布链路"]
+    end
+
+    subgraph DB["数据层"]
+        P["Supabase"]
+    end
+
+    A --> B
+    A --> C
+    B --> D
+    C --> D
+    D --> E
+    D --> F
+    D --> G
+    D --> H
+    E --> I
+    E --> J
+    E --> K
+    E --> N
+    F --> L
+    G --> L
+    D --> M
+    D --> O
+    I --> P
+    J --> P
+    K --> P
+```
+
 ---
 
 ## 5. 对话主链
