@@ -353,10 +353,18 @@ function shouldAutoWebSearch(userContent: string, journeyKeywords: string[]) {
 
   if (!text) return false;
   if (/https?:\/\//i.test(text)) return true;
-  if (/(最近|最新|刚刚|今天|这周|本周|发布|上线|新功能|更新|是什么|谁是|没见过|不了解|不认识)/.test(text)) {
+  if (
+    /(最近|最新|刚刚|今天|这周|本周|现在|发布|上线|新功能|更新|是什么|谁是|没见过|不了解|不认识|重新搜索|重新搜|再搜|搜一下|查一下|找一下|找找)/.test(
+      text
+    )
+  ) {
     return true;
   }
   if (/[A-Z]{2,}|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*/.test(text)) {
+    return true;
+  }
+
+  if (/(选题|题目|方向|写什么).*(现在|最近|最新|值得写|机会|热点)|现在.*(选题|题目|方向|写什么)/.test(text)) {
     return true;
   }
 

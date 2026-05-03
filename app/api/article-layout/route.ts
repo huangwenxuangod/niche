@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
     }
 
     const conversationId = String(body.conversation_id || "");
-    const journeyId = String(body.journey_id || "");
+    const clientJourneyId = String(body.journey_id || "");
     const messageId = String(body.message_id || "");
     const sourceMarkdown = normalizeLayoutMarkdown(
       sanitizeArticlePreviewMarkdown(String(body.source_markdown || ""))
@@ -135,13 +135,13 @@ export async function POST(req: NextRequest) {
     const renderedHtml = String(body.rendered_html || "");
     const status = (body.status === "published" ? "published" : "draft") as LayoutStatus;
 
-    if (!conversationId || !journeyId || !messageId || !sourceMarkdown || !renderedMarkdown || !renderedHtml) {
+    if (!conversationId || !messageId || !sourceMarkdown || !renderedMarkdown || !renderedHtml) {
       console.error("[article-layout] save rejected: missing required fields", {
         requestId,
         mode,
         userId: user.id,
         conversationId,
-        journeyId,
+        clientJourneyId,
         messageId,
         sourceLength: sourceMarkdown.length,
         renderedLength: renderedMarkdown.length,
@@ -157,23 +157,35 @@ export async function POST(req: NextRequest) {
       .eq("user_id", user.id)
       .single();
 
-    if (!conversation || conversation.journey_id !== journeyId) {
+    if (!conversation) {
       console.error("[article-layout] save rejected: forbidden", {
         requestId,
         mode,
         userId: user.id,
         conversationId,
-        journeyId,
-        conversationJourneyId: conversation?.journey_id ?? null,
+        clientJourneyId,
+        conversationJourneyId: null,
       });
       return NextResponse.json({ error: "Forbidden", request_id: requestId }, { status: 403 });
+    }
+
+    const resolvedJourneyId = conversation.journey_id;
+    if (clientJourneyId && clientJourneyId !== resolvedJourneyId) {
+      console.warn("[article-layout] client journey mismatch, falling back to conversation journey", {
+        requestId,
+        mode,
+        userId: user.id,
+        conversationId,
+        clientJourneyId,
+        resolvedJourneyId,
+      });
     }
 
     const { data, error } = await supabase
       .from("article_layout_drafts")
       .upsert({
         conversation_id: conversationId,
-        journey_id: journeyId,
+        journey_id: resolvedJourneyId,
         message_id: messageId,
         user_id: user.id,
         source_markdown: sourceMarkdown,
@@ -191,7 +203,7 @@ export async function POST(req: NextRequest) {
         mode,
         userId: user.id,
         conversationId,
-        journeyId,
+        journeyId: resolvedJourneyId,
         messageId,
         status,
         sourceLength: sourceMarkdown.length,
