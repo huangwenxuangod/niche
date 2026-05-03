@@ -3,6 +3,7 @@ import type { ChatIntent } from "./chat-intent-router.ts";
 export type JourneySnapshot = {
   keywords?: string[];
   platform?: string | null;
+  primaryBenchmarkName?: string | null;
 } | null;
 
 export type PrefetchedContext = {

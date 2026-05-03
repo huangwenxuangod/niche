@@ -36,6 +36,7 @@ type JourneyRow = {
   id: string;
   platform: string | null;
   keywords: string[] | null;
+  primary_koc_source_id?: string | null;
 };
 
 type ConversationRow = {
@@ -78,7 +79,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
 
         const { data: conv, error: convError } = await supabase
           .from("conversations")
-          .select("id, title, journey_id, journeys(id, platform, keywords)")
+          .select("id, title, journey_id, journeys(id, platform, keywords, primary_koc_source_id)")
           .eq("id", conversationId)
           .eq("user_id", user.id)
           .single();
@@ -106,10 +107,20 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
         const journeyRow = Array.isArray(conversationJourney)
           ? (conversationJourney[0] ?? null)
           : (conversationJourney ?? null);
+        let primaryBenchmarkName: string | null = null;
+        if (journeyRow?.primary_koc_source_id) {
+          const { data: primaryKoc } = await supabase
+            .from("koc_sources")
+            .select("account_name")
+            .eq("id", journeyRow.primary_koc_source_id)
+            .maybeSingle();
+          primaryBenchmarkName = String(primaryKoc?.account_name ?? "").trim() || null;
+        }
         const journey = journeyRow
           ? {
               keywords: journeyRow.keywords ?? undefined,
               platform: journeyRow.platform ?? undefined,
+              primaryBenchmarkName,
             }
           : null;
 

@@ -32,6 +32,7 @@ export function buildCompactPrompt(params: {
   const dataCard = compactJsonCard(params.prefetched.data, 2600);
   const platform = params.journey?.platform || "wechat_mp";
   const keywords = (params.journey?.keywords ?? []).join("、") || "暂无";
+  const primaryBenchmarkName = params.journey?.primaryBenchmarkName || "暂无";
 
   const intentInstruction = getIntentInstruction(params.intent, params.prefetched);
 
@@ -44,6 +45,7 @@ export function buildCompactPrompt(params: {
     "认知缺口优先级：判断缺口 > 焦虑缺口 > 事件缺口 > 个人性缺口 > 冲突缺口。",
     `当前平台：${platform}`,
     `当前关键词：${keywords}`,
+    `当前核心对标：${primaryBenchmarkName}`,
     "",
     "【用户卡】",
     userCard,

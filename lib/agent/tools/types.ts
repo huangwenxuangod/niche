@@ -3,6 +3,7 @@ import type { createClient } from "@/lib/supabase/server";
 export type ToolContextJourney = {
   keywords?: string[];
   platform?: string | null;
+  primaryBenchmarkName?: string | null;
 };
 
 export type ToolExecutionContext = {

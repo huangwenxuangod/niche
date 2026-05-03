@@ -8,6 +8,7 @@ import { runAnalyzeJourneyData } from "@/lib/agent/tools/analyze-journey-data";
 import { runAnalyzeWxvideoData } from "@/lib/agent/tools/analyze-wxvideo-data";
 import { runAnalyzePublishTiming } from "@/lib/agent/tools/analyze-publish-timing";
 import { runImportKocByName } from "@/lib/agent/tools/import-koc-by-name";
+import type { ToolContextJourney } from "@/lib/agent/tools/types";
 import type { ChatIntent, ConfirmationContext } from "./chat-intent-router";
 import { extractExplicitAccountName } from "./chat-intent-router";
 import type { DeterministicToolName, PerfLogger, PrefetchedContext } from "./chat-runtime";
@@ -27,6 +28,7 @@ export async function prefetchIntentContext(params: {
   switch (intent) {
     case "topics": {
       sendStatus(send, "准备选题素材中", perf);
+      const webQuery = buildWebSearchQuery(intent, userContent, context.journey);
       const [journeyAnalysis, ownedContent, webContext] = await Promise.all([
         runObservedTool(
           "analyze_journey_data",
@@ -38,8 +40,8 @@ export async function prefetchIntentContext(params: {
           journeyId: context.journeyId,
           limit: 8,
         }).catch(() => []),
-        shouldAutoWebSearchForIntent(intent, userContent, context.journey?.keywords ?? [])
-          ? runObservedTool("web_search", { query: userContent }, context, send)
+        shouldAutoWebSearchForIntent(intent, userContent, context.journey)
+          ? runObservedTool("web_search", { query: webQuery }, context, send)
           : Promise.resolve(null),
       ]);
       return { intent, data: { journeyAnalysis, ownedContent, webContext } };
@@ -59,7 +61,7 @@ export async function prefetchIntentContext(params: {
           query: [topic.title, topic.angle].filter(Boolean).join("\n"),
           limit: 6,
         }).catch(() => []),
-        shouldAutoWebSearchForIntent(intent, userContent, context.journey?.keywords ?? [])
+        shouldAutoWebSearchForIntent(intent, userContent, context.journey)
           ? runObservedTool("web_search", { query: [topic.title, topic.angle].filter(Boolean).join(" ") }, context, send)
           : Promise.resolve(null),
       ]);
@@ -93,6 +95,7 @@ export async function prefetchIntentContext(params: {
     }
     case "growth_analysis": {
       sendStatus(send, "准备增长样本中", perf);
+      const webQuery = buildWebSearchQuery(intent, userContent, context.journey);
       const [journeyAnalysis, ownedContent, wxvideoAnalysis, publishTiming, webContext] = await Promise.all([
         runObservedTool("analyze_journey_data", { focus: "viral_patterns" }, context, send),
         retrieveOwnedContent(context.supabase, {
@@ -101,8 +104,8 @@ export async function prefetchIntentContext(params: {
         }).catch(() => []),
         runObservedTool("analyze_wxvideo_data", { focus: "viral_patterns" }, context, send),
         runObservedTool("analyze_publish_timing", { scope: "auto" }, context, send),
-        shouldAutoWebSearchForIntent(intent, userContent, context.journey?.keywords ?? [])
-          ? runObservedTool("web_search", { query: userContent }, context, send)
+        shouldAutoWebSearchForIntent(intent, userContent, context.journey)
+          ? runObservedTool("web_search", { query: webQuery }, context, send)
           : Promise.resolve(null),
       ]);
       return {
@@ -152,10 +155,11 @@ export async function prefetchIntentContext(params: {
     }
     case "general":
     default:
-      if (shouldAutoWebSearchForIntent(intent, userContent, context.journey?.keywords ?? [])) {
+      if (shouldAutoWebSearchForIntent(intent, userContent, context.journey)) {
+        const webQuery = buildWebSearchQuery(intent, userContent, context.journey);
         const webContext = await runObservedTool(
           "web_search",
-          { query: userContent },
+          { query: webQuery },
           context,
           send
         );
@@ -171,6 +175,60 @@ export async function prefetchIntentContext(params: {
       }).catch(() => []);
       return { intent: "general", data: { ownedContent } };
   }
+}
+
+function buildWebSearchQuery(
+  intent: ChatIntent,
+  userContent: string,
+  journey: ToolContextJourney | null
+) {
+  const keywords = (journey?.keywords ?? [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  const searchIntent = extractSearchIntentFromUserText(userContent, intent);
+  const benchmarkProfile = inferBenchmarkProfile(journey);
+  const domainHints = inferDomainHints(journey, benchmarkProfile);
+
+  const cleaned = userContent
+    .replace(/帮我|给我|请|麻烦|重新搜索一下|重新搜一下|重新搜索|重新搜|再搜一下|再搜|搜一下|搜索一下|查一下|找一下|找找/g, " ")
+    .replace(/现在|最近|最新|当前/g, " ")
+    .replace(/有什么|有啥|哪些|哪个/g, " ")
+    .replace(/值得写|好玩的|能写的|可写的/g, " ")
+    .replace(/选题|题目|方向|写什么/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const keywordPart = keywords.join(" ");
+  const domainPart = domainHints.join(" ");
+  const anglePart = benchmarkProfile.angles.join(" ");
+  const intentPart = searchIntent.queryHints.join(" ");
+  const base = [keywordPart, domainPart, anglePart, intentPart, cleaned]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  if (intent === "topics") {
+    return (
+      base ||
+      keywordPart ||
+      domainPart ||
+      anglePart ||
+      "内容"
+    ) + " 最新 发布 更新 趋势 热点 值得写的选题";
+  }
+
+  if (intent === "growth_analysis") {
+    return (
+      base ||
+      keywordPart ||
+      domainPart ||
+      anglePart ||
+      "内容"
+    ) + " 最新 发布 更新 讨论 趋势";
+  }
+
+  return base || userContent.trim();
 }
 
 export async function runObservedTool(
@@ -347,7 +405,7 @@ export function getToolLabel(toolName: string) {
   }
 }
 
-function shouldAutoWebSearch(userContent: string, journeyKeywords: string[]) {
+function shouldAutoWebSearch(userContent: string, journey: ToolContextJourney | null) {
   const text = userContent.trim();
   const normalized = text.toLowerCase();
 
@@ -368,7 +426,7 @@ function shouldAutoWebSearch(userContent: string, journeyKeywords: string[]) {
     return true;
   }
 
-  const compactKeywords = (journeyKeywords ?? [])
+  const compactKeywords = (journey?.keywords ?? [])
     .map((item) => String(item || "").trim().toLowerCase())
     .filter(Boolean);
 
@@ -385,9 +443,9 @@ function shouldAutoWebSearch(userContent: string, journeyKeywords: string[]) {
 function shouldAutoWebSearchForIntent(
   intent: ChatIntent,
   userContent: string,
-  journeyKeywords: string[]
+  journey: ToolContextJourney | null
 ) {
-  if (shouldAutoWebSearch(userContent, journeyKeywords)) {
+  if (shouldAutoWebSearch(userContent, journey)) {
     return true;
   }
 
@@ -399,6 +457,138 @@ function shouldAutoWebSearchForIntent(
   }
 
   return false;
+}
+
+function inferDomainHints(
+  journey: ToolContextJourney | null,
+  benchmarkProfile: { domain: string[]; angles: string[] }
+) {
+  const seed = [
+    ...(journey?.keywords ?? []),
+    ...benchmarkProfile.domain,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  const hints: string[] = [];
+
+  if (
+    /(ai|gpt|claude|kimi|gemini|openai|模型|大模型|科技|技术|智能体|agent|数字生命卡兹克|量子位|机器之心|硅星人)/.test(
+      seed
+    )
+  ) {
+    hints.push("AI", "科技", "模型", "工具");
+  }
+
+  if (/(职场|求职|面试|简历|副业|效率|打工|运营)/.test(seed)) {
+    hints.push("职场", "效率", "副业");
+  }
+
+  if (/(教育|学习|留学|考研|英语|编程教育)/.test(seed)) {
+    hints.push("学习", "教育", "成长");
+  }
+
+  if (/(生活|穿搭|旅行|美食|家居|健身|运动|情绪)/.test(seed)) {
+    hints.push("生活方式", "经验", "趋势");
+  }
+
+  if (/(财经|投资|创业|商业|理财|独立开发)/.test(seed)) {
+    hints.push("商业", "创业", "趋势");
+  }
+
+  if (!hints.length && journey?.platform === "wechat_mp") {
+    hints.push("公众号");
+  }
+
+  return Array.from(new Set(hints)).slice(0, 4);
+}
+
+function inferBenchmarkProfile(journey: ToolContextJourney | null) {
+  const name = String(journey?.primaryBenchmarkName ?? "").trim();
+  const seed = [name, ...(journey?.keywords ?? [])].join(" ").toLowerCase();
+
+  const domain: string[] = [];
+  const angles: string[] = [];
+
+  if (
+    /(数字生命卡兹克|量子位|机器之心|硅星人|openai|gpt|claude|kimi|gemini|模型|大模型|ai|科技|技术|agent|智能体)/.test(
+      seed
+    )
+  ) {
+    domain.push("AI", "科技", "模型", "工具");
+    angles.push("工具实测", "模型更新", "行业趋势", "判断型内容");
+  }
+
+  if (/(职场|求职|面试|副业|效率|打工|运营)/.test(seed)) {
+    domain.push("职场", "成长", "效率");
+    angles.push("实操经验", "方法清单", "趋势判断");
+  }
+
+  if (/(教育|学习|留学|考研|英语|编程教育)/.test(seed)) {
+    domain.push("教育", "学习", "成长");
+    angles.push("方法拆解", "经验总结", "实操教程");
+  }
+
+  if (/(生活|穿搭|旅行|美食|家居|健身|运动|情绪)/.test(seed)) {
+    domain.push("生活方式", "体验", "趋势");
+    angles.push("真实体验", "场景化内容", "情绪价值");
+  }
+
+  if (/(财经|投资|创业|商业|理财|独立开发)/.test(seed)) {
+    domain.push("商业", "创业", "趋势");
+    angles.push("行业判断", "机会分析", "案例拆解");
+  }
+
+  if (!domain.length && journey?.platform === "wechat_mp") {
+    domain.push("公众号");
+    angles.push("选题", "内容");
+  }
+
+  return {
+    domain: Array.from(new Set(domain)).slice(0, 4),
+    angles: Array.from(new Set(angles)).slice(0, 4),
+  };
+}
+
+function extractSearchIntentFromUserText(userContent: string, intent: ChatIntent) {
+  const text = userContent.trim();
+  const normalized = text.toLowerCase();
+  const queryHints: string[] = [];
+  let type: "topic_discovery" | "deep_test" | "industry_judgment" | "tutorial" | "general" =
+    "general";
+
+  if (/(选题|题目|方向|写什么|值得写|最近写什么|现在写什么|热点)/.test(text) || intent === "topics") {
+    type = "topic_discovery";
+    queryHints.push("值得写", "话题", "热点");
+  }
+
+  if (/(实测|评测|横评|对比|测评|试试|深度测试)/.test(text)) {
+    type = "deep_test";
+    queryHints.push("实测", "评测", "对比");
+  }
+
+  if (/(创业|机会|行业|趋势|影响|会不会凉|天塌了|护城河|判断)/.test(text)) {
+    type = "industry_judgment";
+    queryHints.push("行业趋势", "机会", "影响");
+  }
+
+  if (/(教程|工作流|实操|怎么用|提效|指南|步骤)/.test(text)) {
+    type = "tutorial";
+    queryHints.push("实操", "教程", "工作流");
+  }
+
+  if (!queryHints.length && /(最新|最近|当前|现在|发布|上线|更新)/.test(text)) {
+    queryHints.push("最新", "更新", "趋势");
+  }
+
+  if (!queryHints.length && normalized) {
+    queryHints.push("趋势");
+  }
+
+  return {
+    type,
+    queryHints: Array.from(new Set(queryHints)).slice(0, 4),
+  };
 }
 
 function sendStatus(
