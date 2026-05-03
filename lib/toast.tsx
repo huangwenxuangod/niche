@@ -15,6 +15,47 @@ type ToastOptions = {
   };
 };
 
+function compactToastMessage(message: string, maxLength: number) {
+  const normalized = String(message || "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength).trim()}...`;
+}
+
+function normalizeToastContent(
+  type: ToastType,
+  title: string,
+  options?: ToastOptions
+) {
+  const normalizedTitle = String(title || "").trim();
+  const normalizedDescription = String(options?.description || "").trim();
+
+  if (type !== "error") {
+    return {
+      title: normalizedTitle,
+      description: normalizedDescription || undefined,
+    };
+  }
+
+  const hasLongTitle =
+    normalizedTitle.length > 96 || normalizedTitle.includes("\n") || normalizedTitle.includes("{");
+  const mergedDetails = [normalizedDescription, hasLongTitle ? normalizedTitle : ""]
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+
+  if (!hasLongTitle) {
+    return {
+      title: normalizedTitle,
+      description: normalizedDescription || undefined,
+    };
+  }
+
+  return {
+    title: compactToastMessage(normalizedTitle, 72) || "操作失败",
+    description: mergedDetails || undefined,
+  };
+}
+
 function ToastCard({
   id,
   type,
@@ -94,13 +135,14 @@ function ToastCard({
 }
 
 function showToast(type: ToastType, title: string, options?: ToastOptions) {
+  const normalized = normalizeToastContent(type, title, options);
   return sonnerToast.custom(
     (id) => (
       <ToastCard
         id={id}
         type={type}
-        title={title}
-        description={options?.description}
+        title={normalized.title}
+        description={normalized.description}
         action={options?.action}
       />
     ),

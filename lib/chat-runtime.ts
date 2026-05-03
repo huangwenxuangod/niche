@@ -4,6 +4,7 @@ export type JourneySnapshot = {
   keywords?: string[];
   platform?: string | null;
   primaryBenchmarkName?: string | null;
+  primaryBenchmarkId?: string | null;
 } | null;
 
 export type PrefetchedContext = {

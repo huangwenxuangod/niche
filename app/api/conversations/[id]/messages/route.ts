@@ -148,6 +148,7 @@ export async function POST(req: NextRequest, { params }: RouteContext) {
               keywords: journeyRow.keywords ?? undefined,
               platform: journeyRow.platform ?? undefined,
               primaryBenchmarkName,
+              primaryBenchmarkId: journeyRow.primary_koc_source_id ?? null,
             }
           : null;
 

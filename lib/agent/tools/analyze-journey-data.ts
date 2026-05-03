@@ -48,20 +48,28 @@ export async function runAnalyzeJourneyData(
   context: ToolExecutionContext
 ) {
   const focus = String(args.focus || "viral_patterns");
-  const [kocsRes, articlesRes] = await Promise.all([
-    context.supabase
-      .from("koc_sources")
-      .select("account_name, max_read_count, avg_read_count")
-      .eq("journey_id", context.journeyId)
-      .order("max_read_count", { ascending: false })
-      .limit(10),
-    context.supabase
-      .from("knowledge_articles")
-      .select("title, read_count, is_viral, publish_time")
-      .eq("journey_id", context.journeyId)
-      .order("read_count", { ascending: false })
-      .limit(12),
-  ]);
+  const primaryBenchmarkId = String(context.journey?.primaryBenchmarkId || "").trim() || null;
+
+  let kocQuery = context.supabase
+    .from("koc_sources")
+    .select("account_name, max_read_count, avg_read_count")
+    .eq("journey_id", context.journeyId)
+    .order("max_read_count", { ascending: false })
+    .limit(10);
+
+  let articleQuery = context.supabase
+    .from("knowledge_articles")
+    .select("title, read_count, is_viral, publish_time")
+    .eq("journey_id", context.journeyId)
+    .order("read_count", { ascending: false })
+    .limit(12);
+
+  if (primaryBenchmarkId) {
+    kocQuery = kocQuery.eq("id", primaryBenchmarkId);
+    articleQuery = articleQuery.eq("koc_source_id", primaryBenchmarkId);
+  }
+
+  const [kocsRes, articlesRes] = await Promise.all([kocQuery, articleQuery]);
 
   const kocs = kocsRes.data;
   const articles = articlesRes.data;
