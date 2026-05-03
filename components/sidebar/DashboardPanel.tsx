@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import type { WechatDashboardData } from "@/lib/data";
 import { toast } from "@/lib/toast";
 
@@ -21,6 +22,7 @@ function fmtCount(n: number): string {
 }
 
 export function DashboardPanel({ journeyId }: { journeyId: string }) {
+  const router = useRouter();
   const [data, setData] = useState<WechatDashboardData | null>(null);
   const [configured, setConfigured] = useState(false);
   const [accountName, setAccountName] = useState("");
@@ -75,9 +77,11 @@ export function DashboardPanel({ journeyId }: { journeyId: string }) {
 
       if (refreshed.configured) {
         setConfigured(true);
+        setAccountName(refreshed.account_name || accountName.trim());
         setData(refreshed);
       }
       toast.success("公众号已配置");
+      router.push(`/journey/${journeyId}/dashboard`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "保存失败");
     } finally {
@@ -177,6 +181,17 @@ export function DashboardPanel({ journeyId }: { journeyId: string }) {
             <Stat label="均阅读" val={fmtCount(data.summary.avg_reads)} />
             <Stat label="最高阅读" val={fmtCount(data.summary.peak_reads)} />
           </div>
+          <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <div style={{ fontSize: 10, color: "var(--text-tertiary)", lineHeight: 1.5 }}>
+              这里是摘要。完整复盘、文章表现和 AI 洞察会在详情页里持续沉淀。
+            </div>
+            <button
+              onClick={() => router.push(`/journey/${journeyId}/dashboard`)}
+              style={linkButtonStyle}
+            >
+              进入详情
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -218,4 +233,16 @@ const demoTagStyle: React.CSSProperties = {
   background: "rgba(150,150,150,0.15)",
   color: "var(--text-tertiary)",
   border: "1px solid rgba(150,150,150,0.3)",
+};
+
+const linkButtonStyle: React.CSSProperties = {
+  flexShrink: 0,
+  padding: "6px 10px",
+  background: "var(--accent-dim)",
+  border: "1px solid rgba(200,150,90,0.25)",
+  borderRadius: 4,
+  color: "var(--accent)",
+  fontSize: 11,
+  cursor: "pointer",
+  fontFamily: "var(--font-body)",
 };

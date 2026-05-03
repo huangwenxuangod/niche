@@ -4,6 +4,16 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import type { WechatDashboardData } from "@/lib/data";
 
+type DashboardResponse =
+  | {
+      configured: false;
+      account_name: string;
+    }
+  | ({
+      configured: true;
+      account_name: string;
+    } & WechatDashboardData);
+
 function fmtCount(n: number): string {
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -14,12 +24,24 @@ export default function DashboardPage() {
   const { id: journeyId } = useParams() as { id: string };
   const router = useRouter();
   const [data, setData] = useState<WechatDashboardData | null>(null);
+  const [configured, setConfigured] = useState(false);
+  const [accountName, setAccountName] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch(`/api/wechat/dashboard?journey_id=${journeyId}`)
       .then((res) => res.json())
-      .then((d: WechatDashboardData) => {
+      .then((d: DashboardResponse) => {
+        if (!d.configured) {
+          setConfigured(false);
+          setAccountName(d.account_name || "");
+          setData(null);
+          setLoading(false);
+          return;
+        }
+
+        setConfigured(true);
+        setAccountName(d.account_name || "");
         setData(d);
         setLoading(false);
       })
@@ -48,10 +70,77 @@ export default function DashboardPage() {
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px" }}>
         {loading ? (
           <div style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "60px 0" }}>加载中...</div>
+        ) : !configured ? (
+          <div
+            style={{
+              maxWidth: 720,
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 16,
+              padding: "28px 24px",
+            }}
+          >
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 22, color: "var(--text-primary)", marginBottom: 10 }}>
+              先配置你的公众号
+            </div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.8, marginBottom: 14 }}>
+              这里以后不是一个简单配置项，而是你自己的内容复盘页。配置公众号名称后，我们会围绕你的文章表现、代表内容和 AI 洞察持续沉淀证据。
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.7 }}>
+              当前状态：{accountName ? `已识别为「${accountName}」但尚未完成配置` : "尚未配置公众号名称"}
+            </div>
+            <div style={{ marginTop: 18 }}>
+              <button
+                onClick={() => router.push("/chat")}
+                style={{
+                  padding: "8px 12px",
+                  background: "var(--accent-dim)",
+                  border: "1px solid rgba(200,150,90,0.25)",
+                  borderRadius: 6,
+                  color: "var(--accent)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontFamily: "var(--font-body)",
+                }}
+              >
+                返回写作区继续配置
+              </button>
+            </div>
+          </div>
         ) : !data ? (
           <div style={{ textAlign: "center", color: "var(--text-tertiary)", padding: "60px 0" }}>暂无数据</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+            <section>
+              <SectionHeader label="账号定位" />
+              <div
+                style={{
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 12,
+                  padding: "18px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 16,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 18, color: "var(--text-primary)", fontWeight: 500 }}>
+                    {data.account.name}
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-tertiary)", lineHeight: 1.7 }}>
+                    这是你的公众号工作台。后续这里会承接你的整体内容复盘，而不是只在侧边栏里显示一个摘要卡片。
+                  </div>
+                </div>
+                {data.is_demo && (
+                  <span style={{ fontSize: 10, color: "var(--accent)", background: "var(--accent-dim)", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(200,150,90,0.3)" }}>
+                    演示数据
+                  </span>
+                )}
+              </div>
+            </section>
+
             {/* Core metrics */}
             <section>
               <SectionHeader label="核心指标" />
