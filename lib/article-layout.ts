@@ -51,7 +51,7 @@ export function extractArticleFromAssistantMessage(content: string): ExtractedAr
     };
   }
 
-  return extractArticleFromRenderedMarkdown(content);
+  return extractArticleFromRenderedMarkdown(content) ?? extractArticleFromLooseLongform(content);
 }
 
 export function renderWechatHtml(markdown: string) {
@@ -234,6 +234,62 @@ function extractArticleFromRenderedMarkdown(content: string): ExtractedArticle |
     summary,
     bodyMarkdown: body,
   };
+}
+
+function extractArticleFromLooseLongform(content: string): ExtractedArticle | null {
+  const normalized = sanitizeArticlePreviewMarkdown(content.replace(/\r\n/g, "\n").trim());
+  if (!normalized) {
+    return null;
+  }
+
+  const lines = normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length < 4) {
+    return null;
+  }
+
+  const paragraphBlocks = normalized.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
+  const headingCount = lines.filter((line) => /^(#{1,3}\s|[一二三四五六七八九十]+[、.．]|[0-9]+[、.．])/.test(line)).length;
+  const totalLength = normalized.replace(/\s+/g, "").length;
+
+  const looksLikeLongform =
+    totalLength >= 320 &&
+    (paragraphBlocks.length >= 4 || headingCount >= 2);
+
+  if (!looksLikeLongform) {
+    return null;
+  }
+
+  const firstHeading = lines.find((line) => /^(#{1,3}\s|[一二三四五六七八九十]+[、.．]|[0-9]+[、.．])/.test(line));
+  const inferredTitle = sanitizeLooseTitle(firstHeading ?? lines[0] ?? "");
+  const body = normalized;
+
+  if (!body) {
+    return null;
+  }
+
+  return {
+    title: inferredTitle || "长文草稿",
+    summary: "",
+    bodyMarkdown: body,
+  };
+}
+
+function sanitizeLooseTitle(line: string) {
+  const cleaned = line
+    .replace(/^#{1,3}\s+/, "")
+    .replace(/^[一二三四五六七八九十0-9]+[、.．]\s*/, "")
+    .replace(/\*\*/g, "")
+    .trim();
+
+  if (!cleaned) return "";
+  if (cleaned.length > 32) {
+    return cleaned.slice(0, 32).trim();
+  }
+  return cleaned;
 }
 
 function formatDefaultBlock(block: string): string[] {
