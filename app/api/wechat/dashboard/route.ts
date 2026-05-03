@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 
   const { data: journey } = await supabase
     .from("journeys")
-    .select("id")
+    .select("id, primary_koc_source_id")
     .eq("id", journeyId)
     .eq("user_id", user.id)
     .single();
@@ -79,6 +79,12 @@ export async function GET(req: NextRequest) {
 
   const summary = buildOwnedDashboardSummary(articles);
   const aiInsights = buildOwnedAiInsights(accountName, articles, summary);
+  const benchmark = await buildBenchmarkComparison(
+    supabase,
+    journeyId,
+    journey.primary_koc_source_id ?? null,
+    summary
+  );
 
   return NextResponse.json({
     configured: true,
@@ -92,6 +98,7 @@ export async function GET(req: NextRequest) {
       .sort((a, b) => b.read_num - a.read_num)
       .slice(0, 5),
     ai_insights: aiInsights,
+    benchmark,
     is_demo: articles.length === 0,
   });
 }
@@ -341,6 +348,69 @@ function buildOwnedAiInsights(
   ]
     .filter(Boolean)
     .join("");
+}
+
+async function buildBenchmarkComparison(
+  supabase: ReturnType<typeof createClient>,
+  journeyId: string,
+  primaryKocSourceId: string | null,
+  ownedSummary: WechatDashboardData["summary"]
+) {
+  if (!primaryKocSourceId) {
+    return null;
+  }
+
+  const { data: koc } = await supabase
+    .from("koc_sources")
+    .select("account_name, article_count, avg_read_count, max_read_count")
+    .eq("id", primaryKocSourceId)
+    .maybeSingle();
+
+  if (!koc) {
+    return null;
+  }
+
+  const benchmarkSummary = {
+    article_count: Number(koc.article_count ?? 0),
+    avg_reads: Number(koc.avg_read_count ?? 0),
+    peak_reads: Number(koc.max_read_count ?? 0),
+  };
+
+  const gapSummary: string[] = [];
+
+  if (benchmarkSummary.avg_reads > ownedSummary.avg_reads) {
+    gapSummary.push(
+      `核心对标的平均阅读更高（${benchmarkSummary.avg_reads} vs ${ownedSummary.avg_reads}），说明你们的稳定传播力还存在差距。`
+    );
+  } else if (ownedSummary.avg_reads > 0) {
+    gapSummary.push(
+      `你的平均阅读已经接近或超过核心对标（${ownedSummary.avg_reads} vs ${benchmarkSummary.avg_reads}），下一步更值得看的是峰值和可复制性。`
+    );
+  }
+
+  if (benchmarkSummary.peak_reads > ownedSummary.peak_reads) {
+    gapSummary.push(
+      `核心对标的峰值文章更强（${benchmarkSummary.peak_reads} vs ${ownedSummary.peak_reads}），说明它在单篇爆发力和选题卡位上更有优势。`
+    );
+  }
+
+  if (benchmarkSummary.article_count > ownedSummary.article_count) {
+    gapSummary.push(
+      `核心对标当前沉淀了更多样本（${benchmarkSummary.article_count} vs ${ownedSummary.article_count}），这意味着它的母题和表达模型更稳定。`
+    );
+  }
+
+  if (!gapSummary.length) {
+    gapSummary.push("你和核心对标已经有可比较的基础了，下一步更该盯的是哪些选题结构和表达判断可以迁移。");
+  }
+
+  return {
+    account: {
+      name: String(koc.account_name ?? "核心对标"),
+    },
+    summary: benchmarkSummary,
+    gap_summary: gapSummary.slice(0, 3),
+  };
 }
 
 function stripHtml(html: string) {

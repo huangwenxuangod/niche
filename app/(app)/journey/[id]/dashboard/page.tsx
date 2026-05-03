@@ -154,6 +154,68 @@ export default function DashboardPage() {
               </div>
             </section>
 
+            {data.benchmark && (
+              <section>
+                <SectionHeader label="对照复盘" />
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div
+                    style={{
+                      background: "var(--bg-surface)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 12,
+                      padding: "18px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginBottom: 14 }}>
+                      <div style={{ fontSize: 14, color: "var(--text-primary)", fontWeight: 500 }}>
+                        我的公众号 vs 核心对标「{data.benchmark.account.name}」
+                      </div>
+                      <span style={{ fontSize: 10, color: "var(--accent)", background: "var(--accent-dim)", padding: "2px 6px", borderRadius: 4, border: "1px solid rgba(200,150,90,0.3)" }}>
+                        对照
+                      </span>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12, marginBottom: 16 }}>
+                      <CompareMetric
+                        label="样本数"
+                        mine={String(data.summary.article_count)}
+                        benchmark={String(data.benchmark.summary.article_count)}
+                      />
+                      <CompareMetric
+                        label="均阅读"
+                        mine={fmtCount(data.summary.avg_reads)}
+                        benchmark={fmtCount(data.benchmark.summary.avg_reads)}
+                      />
+                      <CompareMetric
+                        label="峰值阅读"
+                        mine={fmtCount(data.summary.peak_reads)}
+                        benchmark={fmtCount(data.benchmark.summary.peak_reads)}
+                      />
+                    </div>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {data.benchmark.gap_summary.map((item, index) => (
+                        <div
+                          key={`${index}-${item}`}
+                          style={{
+                            fontSize: 12,
+                            color: "var(--text-secondary)",
+                            lineHeight: 1.7,
+                            padding: "10px 12px",
+                            borderRadius: 10,
+                            background: "var(--bg-void)",
+                            border: "1px solid var(--border)",
+                          }}
+                        >
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            )}
+
             {/* Article performance */}
             <section>
               <SectionHeader label="文章表现" />
@@ -264,6 +326,41 @@ function Stat({ label, val }: { label: string; val: string }) {
       </div>
       <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-tertiary)", marginTop: 2 }}>
         {label}
+      </div>
+    </div>
+  );
+}
+
+function CompareMetric({
+  label,
+  mine,
+  benchmark,
+}: {
+  label: string;
+  mine: string;
+  benchmark: string;
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--bg-void)",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        padding: "12px 14px",
+      }}
+    >
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-tertiary)", marginBottom: 8 }}>
+        {label}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+          <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>我</span>
+          <span style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 500 }}>{mine}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+          <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>对标</span>
+          <span style={{ fontSize: 13, color: "var(--accent)", fontWeight: 500 }}>{benchmark}</span>
+        </div>
       </div>
     </div>
   );

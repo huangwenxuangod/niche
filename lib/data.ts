@@ -93,5 +93,14 @@ export type WechatDashboardData = {
   summary: WechatDashboardSummary;
   articles: WechatDashboardArticle[];
   ai_insights: string;
+  benchmark?: {
+    account: { name: string };
+    summary: {
+      article_count: number;
+      avg_reads: number;
+      peak_reads: number;
+    };
+    gap_summary: string[];
+  } | null;
   is_demo?: boolean;
 };
